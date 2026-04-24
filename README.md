@@ -10,6 +10,7 @@ Migrated from [arun-gupta/repo-pulse](https://github.com/arun-gupta/repo-pulse) 
 agent.sh          ← main entry-point (spawn, approve-spec, revise-spec, …)
 agents/
   claude.sh       ← Claude Code adapter
+  codex.sh        ← OpenAI Codex CLI adapter
   copilot.sh      ← GitHub Copilot adapter (stub — not yet implemented)
 ```
 
@@ -20,6 +21,7 @@ agents/
 | `git` ≥ 2.5 | worktree support |
 | `gh` CLI | PR management (`--cleanup-merged`, `--status`) |
 | `claude` CLI | required when using the `claude` adapter |
+| `codex` CLI | required when using the `codex` adapter (`npm install -g @openai/codex`) |
 
 ## Quick start
 

@@ -171,5 +171,5 @@ This repository runs [ShellCheck](https://www.shellcheck.net/) on every push and
 
 ```bash
 # Run locally
-shellcheck agent.sh agents/claude.sh agents/copilot.sh
+shellcheck agent.sh agents/claude.sh agents/copilot.sh agents/codex.sh
 ```
