@@ -24,7 +24,8 @@ agents/
   copilot.sh      ← GitHub Copilot adapter (stub)
 docs/
   build.md        ← build, test, cross-compile, release instructions
-  development.md  ← full CLI reference, adapter contract, worktree layout
+  cli.md          ← command reference and workflows
+  development.md  ← adapter contract, worktree layout, testing, CI
 ```
 
 **The `agentctl` binary must live next to the `agents/` directory.** The executable's directory is used at runtime to resolve adapter paths; `go build -o agentctl ./cmd/agentctl` from the repo root satisfies this.
