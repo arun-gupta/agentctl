@@ -71,12 +71,14 @@ read_agent_key() {
   grep "^${key}=" "$file" 2>/dev/null | head -1 | cut -d= -f2- || true
 }
 
-# Source an adapter by name. Exits if the adapter file is not found.
+# Source an adapter by name. Exits with a clean error listing valid names if not found.
 source_adapter() {
   local name="$1"
   local adapter_path="${SCRIPT_DIR}/agents/${name}.sh"
   if [[ ! -f "$adapter_path" ]]; then
-    echo "Unknown agent adapter: $name (no file at $adapter_path)" >&2
+    local available
+    available="$(cd "${SCRIPT_DIR}/agents" && ls ./*.sh 2>/dev/null | sed 's|^\./||; s|\.sh$||' | tr '\n' ' ' | sed 's/ $//')"
+    echo "Unknown agent: ${name}. Available: ${available:-none}" >&2
     exit 1
   fi
   # shellcheck source=/dev/null
