@@ -1,5 +1,5 @@
 // Package state handles reading and writing the .agent key=value state file
-// that agent.sh creates in each worktree root.
+// that agentctl creates in each worktree root.
 package state
 
 import (

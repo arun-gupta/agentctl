@@ -1,6 +1,5 @@
 // Package git provides helpers for interacting with git worktrees and branches
-// by shelling out to the git CLI. This mirrors the behaviour of the original
-// agent.sh shell script so that the Go CLI has exact parity.
+// by shelling out to the git CLI.
 package git
 
 import (
@@ -30,7 +29,7 @@ func run(dir string, args ...string) (string, error) {
 
 // RepoRoot returns the primary (main) worktree's absolute path.
 // It uses `git worktree list --porcelain` and falls back to
-// `git rev-parse --show-toplevel` — matching the logic in agent.sh.
+// `git rev-parse --show-toplevel`.
 func RepoRoot() (string, error) {
 	out, err := run("", "worktree", "list", "--porcelain")
 	if err == nil {

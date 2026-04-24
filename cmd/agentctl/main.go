@@ -1,7 +1,7 @@
 // agentctl – Go CLI for provisioning isolated git worktrees per GitHub issue
 // and launching coding agents inside each one.
 //
-// It is a direct port of agent.sh and provides full command parity:
+// Command surface (spawn, approve-spec, …):
 //
 //	agentctl spawn [--agent name] [--headless] [--no-speckit] <issue> [slug]
 //	agentctl approve-spec  <issue>

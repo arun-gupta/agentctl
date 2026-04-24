@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Claude Code adapter for agent.sh
+# Claude Code adapter for agentctl
 # Implements: agent_launch, agent_resume, agent_pause_state
 
 agent_launch() {
@@ -12,7 +12,7 @@ agent_launch() {
     echo "agent-pid=$pid" >> ".agent"
     echo "Claude (headless) PID $pid — log: $wt/agent.log"
     echo "Session ID: $session_id (recorded in $wt/.agent)"
-    echo "Release the pause with: agent.sh --approve-spec $issue"
+    echo "Release the pause with: agentctl approve-spec $issue"
   else
     exec claude -p "$kickoff" --session-id "$session_id"
   fi
