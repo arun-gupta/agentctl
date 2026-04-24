@@ -87,6 +87,20 @@ agent_pause_state() {
 }
 ```
 
+## Adapter notes
+
+### GitHub Copilot CLI (`copilot`)
+
+| Property | Detail |
+|----------|--------|
+| Binary | `copilot` |
+| Install | `npm install -g @github/copilot` |
+| Auth | `GITHUB_TOKEN` env var, or run `copilot auth` interactively |
+| Non-interactive flag | `-p / --prompt` |
+| Session continuity | `--session-id <uuid>` on both launch and resume |
+| Headless | Runs safely under `nohup`; does not require a TTY |
+| Resume limitation | `--session-id` support depends on the installed CLI version. If the flag is not recognised, resume with `cd <worktree> && copilot` manually. |
+
 ## Worktree layout
 
 When `agentctl spawn <issue>` runs, it creates a linked worktree at `../<repo>-<issue>-<slug>/` containing:

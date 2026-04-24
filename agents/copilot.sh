@@ -1,25 +1,46 @@
 #!/usr/bin/env bash
-# GitHub Copilot adapter for agentctl — stub implementation
+# GitHub Copilot CLI adapter for agentctl
 # Implements: agent_launch, agent_resume, agent_pause_state
 #
-# agent_launch and agent_resume are stubs that exit non-zero.
-# Replace with real GitHub Copilot CLI invocations when the CLI supports
-# non-interactive session launch and resume. See https://github.com/features/copilot/cli
+# Requires the GitHub Copilot CLI (https://github.com/features/copilot/cli).
+# Install: npm install -g @github/copilot
+# Binary:  copilot
+# Auth:    GITHUB_TOKEN environment variable or interactive 'copilot auth'
+#
+# Non-interactive prompt injection uses the -p / --prompt flag.
+# Session continuity records the session-id in $wt/.agent and passes it via
+# --session-id on subsequent invocations, mirroring the claude adapter pattern.
+#
+# Resume limitation: GitHub Copilot CLI session resume depends on the CLI
+# version supporting --session-id on invocation. If not supported, use
+# 'cd <worktree> && copilot' to continue the session manually.
 
 agent_launch() {
-  local wt="$1" _issue="$2" _port="$3" _session_id="$4" _kickoff="$5" _headless="$6"
-  echo "copilot adapter: agent_launch is not yet implemented." >&2
-  echo "To implement: invoke GitHub Copilot CLI with the kickoff prompt and" >&2
-  echo "append 'agent-pid=<pid>' to $wt/.agent once the process is running." >&2
-  exit 1
+  local wt="$1" issue="$2" _port="$3" session_id="$4" kickoff="$5" headless="$6"
+
+  cd "$wt" || exit 1
+  if (( headless )); then
+    nohup copilot -p "$kickoff" --session-id "$session_id" > agent.log 2>&1 &
+    local pid=$!
+    echo "agent-pid=$pid" >> ".agent"
+    echo "GitHub Copilot CLI (headless) PID $pid — log: $wt/agent.log"
+    echo "Session ID: $session_id (recorded in $wt/.agent)"
+    echo "Release the pause with: agentctl approve-spec $issue"
+  else
+    exec copilot -p "$kickoff" --session-id "$session_id"
+  fi
 }
 
 agent_resume() {
-  local wt="$1" _prompt="$2"
-  echo "copilot adapter: agent_resume is not yet implemented." >&2
-  echo "To implement: resume the Copilot session using whatever state is" >&2
-  echo "recorded in $wt/.agent and append to $wt/agent.log." >&2
-  exit 1
+  local wt="$1" prompt="$2"
+  local session_id
+  session_id="$(grep '^session-id=' "$wt/.agent" 2>/dev/null | head -1 | cut -d= -f2- || true)"
+  if [[ -z "${session_id:-}" ]]; then
+    echo "No session ID recorded; cannot resume non-interactively." >&2
+    echo "Use 'cd $wt && copilot' to continue the session manually." >&2
+    exit 1
+  fi
+  ( cd "$wt" && nohup copilot -p "$prompt" --session-id "$session_id" >> agent.log 2>&1 & )
 }
 
 agent_pause_state() {
