@@ -13,7 +13,7 @@ agents/
   copilot.sh      ← GitHub Copilot adapter (stub)
 ```
 
-The **`agentctl` binary must live in the same directory as the `agents/` folder** (the executable’s directory is used to resolve adapter paths). Building from a clone at repo root keeps `./agentctl` next to `./agents/`.
+The **`agentctl` binary must live in the same directory as the `agents/` folder** (the executable's directory is used to resolve adapter paths). Building from a clone at repo root keeps `./agentctl` next to `./agents/`.
 
 ## Prerequisites
 
@@ -38,7 +38,7 @@ go build -o agentctl ./cmd/agentctl
 ./agentctl --help
 ```
 
-To install elsewhere, copy **`agentctl` and `agents/`** into the same directory (for example `/opt/agentctl/`) and put that directory on your `PATH`.
+To install elsewhere, keep **`agentctl` and `agents/` in the same directory** (for example copy both into `/opt/agentctl/`) and put that directory on your `PATH`.
 
 ### Symlink only the binary
 
@@ -60,12 +60,48 @@ git subtree add --prefix agentctl \
 
 Then `cd agentctl && go build -o agentctl ./cmd/agentctl`, or unpack a **GitHub Release** archive that already contains `agentctl` + `agents/`.
 
-## Prebuilt binaries
+## Prebuilt binaries — GitHub Releases (stable)
+
+Tagged releases publish archives for all supported platforms. Download the archive for your OS/arch, extract it, and add the `agentctl/` directory to your `PATH`.
+
+**macOS / Linux**
+
+```bash
+# Replace <os>-<arch> with your platform:
+# linux-amd64 | linux-arm64 | darwin-amd64 | darwin-arm64
+curl -fsSL https://github.com/arun-gupta/agentctl/releases/latest/download/agentctl-<os>-<arch>.tar.gz \
+  | tar -xz
+sudo mv agentctl /usr/local/bin/agentctl   # or any directory on your PATH
+agentctl version
+```
+
+**Windows (PowerShell)**
+
+```powershell
+# Download from the Releases page:
+# https://github.com/arun-gupta/agentctl/releases/latest
+# Then extract and move agentctl.exe to a directory on your PATH.
+Expand-Archive agentctl-windows-amd64.zip -DestinationPath .
+.\agentctl\agentctl.exe version
+```
+
+> **Note:** The archive contains both the `agentctl` binary and the `agents/` adapter scripts.  
+> Keep both in the same directory (e.g. `/opt/agentctl/`) and add that directory to your `PATH`.
 
 - Per-commit / release automation: [#13](https://github.com/arun-gupta/agentctl/issues/13)
 - Homebrew: [#14](https://github.com/arun-gupta/agentctl/issues/14)
 
-Tagged **GitHub Releases** ship archives with **`agentctl` plus `agents/`**; extract the folder and add it to your `PATH`.
+## Prebuilt binaries — per-commit snapshots
+
+Every push to `main` runs the [`snapshot` workflow](../.github/workflows/snapshot.yml) which publishes
+workflow artifacts for the full platform matrix (14-day retention). Use these to test unreleased builds.
+
+1. Go to **[Actions → snapshot](https://github.com/arun-gupta/agentctl/actions/workflows/snapshot.yml)**.
+2. Open the latest successful run on `main`.
+3. Download the artifact for your platform, e.g. `agentctl-<sha>-linux-amd64` (`.tar.gz`) or `agentctl-<sha>-windows-amd64` (`.zip`).
+4. Extract and place `agentctl` (or `agentctl.exe`) + the `agents/` directory in the same folder on your `PATH`.
+
+Artifact naming: `agentctl-<7-char-sha>-<goos>-<goarch>`, e.g. `agentctl-a1b2c3d-linux-amd64.tar.gz`.
 
 ## Contributor builds
 
