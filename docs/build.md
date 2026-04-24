@@ -102,6 +102,17 @@ go build -trimpath -ldflags="-s -w -X main.version=<tag>" -o dist/agentctl ./cmd
 | `-s -w` | Strip debug symbols and DWARF info (smaller binary) |
 | `-X main.version=<tag>` | Embed the Git tag as the version string |
 
+## Releasing
+
+To publish a new release and trigger the binary build workflow, create and push a `v*` tag:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+This triggers the [`release` workflow](../.github/workflows/release.yml), which builds archives for all supported platforms and publishes them as a GitHub Release. Use `v<major>.<minor>.0` for a new release (e.g. `v0.1.0`, `v0.2.0`).
+
 ## CI
 
 Every push and pull request runs the following via the [`go` workflow](../.github/workflows/go.yml):
