@@ -21,7 +21,7 @@ internal/
 agents/
   claude.sh       ← Claude Code adapter
   codex.sh        ← OpenAI Codex CLI adapter
-  copilot.sh      ← GitHub Copilot adapter (stub)
+  copilot.sh      ← GitHub Copilot CLI adapter
 docs/
   build.md        ← build, test, cross-compile, release instructions
   cli.md          ← command reference and workflows
