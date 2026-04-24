@@ -2,6 +2,12 @@
 
 Contributor-oriented notes: full CLI reference, workflows, adapters, layout, install variants, and CI.
 
+## Spec-driven development and SpecKit
+
+The default `agentctl spawn` workflow is **SDD with a human checkpoint**: the agent runs **Stage 1** (write a spec), stops for your approval or revision (`approve-spec` / `revise-spec` when headless), then **Stage 2** (plan, tasks, implement) and opens a PR. That flow is implemented in terms of [Spec Kit](https://github.com/github/spec-kit)—the kickoff tells the agent to use `/speckit.specify`, `/speckit.plan`, `/speckit.tasks`, and `/speckit.implement`, and `agentctl` infers pause state from files under `specs/` (for example `spec.md` vs `plan.md` / `tasks.md`).
+
+**agentctl does not install or vendor Spec Kit.** The **target repository** (and your agent setup, e.g. Claude Code slash commands) must already support that SpecKit-style lifecycle. If your repo is not set up for it, use **`--no-speckit`** on `spawn` so the agent skips that lifecycle and works straight toward a PR with no spec-review pause.
+
 ## Usage
 
 ```
@@ -170,9 +176,14 @@ Then `cd agentctl && go build -o agentctl ./cmd/agentctl` (or use a **GitHub Rel
 
 ## CI
 
-This repository runs [ShellCheck](https://www.shellcheck.net/) on every push and pull request via GitHub Actions.
+This repository runs several GitHub Actions workflows on every push and pull request:
+
+- **[go](../.github/workflows/go.yml)** — `go build ./...`, `go test ./...`, `go vet ./...`
+- **[shellcheck](../.github/workflows/shellcheck.yml)** — lints the `agents/` Bash adapters with [ShellCheck](https://www.shellcheck.net/)
+- **[snapshot](../.github/workflows/snapshot.yml)** — cross-compiles `agentctl` for all supported platforms on every push to `main` and uploads archives as workflow artifacts (14-day retention); see [install.md](install.md#prebuilt-binaries----per-commit-snapshots)
+- **[release](../.github/workflows/release.yml)** — builds and attaches release archives when a `v*` tag is pushed
 
 ```bash
-# Run locally
+# Run ShellCheck locally
 shellcheck agents/claude.sh agents/copilot.sh agents/codex.sh
 ```
