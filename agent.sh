@@ -28,8 +28,8 @@ Options:
   --discard              Discard worktree + delete local/remote branch (unrecoverable; prompts for confirmation)
   --cleanup-merged       Post-merge: pull main, remove worktree, delete local+remote branch
   --cleanup-all-merged   Batch sweep: run --cleanup-merged on every worktree whose PR is MERGED
-  --status, --list       Overview table of all linked worktrees (issue, branch, port,
-                         PIDs, spec state, PR state, session ID).
+  --status, --list       Overview table of all linked worktrees (issue, branch, agent,
+                         port, PIDs, spec state, PR state, session ID).
   --status --verbose     Same, with the full worktree PATH column added.
   -h, --help             Show this help and exit
 
@@ -428,20 +428,20 @@ compute_spec_state() {
 }
 
 # Print a single-screen status table of every linked worktree provisioned by this script.
-# Terse (default): ISSUE  BRANCH  PORT  DEV-PID  AGENT-PID  SPEC  PR  SESSION
-# Verbose (--verbose): adds PATH column between BRANCH and PORT
+# Terse (default): ISSUE  BRANCH  AGENT  PORT  DEV-PID  AGENT-PID  SPEC  PR  SESSION
+# Verbose (--verbose): adds PATH column between AGENT and PORT
 # Spec states:  no-spec | paused | in-progress | done
 # PR states:    none | OPEN | MERGED | CLOSED
 print_status() {
   local verbose="${1:-0}"
-  local branch issue port dev_pid_str agent_pid_str spec_state pr_state session_str
-  local _p _dpid _apid _prst _sid skip_first wt_path
+  local branch issue agent_name port dev_pid_str agent_pid_str spec_state pr_state session_str
+  local _p _dpid _apid _prst _sid _agt skip_first wt_path
   local -a rows
 
   if (( verbose )); then
-    rows=("ISSUE\tBRANCH\tPATH\tPORT\tDEV-PID\tAGENT-PID\tSPEC\tPR\tSESSION")
+    rows=("ISSUE\tBRANCH\tAGENT\tPATH\tPORT\tDEV-PID\tAGENT-PID\tSPEC\tPR\tSESSION")
   else
-    rows=("ISSUE\tBRANCH\tPORT\tDEV-PID\tAGENT-PID\tSPEC\tPR\tSESSION")
+    rows=("ISSUE\tBRANCH\tAGENT\tPORT\tDEV-PID\tAGENT-PID\tSPEC\tPR\tSESSION")
   fi
 
   skip_first=1
@@ -456,6 +456,12 @@ print_status() {
     issue=""
     if [[ "$branch" =~ ^([0-9]+)- ]]; then
       issue="${BASH_REMATCH[1]}"
+    fi
+
+    agent_name="-"
+    if [[ -f "$wt_path/.agent" ]]; then
+      _agt="$(read_agent_key "$wt_path/.agent" agent)"
+      [[ -n "${_agt:-}" ]] && agent_name="$_agt"
     fi
 
     port="-"
@@ -506,9 +512,9 @@ print_status() {
     fi
 
     if (( verbose )); then
-      rows+=("${issue:-?}\t${branch:-?}\t${wt_path}\t${port}\t${dev_pid_str}\t${agent_pid_str}\t${spec_state}\t${pr_state}\t${session_str}")
+      rows+=("${issue:-?}\t${branch:-?}\t${agent_name}\t${wt_path}\t${port}\t${dev_pid_str}\t${agent_pid_str}\t${spec_state}\t${pr_state}\t${session_str}")
     else
-      rows+=("${issue:-?}\t${branch:-?}\t${port}\t${dev_pid_str}\t${agent_pid_str}\t${spec_state}\t${pr_state}\t${session_str}")
+      rows+=("${issue:-?}\t${branch:-?}\t${agent_name}\t${port}\t${dev_pid_str}\t${agent_pid_str}\t${spec_state}\t${pr_state}\t${session_str}")
     fi
   done < <(git -C "$REPO_ROOT" worktree list --porcelain | awk '/^worktree/ {print $2}')
 
