@@ -8,15 +8,21 @@
 
 ## Install
 
-Download a release archive, extract it, and add the `agentctl/` directory to your `PATH`:
+**Homebrew** (macOS and Linux):
+
+```bash
+brew install arun-gupta/tap/agentctl
+```
+
+**Manual** — download a release archive, extract it, and move the binary onto your `PATH`:
 
 ```bash
 # macOS (Apple Silicon)
 curl -fsSL https://github.com/arun-gupta/agentctl/releases/latest/download/agentctl-darwin-arm64.tar.gz | tar -xz
-export PATH="$(pwd)/agentctl:$PATH"
+sudo mv agentctl /usr/local/bin/
 ```
 
-For other platforms, source builds, symlinks, and subtree installs, see **[docs/install.md](docs/install.md)**.
+For other platforms, source builds, and subtree installs, see **[docs/install.md](docs/install.md)**.
 
 ## Quick start
 
