@@ -28,38 +28,6 @@ The **`agentctl` binary must live in the same directory as the `agents/` folder*
 | `gh copilot` | optional; for the `copilot` adapter (stub) |
 | Go | only to build from source (see `go.mod`) |
 
-## Install from source (clone)
-
-```bash
-git clone https://github.com/arun-gupta/agentctl
-cd agentctl
-go build -o agentctl ./cmd/agentctl
-# Run ./agentctl from this directory, or add this directory to PATH
-./agentctl --help
-```
-
-To install elsewhere, keep **`agentctl` and `agents/` in the same directory** (for example copy both into `/opt/agentctl/`) and put that directory on your `PATH`.
-
-### Symlink only the binary
-
-Agents resolve from the **real path** of the executable:
-
-```bash
-git clone https://github.com/arun-gupta/agentctl ~/.local/share/agentctl
-cd ~/.local/share/agentctl && go build -o agentctl ./cmd/agentctl
-ln -sf ~/.local/share/agentctl/agentctl ~/.local/bin/agentctl
-# Adapters: ~/.local/share/agentctl/agents/
-```
-
-### Git subtree
-
-```bash
-git subtree add --prefix agentctl \
-  https://github.com/arun-gupta/agentctl main --squash
-```
-
-Then `cd agentctl && go build -o agentctl ./cmd/agentctl`, or unpack a **GitHub Release** archive that already contains `agentctl` + `agents/`.
-
 ## Prebuilt binaries — GitHub Releases (stable)
 
 Tagged releases publish archives for all supported platforms. Download the archive for your OS/arch, extract it, and add the `agentctl/` directory to your `PATH`.
@@ -99,6 +67,40 @@ workflow artifacts for the full platform matrix (14-day retention). Use these to
 4. Extract and place `agentctl` (or `agentctl.exe`) + the `agents/` directory in the same folder on your `PATH`.
 
 Artifact naming: `agentctl-<7-char-sha>-<goos>-<goarch>`, e.g. `agentctl-a1b2c3d-linux-amd64.tar.gz`.
+
+## Install from source (clone)
+
+Use this path for development, local patches, or when you do not want a prebuilt archive.
+
+```bash
+git clone https://github.com/arun-gupta/agentctl
+cd agentctl
+go build -o agentctl ./cmd/agentctl
+# Run ./agentctl from this directory, or add this directory to PATH
+./agentctl --help
+```
+
+To install elsewhere, keep **`agentctl` and `agents/` in the same directory** (for example copy both into `/opt/agentctl/`) and put that directory on your `PATH`.
+
+### Symlink only the binary
+
+Agents resolve from the **real path** of the executable:
+
+```bash
+git clone https://github.com/arun-gupta/agentctl ~/.local/share/agentctl
+cd ~/.local/share/agentctl && go build -o agentctl ./cmd/agentctl
+ln -sf ~/.local/share/agentctl/agentctl ~/.local/bin/agentctl
+# Adapters: ~/.local/share/agentctl/agents/
+```
+
+### Git subtree
+
+```bash
+git subtree add --prefix agentctl \
+  https://github.com/arun-gupta/agentctl main --squash
+```
+
+Then `cd agentctl && go build -o agentctl ./cmd/agentctl`, or unpack a **GitHub Release** archive that already contains `agentctl` + `agents/`.
 
 ## Contributor builds
 
