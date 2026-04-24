@@ -17,15 +17,27 @@ The **`agentctl` binary must live in the same directory as the `agents/` folder*
 
 ## Prerequisites
 
+### Required
+
 | Requirement | Purpose |
 |-------------|---------|
 | `git` ≥ 2.5 | worktree support |
 | `bash` | adapters are sourced and run via Bash |
 | `gh` CLI | PR management (`cleanup-merged`, `status`), slug-from-title |
-| `claude` CLI | required for the `claude` adapter (default) |
-| `codex` CLI | required for the `codex` adapter (`npm install -g @openai/codex`) |
+
+### Required for the default workflow
+
+| Requirement | Purpose |
+|-------------|---------|
+| `claude` CLI | default coding-agent adapter |
 | Spec Kit in the **target app repo** | default SDD flow; see [spec-driven.md](spec-driven.md). Use `spawn --no-speckit` if not set up |
-| `gh copilot` | optional; for the `copilot` adapter (stub) |
+
+### Optional
+
+| Requirement | Purpose |
+|-------------|---------|
+| `codex` CLI | required only when using `--agent codex` (`npm install -g @openai/codex`) |
+| `gh copilot` | intended for `--agent copilot` (stub) |
 | Go | only to build from source (see `go.mod`) |
 
 ## Prebuilt binaries — GitHub Releases (stable)
