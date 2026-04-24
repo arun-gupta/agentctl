@@ -16,6 +16,7 @@ Today’s default workflow is **SDD with a human checkpoint**: the agent runs **
 agent.sh          ← main entry-point (spawn, approve-spec, revise-spec, …)
 agents/
   claude.sh       ← Claude Code adapter
+  codex.sh        ← OpenAI Codex CLI adapter
   copilot.sh      ← GitHub Copilot adapter (stub — not yet implemented)
 ```
 
@@ -26,6 +27,7 @@ agents/
 | `git` ≥ 2.5 | worktree support |
 | `gh` CLI | PR management (`--cleanup-merged`, `--status`) |
 | `claude` CLI | required when using the `claude` adapter (default) |
+| `codex` CLI | required when using the `codex` adapter (`npm install -g @openai/codex`) |
 | SpecKit (or equivalent) in the **target repo** | Needed for the default SDD flow (see above). `agent.sh` does not install or verify it. Use `--no-speckit` when the repo is not set up for that workflow. |
 | GitHub Copilot CLI (`gh copilot`) | optional; intended for the `copilot` adapter (stub until non-interactive launch/resume exists) |
 
