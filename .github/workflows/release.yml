@@ -34,7 +34,7 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Build and package (binary + agents/)
+      - name: Build and package
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -47,17 +47,16 @@ jobs:
           BINARY="agentctl-${GOOS}-${GOARCH}${EXT}"
           go build -trimpath -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
             -o "dist/${BINARY}" ./cmd/agentctl
-          STAGE="dist/stage-${GOOS}-${GOARCH}/agentctl"
+          STAGE="dist/stage-${GOOS}-${GOARCH}"
           mkdir -p "$STAGE"
           cp "dist/${BINARY}" "$STAGE/agentctl${EXT}"
-          cp -r agents "$STAGE/"
           rm "dist/${BINARY}"
           if [ "$GOOS" = "windows" ]; then
-            (cd "dist/stage-${GOOS}-${GOARCH}" && zip -r "../agentctl-${GOOS}-${GOARCH}.zip" agentctl)
+            (cd "$STAGE" && zip -r "../agentctl-${GOOS}-${GOARCH}.zip" "agentctl${EXT}")
           else
-            (cd "dist/stage-${GOOS}-${GOARCH}" && tar -czf "../agentctl-${GOOS}-${GOARCH}.tar.gz" agentctl)
+            (cd "$STAGE" && tar -czf "../agentctl-${GOOS}-${GOARCH}.tar.gz" "agentctl${EXT}")
           fi
-          rm -rf "dist/stage-${GOOS}-${GOARCH}"
+          rm -rf "$STAGE"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

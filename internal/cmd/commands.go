@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/arun-gupta/agentctl/internal/agents"
 	"github.com/arun-gupta/agentctl/internal/git"
 	"github.com/arun-gupta/agentctl/internal/process"
 	"github.com/arun-gupta/agentctl/internal/state"
@@ -819,48 +820,10 @@ func resolveIssueArg(flag string, args []string) (string, error) {
 	return issue, nil
 }
 
-// validateAdapter checks that an adapter script exists under agents/.
+// validateAdapter checks that an embedded adapter script exists.
 func validateAdapter(name string) error {
-	scriptDir, err := scriptDir()
-	if err != nil {
-		// Cannot locate script dir — skip validation; agent launch will fail with a clear error.
-		return nil
-	}
-	adapterPath := filepath.Join(scriptDir, "agents", name+".sh")
-	if _, err := os.Stat(adapterPath); os.IsNotExist(err) {
-		// List available adapters.
-		available := listAdapters(scriptDir)
-		if len(available) == 0 {
-			return fmt.Errorf("unknown agent: %s. Available: none", name)
-		}
-		return fmt.Errorf("unknown agent: %s. Available: %s", name, strings.Join(available, " "))
-	}
-	return nil
-}
-
-// scriptDir returns the directory that contains the agentctl binary, which
-// is assumed to sit alongside the agents/ directory.
-func scriptDir() (string, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Dir(exe), nil
-}
-
-// listAdapters returns the base names of *.sh files under agents/.
-func listAdapters(baseDir string) []string {
-	entries, err := os.ReadDir(filepath.Join(baseDir, "agents"))
-	if err != nil {
-		return nil
-	}
-	var names []string
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".sh") {
-			names = append(names, strings.TrimSuffix(e.Name(), ".sh"))
-		}
-	}
-	return names
+	_, err := agents.Read(name)
+	return err
 }
 
 // buildKickoff constructs the kickoff prompt for the agent.
@@ -880,31 +843,27 @@ STAGE 2: After approval, run /speckit.plan, then /speckit.tasks, then /speckit.i
 Dev server is already running on port %s.`, issue, portStr)
 }
 
-// launchAgent sources the adapter and calls its launch function by shelling
-// out to bash — adapter defines agent_launch / agent_resume in shell.
+// launchAgent inlines the embedded adapter and calls its agent_launch function.
 func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, headless bool) error {
-	scriptDirPath, err := scriptDir()
+	adapterScript, err := agents.Read(adapterName)
 	if err != nil {
 		return err
 	}
-	adapterPath := filepath.Join(scriptDirPath, "agents", adapterName+".sh")
 
 	headlessStr := "0"
 	if headless {
 		headlessStr = "1"
 	}
 
-	// Source the adapter script and invoke agent_launch.
 	script := fmt.Sprintf(`set -euo pipefail
-source %q
+%s
 agent_launch %q %q %q %q %q %s
-`, adapterPath, wtPath, issue, port, sessionID, kickoff, headlessStr)
+`, adapterScript, wtPath, issue, port, sessionID, kickoff, headlessStr)
 
 	var cmd *exec.Cmd
 	if headless {
 		cmd = exec.Command("bash", "-c", script)
 	} else {
-		// Interactive: attach to the terminal.
 		cmd = exec.Command("bash", "-c", script)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
@@ -914,17 +873,17 @@ agent_launch %q %q %q %q %q %s
 	return cmd.Run()
 }
 
-// agentResume sources the adapter and calls agent_resume.
+// agentResume inlines the embedded adapter and calls its agent_resume function.
 func agentResume(adapterName, wtPath, sessionID, prompt string) error {
-	scriptDirPath, err := scriptDir()
+	adapterScript, err := agents.Read(adapterName)
 	if err != nil {
 		return err
 	}
-	adapterPath := filepath.Join(scriptDirPath, "agents", adapterName+".sh")
+
 	script := fmt.Sprintf(`set -euo pipefail
-source %q
+%s
 agent_resume %q %q
-`, adapterPath, wtPath, prompt)
+`, adapterScript, wtPath, prompt)
 
 	cmd := exec.Command("bash", "-c", script)
 	cmd.Dir = wtPath

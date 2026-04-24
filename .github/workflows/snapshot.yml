@@ -38,7 +38,7 @@ jobs:
         id: meta
         run: echo "short_sha=${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and package (binary + agents/)
+      - name: Build and package
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -54,17 +54,16 @@ jobs:
           go build -trimpath \
             -ldflags="-s -w -X main.version=${SHORT_SHA}" \
             -o "dist/${BINARY}" ./cmd/agentctl
-          STAGE="dist/stage-${GOOS}-${GOARCH}/agentctl"
+          STAGE="dist/stage-${GOOS}-${GOARCH}"
           mkdir -p "$STAGE"
           cp "dist/${BINARY}" "$STAGE/${BINARY}"
-          cp -r agents "$STAGE/"
           rm "dist/${BINARY}"
           if [ "$GOOS" = "windows" ]; then
-            (cd "dist/stage-${GOOS}-${GOARCH}" && zip -r "../${ARCHIVE_BASE}.zip" agentctl)
+            (cd "$STAGE" && zip -r "../${ARCHIVE_BASE}.zip" "${BINARY}")
           else
-            (cd "dist/stage-${GOOS}-${GOARCH}" && tar -czf "../${ARCHIVE_BASE}.tar.gz" agentctl)
+            (cd "$STAGE" && tar -czf "../${ARCHIVE_BASE}.tar.gz" "${BINARY}")
           fi
-          rm -rf "dist/stage-${GOOS}-${GOARCH}"
+          rm -rf "$STAGE"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
