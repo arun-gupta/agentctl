@@ -1,10 +1,10 @@
 # agentctl
 
-**agentctl** is a **Go** CLI that creates a [git worktree](https://git-scm.com/docs/git-worktree) per GitHub issue and launches a coding agent there.
+**agentctl** is a **Go** CLI that creates a [git worktree](https://git-scm.com/docs/git-worktree) per GitHub issue and launches a coding agent there, with pluggable **coding agents** and **SDD methodologies**.
 
 | Coding agents | SDD methodologies |
 |---|---|
-| <img src="https://cdn.simpleicons.org/anthropic/000000" alt="" width="16" height="16"> **Claude Code** (default)<br><img src="https://upload.wikimedia.org/wikipedia/commons/4/4d/OpenAI_Logo.svg" alt="" width="16" height="16"> **OpenAI Codex**<br><img src="https://cdn.simpleicons.org/googlegemini/8E75B2" alt="" width="16" height="16"> **Gemini CLI**<br><img src="https://opencode.ai/favicon.svg" alt="" width="16" height="16"> **OpenCode**<br><img src="https://cdn.simpleicons.org/githubcopilot/000000" alt="" width="16" height="16"> **GitHub Copilot CLI** (stub) | **Spec Kit** (default, supported)<br>**AgentOS** (planned: [#35](https://github.com/arun-gupta/agentctl/issues/35))<br>**specs.md** (planned: [#36](https://github.com/arun-gupta/agentctl/issues/36)) |
+| <img src="https://cdn.simpleicons.org/anthropic/000000" alt="" width="16" height="16"> **Claude Code** (default)<br><img src="https://upload.wikimedia.org/wikipedia/commons/4/4d/OpenAI_Logo.svg" alt="" width="16" height="16"> **OpenAI Codex**<br><img src="https://cdn.simpleicons.org/googlegemini/8E75B2" alt="" width="16" height="16"> **Gemini CLI**<br><img src="https://opencode.ai/favicon.svg" alt="" width="16" height="16"> **OpenCode**<br><img src="https://cdn.simpleicons.org/githubcopilot/000000" alt="" width="16" height="16"> **GitHub Copilot CLI** (stub) | **Spec Kit** (default, supported)<br>**AgentOS** (planned: [#35](https://github.com/arun-gupta/agentctl/issues/35))<br>**specs.md** (planned: [#36](https://github.com/arun-gupta/agentctl/issues/36))<br>**OpenSpec** (planned: [#38](https://github.com/arun-gupta/agentctl/issues/38))<br>**Kiro-style specs** (planned: [#39](https://github.com/arun-gupta/agentctl/issues/39)) |
 
 ## Install
 
