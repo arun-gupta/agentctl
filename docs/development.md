@@ -1,6 +1,6 @@
 # Development
 
-Contributor-oriented notes: full CLI reference, workflows, adapters, layout, install variants, and CI. For **SDD and Spec Kit** behavior, see [spec-driven.md](spec-driven.md).
+Contributor-oriented notes: full CLI reference, workflows, adapters, layout, and CI. For **install and prerequisites**, see [install.md](install.md). For **SDD and Spec Kit**, see [spec-driven.md](spec-driven.md).
 
 ## Spec-driven development and SpecKit
 
@@ -145,34 +145,9 @@ agent.log       ← agent stdout/stderr (headless mode)
 specs/          ← SpecKit artefacts (spec.md, plan.md, tasks.md)
 ```
 
-## Install instructions
+## Install
 
-### Option A — Go binary from clone (recommended)
-
-```bash
-git clone https://github.com/arun-gupta/agentctl
-cd agentctl
-go build -o agentctl ./cmd/agentctl
-# Keep agentctl and agents/ in the same directory (see README).
-```
-
-### Option B — symlink the built binary (agents stay in the clone)
-
-```bash
-git clone https://github.com/arun-gupta/agentctl ~/.local/share/agentctl
-cd ~/.local/share/agentctl && go build -o agentctl ./cmd/agentctl
-ln -sf ~/.local/share/agentctl/agentctl ~/.local/bin/agentctl
-# Adapters resolve from the real path of the agentctl binary (~/.local/share/agentctl/agents/).
-```
-
-### Option C — git subtree
-
-```bash
-git subtree add --prefix agentctl \
-  https://github.com/arun-gupta/agentctl main --squash
-```
-
-Then `cd agentctl && go build -o agentctl ./cmd/agentctl` (or use a **GitHub Release** archive that already contains `agentctl` + `agents/`).
+See **[install.md](install.md)** for prerequisites, layout, clone/symlink/subtree installs, and release archives.
 
 ## Testing strategy
 
