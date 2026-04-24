@@ -18,7 +18,7 @@ curl -fsSL https://github.com/arun-gupta/agentctl/releases/latest/download/agent
 export PATH="$(pwd)/agentctl:$PATH"
 ```
 
-Replace `darwin-arm64` with `darwin-amd64`, `linux-amd64`, or `linux-arm64` as needed. Windows users: download `agentctl-windows-amd64.zip` from the [Releases page](https://github.com/arun-gupta/agentctl/releases).
+For other platforms, download the matching archive from the [Releases page](https://github.com/arun-gupta/agentctl/releases).
 
 **Latest build** — per-commit snapshot artifacts are published on every push to `main` via [Actions → snapshot](https://github.com/arun-gupta/agentctl/actions/workflows/snapshot.yml) (14-day retention).
 
