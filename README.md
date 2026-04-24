@@ -110,7 +110,7 @@ Starts the coding agent in the worktree `$wt`.
 | `issue` | Issue number (string) |
 | `port` | Reserved dev-server port |
 | `session_id` | Unique session identifier (UUID) |
-| `kickoff` | Path to the kickoff-prompt file |
+| `kickoff` | Multi-line kickoff prompt string |
 | `headless` | `1` = background mode, `0` = interactive |
 
 When running headless, the adapter **must** append `agent-pid=<pid>` to `$wt/.agent`.
@@ -181,7 +181,7 @@ agent_pause_state() {
 
 ## Worktree layout
 
-When `agent.sh <issue>` runs, it creates a linked worktree at `../<repo>-agent-<issue>-<slug>/` containing:
+When `agent.sh <issue>` runs, it creates a linked worktree at `../<repo>-<issue>-<slug>/` containing:
 
 ```
 .agent          ← key=value metadata (agent, port, session-id, agent-pid, dev-pid)

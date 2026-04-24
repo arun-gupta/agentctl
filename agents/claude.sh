@@ -14,7 +14,7 @@ agent_launch() {
     echo "Session ID: $session_id (recorded in $wt/.agent)"
     echo "Release the pause with: agent.sh --approve-spec $issue"
   else
-    exec claude --session-id "$session_id" "$kickoff"
+    exec claude -p "$kickoff" --session-id "$session_id"
   fi
 }
 

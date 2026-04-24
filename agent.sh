@@ -62,6 +62,7 @@ if [[ -z "${REPO_ROOT:-}" ]]; then
   REPO_ROOT="$(git rev-parse --show-toplevel)"
 fi
 PARENT_DIR="$(dirname "$REPO_ROOT")"
+REPO_NAME="$(basename "$REPO_ROOT")"
 BASE_PORT=3010
 MAX_PORT=3100
 
@@ -682,7 +683,7 @@ if [[ -z "$SLUG" ]]; then
 fi
 
 BRANCH="${ISSUE}-${SLUG}"
-WT_PATH="${PARENT_DIR}/repo-pulse-${ISSUE}-${SLUG}"
+WT_PATH="${PARENT_DIR}/${REPO_NAME}-${ISSUE}-${SLUG}"
 
 # 1. Find a free port
 port=$BASE_PORT
