@@ -31,14 +31,39 @@ agents/
 | SpecKit (or equivalent) in the **target repo** | Needed for the default SDD flow (see above). `agent.sh` does not install or verify it. Use `--no-speckit` when the repo is not set up for that workflow. |
 | GitHub Copilot CLI (`gh copilot`) | optional; intended for the `copilot` adapter (stub until non-interactive launch/resume exists) |
 
+## Installation
+
+### From a Git clone (recommended)
+
+`agent.sh` resolves the `agents/` directory relative to itself, so install from a checkout (or keep the full tree if you copy files).
+
+```bash
+git clone https://github.com/arun-gupta/agentctl
+ln -s /path/to/agentctl/agent.sh /path/to/your/repo/scripts/agent.sh
+```
+
+Use `scripts/agent.sh` (or add it to your `PATH`) in the examples below.
+
+### With curl (scripts only)
+
+If you only want the scripts in an existing repo:
+
+```bash
+mkdir -p scripts/agents
+curl -fsSL https://raw.githubusercontent.com/arun-gupta/agentctl/main/agent.sh -o scripts/agent.sh
+curl -fsSL https://raw.githubusercontent.com/arun-gupta/agentctl/main/agents/claude.sh -o scripts/agents/claude.sh
+chmod +x scripts/agent.sh scripts/agents/claude.sh
+```
+
+For **git subtree**, vendoring paths, and local ShellCheck, see **[docs/development.md](docs/development.md)**.
+
+### Prebuilt binaries (per-commit snapshots)
+
+CI publishing is tracked in **[#13](https://github.com/arun-gupta/agentctl/issues/13)**. Once that lands, each successful push to `main` will expose downloadable artifacts (script bundle first; native `agentctl` binaries when the Go port ships in [#10](https://github.com/arun-gupta/agentctl/issues/10)).
+
 ## Quick start
 
 ```bash
-# Clone agentctl alongside your project repo
-git clone https://github.com/arun-gupta/agentctl
-# Symlink (or copy) agent.sh into your project's scripts directory
-ln -s /path/to/agentctl/agent.sh scripts/agent.sh
-
 # Spawn a worktree for issue #42 and open Claude interactively
 ./agent.sh 42
 
