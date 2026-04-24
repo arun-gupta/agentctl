@@ -22,8 +22,33 @@ go build -o agentctl ./cmd/agentctl
 ## Run tests
 
 ```bash
+# All packages
 go test ./...
+
+# Single package
+go test ./internal/git/...
+go test ./internal/process/...
+go test ./internal/cmd/...
+go test ./internal/state/...
+
+# Single test by name (supports regex)
+go test ./internal/git/... -run TestAddRemoveWorktree
+go test ./internal/process/... -run TestKill
+
+# Verbose output (shows each test name and result)
+go test -v ./...
+
+# With coverage percentages
+go test -cover ./...
+
+# Coverage breakdown per function
+go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out
+
+# Open coverage in browser
+go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out
 ```
+
+The hermetic git tests (`internal/git`) create temporary repositories using `t.TempDir()` and require `git` on your `PATH`. They are skipped automatically if `git` is not available.
 
 ## Vet
 

@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -145,6 +146,46 @@ func TestDash(t *testing.T) {
 	}
 	if dash("claude") != "claude" {
 		t.Error("dash(\"claude\") should return \"claude\"")
+	}
+}
+
+func TestPidStatus_empty(t *testing.T) {
+	if got := pidStatus(""); got != "-" {
+		t.Errorf("pidStatus(\"\") = %q, want \"-\"", got)
+	}
+}
+
+func TestPidStatus_alive(t *testing.T) {
+	pid := strconv.Itoa(os.Getpid())
+	if got := pidStatus(pid); got != pid {
+		t.Errorf("pidStatus(self) = %q, want %q", got, pid)
+	}
+}
+
+func TestPidStatus_dead(t *testing.T) {
+	// PID 9999999 is almost certainly not running.
+	got := pidStatus("9999999")
+	want := "9999999(dead)"
+	if got != want {
+		t.Errorf("pidStatus(9999999) = %q, want %q", got, want)
+	}
+}
+
+func TestResolveIssueArg_withArg(t *testing.T) {
+	issue, err := resolveIssueArg("test", []string{"42"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if issue != "42" {
+		t.Errorf("got %q, want %q", issue, "42")
+	}
+}
+
+func TestResolveIssueArg_noArgs_notLinked(t *testing.T) {
+	// Running from the primary worktree (not a linked one) must return an error.
+	_, err := resolveIssueArg("test", []string{})
+	if err == nil {
+		t.Error("expected error when no arg given and not inside a linked worktree")
 	}
 }
 
