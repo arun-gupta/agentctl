@@ -50,41 +50,45 @@ go build -o agentctl ./cmd/agentctl
 
 To install elsewhere, keep **`agentctl` and `agents/` in the same directory** (for example copy both into `/opt/agentctl/` and put that directory on your `PATH`, or run from the clone as above).
 
-### Prebuilt binaries
+### Prebuilt binaries — GitHub Releases (stable)
 
-Publishing **Go** snapshot binaries per commit and documenting install from **GitHub Releases** is tracked in **[#13](https://github.com/arun-gupta/agentctl/issues/13)**. Homebrew is tracked in **[#14](https://github.com/arun-gupta/agentctl/issues/14)**.
+Tagged releases publish archives for all supported platforms. Download the archive for your OS/arch, extract it, and add the `agentctl/` directory to your `PATH`.
 
-Tagged **GitHub Releases** attach archives that contain **`agentctl` plus `agents/`**; extract and add that folder to your `PATH`. Vendoring the repo (e.g. git subtree) is described in **[docs/development.md](docs/development.md)**.
-
-## Installation
-
-### From a Git clone (recommended)
-
-`agent.sh` resolves the `agents/` directory relative to itself, so install from a checkout (or keep the full tree if you copy files).
+**macOS / Linux**
 
 ```bash
-git clone https://github.com/arun-gupta/agentctl
-ln -s /path/to/agentctl/agent.sh /path/to/your/repo/scripts/agent.sh
+# Replace <version> with the latest tag (e.g. v0.1.0) and <os>-<arch> with
+# your platform: linux-amd64 | linux-arm64 | darwin-amd64 | darwin-arm64
+curl -fsSL https://github.com/arun-gupta/agentctl/releases/latest/download/agentctl-<os>-<arch>.tar.gz \
+  | tar -xz
+sudo mv agentctl /usr/local/bin/agentctl   # or any directory on your PATH
+agentctl version
 ```
 
-Use `scripts/agent.sh` (or add it to your `PATH`) in the examples below.
+**Windows (PowerShell)**
 
-### With curl (scripts only)
-
-If you only want the scripts in an existing repo:
-
-```bash
-mkdir -p scripts/agents
-curl -fsSL https://raw.githubusercontent.com/arun-gupta/agentctl/main/agent.sh -o scripts/agent.sh
-curl -fsSL https://raw.githubusercontent.com/arun-gupta/agentctl/main/agents/claude.sh -o scripts/agents/claude.sh
-chmod +x scripts/agent.sh scripts/agents/claude.sh
+```powershell
+# Replace <version> and download from the Releases page:
+# https://github.com/arun-gupta/agentctl/releases/latest
+# Then extract and move agentctl.exe to a directory on your PATH.
+Expand-Archive agentctl-windows-amd64.zip -DestinationPath .
+.\agentctl\agentctl.exe version
 ```
 
-For **git subtree**, vendoring paths, and local ShellCheck, see **[docs/development.md](docs/development.md)**.
+> **Note:** The archive contains both the `agentctl` binary and the `agents/` adapter scripts.  
+> Keep both in the same directory (e.g. `/opt/agentctl/`) and add that directory to your `PATH`.
 
-### Prebuilt binaries (per-commit snapshots)
+### Prebuilt binaries — per-commit snapshots
 
-CI publishing is tracked in **[#13](https://github.com/arun-gupta/agentctl/issues/13)**. Once that lands, each successful push to `main` will expose downloadable artifacts (script bundle first; native `agentctl` binaries when the Go port ships in [#10](https://github.com/arun-gupta/agentctl/issues/10)).
+Every push to `main` runs the [`snapshot` workflow](.github/workflows/snapshot.yml) which publishes
+workflow artifacts for the full platform matrix (14-day retention). Use these to test unreleased builds.
+
+1. Go to **[Actions → snapshot](https://github.com/arun-gupta/agentctl/actions/workflows/snapshot.yml)**.
+2. Open the latest successful run on `main`.
+3. Download the artifact for your platform, e.g. `agentctl-<sha>-linux-amd64` (`.tar.gz`) or `agentctl-<sha>-windows-amd64` (`.zip`).
+4. Extract and place `agentctl` (or `agentctl.exe`) + the `agents/` directory in the same folder on your `PATH`.
+
+Artifact naming: `agentctl-<7-char-sha>-<goos>-<goarch>`, e.g. `agentctl-a1b2c3d-linux-amd64.tar.gz`.
 
 ## Quick start
 
