@@ -24,7 +24,8 @@ agents/
   copilot.sh      ← GitHub Copilot adapter (stub)
 docs/
   build.md        ← build, test, cross-compile, release instructions
-  development.md  ← full CLI reference, adapter contract, worktree layout
+  cli.md          ← command reference and workflows
+  development.md  ← adapter contract, worktree layout, testing, CI
 ```
 
 **The `agentctl` binary must live next to the `agents/` directory.** The executable's directory is used at runtime to resolve adapter paths; `go build -o agentctl ./cmd/agentctl` from the repo root satisfies this.
@@ -51,6 +52,10 @@ CI runs all of the above on every push and pull request (`.github/workflows/go.y
 - **No new external Go dependencies** without explicit justification; add via `go get`.
 - **No new adapter stubs** unless the agent CLI has a stable non-interactive launch mechanism (see [#16](https://github.com/arun-gupta/agentctl/issues/16)).
 - **Do not bump the Go toolchain version** incidentally while fixing something else.
+
+## Merging
+
+- **Never invoke `gh pr merge` directly.** Open the PR and ask the user to merge it manually.
 
 ## PR hygiene
 
