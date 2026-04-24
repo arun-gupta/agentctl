@@ -1,0 +1,6 @@
+# Build output
+dist/
+
+# Go test cache
+*.test
+*.out
