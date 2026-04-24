@@ -28,9 +28,8 @@ Options:
   --discard              Discard worktree + delete local/remote branch (unrecoverable; prompts for confirmation)
   --cleanup-merged       Post-merge: pull main, remove worktree, delete local+remote branch
   --cleanup-all-merged   Batch sweep: run --cleanup-merged on every worktree whose PR is MERGED
-  --status, --list       Overview table of all linked worktrees (issue, branch, agent,
-                         port, PIDs, spec state, PR state, session ID).
-  --status --verbose     Same, with the full worktree PATH column added.
+  --status, --list       Compact table: issue, branch, agent, port, spec state, PR state.
+  --status --verbose     Full table: adds PATH, DEV-PID, AGENT-PID, SESSION.
   -h, --help             Show this help and exit
 
 Available adapters:
@@ -428,8 +427,8 @@ compute_spec_state() {
 }
 
 # Print a single-screen status table of every linked worktree provisioned by this script.
-# Terse (default): ISSUE  BRANCH  AGENT  PORT  DEV-PID  AGENT-PID  SPEC  PR  SESSION
-# Verbose (--verbose): adds PATH column between AGENT and PORT
+# Terse (default): ISSUE  BRANCH  AGENT  PORT  SPEC  PR
+# Verbose (--verbose): ISSUE  BRANCH  AGENT  PATH  PORT  DEV-PID  AGENT-PID  SPEC  PR  SESSION
 # Spec states:  no-spec | paused | in-progress | done
 # PR states:    none | OPEN | MERGED | CLOSED
 print_status() {
@@ -441,7 +440,7 @@ print_status() {
   if (( verbose )); then
     rows=("ISSUE\tBRANCH\tAGENT\tPATH\tPORT\tDEV-PID\tAGENT-PID\tSPEC\tPR\tSESSION")
   else
-    rows=("ISSUE\tBRANCH\tAGENT\tPORT\tDEV-PID\tAGENT-PID\tSPEC\tPR\tSESSION")
+    rows=("ISSUE\tBRANCH\tAGENT\tPORT\tSPEC\tPR")
   fi
 
   skip_first=1
@@ -514,7 +513,7 @@ print_status() {
     if (( verbose )); then
       rows+=("${issue:-?}\t${branch:-?}\t${agent_name}\t${wt_path}\t${port}\t${dev_pid_str}\t${agent_pid_str}\t${spec_state}\t${pr_state}\t${session_str}")
     else
-      rows+=("${issue:-?}\t${branch:-?}\t${agent_name}\t${port}\t${dev_pid_str}\t${agent_pid_str}\t${spec_state}\t${pr_state}\t${session_str}")
+      rows+=("${issue:-?}\t${branch:-?}\t${agent_name}\t${port}\t${spec_state}\t${pr_state}")
     fi
   done < <(git -C "$REPO_ROOT" worktree list --porcelain | awk '/^worktree/ {print $2}')
 
