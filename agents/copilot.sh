@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# GitHub Copilot adapter for agent.sh — stub implementation
+# GitHub Copilot adapter for agentctl — stub implementation
 # Implements: agent_launch, agent_resume, agent_pause_state
 #
 # agent_launch and agent_resume are stubs that exit non-zero.

@@ -1,5 +1,6 @@
 # Build output
 dist/
+/agentctl
 
 # Go test cache
 *.test

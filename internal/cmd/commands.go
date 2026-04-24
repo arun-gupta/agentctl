@@ -242,7 +242,7 @@ func runReleasePausedSession(issue, prompt string) error {
 }
 
 // specExists checks whether a spec.md file exists anywhere under
-// <worktreePath>/specs/*/spec.md (matching the agent.sh glob).
+// <worktreePath>/specs/*/spec.md.
 func specExists(wtPath string) bool {
 	matches, err := filepath.Glob(filepath.Join(wtPath, "specs", "*", "spec.md"))
 	return err == nil && len(matches) > 0
@@ -701,7 +701,7 @@ func pidStatus(pid string) string {
 
 // computeSpecState derives the SpecKit lifecycle state from filesystem
 // artifacts under <wtPath>/specs/<issue>-*/.
-// Mirrors the agent.sh compute_spec_state function.
+// Spec pause state from SpecKit-style artefacts on disk.
 func computeSpecState(wtPath, issue string) string {
 	if issue == "" {
 		return "no-spec"
@@ -839,7 +839,7 @@ func validateAdapter(name string) error {
 }
 
 // scriptDir returns the directory that contains the agentctl binary, which
-// is assumed to sit alongside the agents/ directory (same convention as agent.sh).
+// is assumed to sit alongside the agents/ directory.
 func scriptDir() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -863,7 +863,7 @@ func listAdapters(baseDir string) []string {
 	return names
 }
 
-// buildKickoff constructs the kickoff prompt, mirroring agent.sh's KICKOFF variable.
+// buildKickoff constructs the kickoff prompt for the agent.
 func buildKickoff(issue string, port int, noSpeckit bool) string {
 	portStr := fmt.Sprintf("%d", port)
 	if noSpeckit {
@@ -881,7 +881,7 @@ Dev server is already running on port %s.`, issue, portStr)
 }
 
 // launchAgent sources the adapter and calls its launch function by shelling
-// out to bash — mirroring agent.sh's `source_adapter` + `agent_launch` pattern.
+// out to bash — adapter defines agent_launch / agent_resume in shell.
 func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, headless bool) error {
 	scriptDirPath, err := scriptDir()
 	if err != nil {
@@ -894,7 +894,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 		headlessStr = "1"
 	}
 
-	// We source the adapter and call agent_launch exactly as agent.sh does.
+	// Source the adapter script and invoke agent_launch.
 	script := fmt.Sprintf(`set -euo pipefail
 source %q
 agent_launch %q %q %q %q %q %s

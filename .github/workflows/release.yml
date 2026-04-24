@@ -34,24 +34,36 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Build binary
+      - name: Build and package (binary + agents/)
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
         run: |
+          set -euo pipefail
+          mkdir -p dist
           EXT=""
           if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
           BINARY="agentctl-${GOOS}-${GOARCH}${EXT}"
           go build -trimpath -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
             -o "dist/${BINARY}" ./cmd/agentctl
-          echo "BINARY=dist/${BINARY}" >> "$GITHUB_ENV"
+          STAGE="dist/stage-${GOOS}-${GOARCH}/agentctl"
+          mkdir -p "$STAGE"
+          cp "dist/${BINARY}" "$STAGE/agentctl${EXT}"
+          cp -r agents "$STAGE/"
+          rm "dist/${BINARY}"
+          if [ "$GOOS" = "windows" ]; then
+            (cd "dist/stage-${GOOS}-${GOARCH}" && zip -r "../agentctl-${GOOS}-${GOARCH}.zip" agentctl)
+          else
+            (cd "dist/stage-${GOOS}-${GOARCH}" && tar -czf "../agentctl-${GOOS}-${GOARCH}.tar.gz" agentctl)
+          fi
+          rm -rf "dist/stage-${GOOS}-${GOARCH}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: agentctl-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/
+          path: dist/agentctl-${{ matrix.goos }}-${{ matrix.goarch }}.*
 
   release:
     name: Create GitHub Release

@@ -8,47 +8,49 @@ Contributor-oriented notes: full CLI reference, workflows, adapters, layout, ins
 Provision an isolated agent worktree for an issue and launch a coding agent in it.
 
 Usage:
-  agent.sh [--agent <name>] [--headless] [--no-speckit] <issue-number> [slug]
-  agent.sh --approve-spec        <issue-number>
-  agent.sh --revise-spec         <issue-number> <feedback>
-  agent.sh --discard             [<issue-number>]
-  agent.sh --cleanup-merged      [<issue-number>]
-  agent.sh --cleanup-all-merged
-  agent.sh --status
+  agentctl spawn [--agent <name>] [--headless] [--no-speckit] <issue-number> [slug]
+  agentctl approve-spec        <issue-number>
+  agentctl revise-spec         <issue-number> <feedback>
+  agentctl discard             [<issue-number>]
+  agentctl cleanup-merged      [<issue-number>]
+  agentctl cleanup-all-merged
+  agentctl status
 
-Options:
+Flags (spawn):
   --agent <name>         Select coding agent adapter (default: claude).
   --headless             Run agent in background (log -> agent.log)
   --no-speckit           Skip SpecKit lifecycle; agent opens a PR directly (no spec pause)
-  --approve-spec         Release the spec-review pause for a paused headless spawn
-  --revise-spec          Send non-empty revision feedback to a paused spawn
-  --discard              Discard worktree + delete local/remote branch (unrecoverable; prompts for confirmation)
-  --cleanup-merged       Post-merge: pull main, remove worktree, delete local+remote branch
-  --cleanup-all-merged   Batch sweep: run --cleanup-merged on every worktree whose PR is MERGED
-  --status, --list       Compact table: issue, branch, agent, port, spec state, PR state.
-  --status --verbose     Full table: adds PATH, DEV-PID, AGENT-PID, SESSION.
-  -h, --help             Show this help and exit
+
+Subcommands:
+  approve-spec           Release the spec-review pause for a paused headless spawn
+  revise-spec            Send non-empty revision feedback to a paused spawn
+  discard                Discard worktree + delete local/remote branch (unrecoverable; prompts for confirmation)
+  cleanup-merged         Post-merge: pull main, remove worktree, delete local+remote branch
+  cleanup-all-merged     Batch sweep: run cleanup-merged on every worktree whose PR is MERGED
+  status                 Compact table: issue, branch, agent, port, spec state, PR state.
+  status --verbose       Full table: adds PATH, DEV-PID, AGENT-PID, SESSION.
+  -h, --help             Show help and exit
 ```
 
 ### Batch workflow
 
 ```bash
 # Spawn three issues in parallel (headless)
-for i in 210 211 212; do agent.sh --headless "$i"; done
+for i in 210 211 212; do agentctl spawn --headless "$i"; done
 
 # Approve all specs once you've reviewed them
-for i in 210 211 212; do agent.sh --approve-spec "$i"; done
+for i in 210 211 212; do agentctl approve-spec "$i"; done
 
 # Sweep up everything that's been merged
-agent.sh --cleanup-all-merged
+agentctl cleanup-all-merged
 
 # Check the status of all active worktrees
-agent.sh --status
+agentctl status
 ```
 
 ## Adapter interface
 
-Each adapter is a Bash file in the `agents/` directory that sources into `agent.sh` at runtime. An adapter **must** implement three functions:
+Each adapter is a Bash file in the `agents/` directory that `agentctl` sources via Bash at runtime. An adapter **must** implement three functions:
 
 ### `agent_launch(wt, issue, port, session_id, kickoff, headless)`
 
@@ -87,13 +89,13 @@ Returns a single-word state string based on the presence of spec artefacts in `$
 
 ### Naming convention
 
-The file must be named `agents/<name>.sh`. It is selected with `--agent <name>`. Use `agent.sh --help` to list all available adapters.
+The file must be named `agents/<name>.sh`. It is selected with `agentctl spawn --agent <name>`. Use `agentctl spawn --help` to see flags; available adapters are the `*.sh` files under `agents/`.
 
 ### Example skeleton
 
 ```bash
 #!/usr/bin/env bash
-# my-bot adapter for agent.sh
+# my-bot adapter for agentctl
 
 agent_launch() {
   local wt="$1" issue="$2" _port="$3" session_id="$4" kickoff="$5" headless="$6"
@@ -129,7 +131,7 @@ agent_pause_state() {
 
 ## Worktree layout
 
-When `agent.sh <issue>` runs, it creates a linked worktree at `../<repo>-<issue>-<slug>/` containing:
+When `agentctl spawn <issue>` runs, it creates a linked worktree at `../<repo>-<issue>-<slug>/` containing:
 
 ```
 .agent          ← key=value metadata (agent, port, session-id, agent-pid, dev-pid)
@@ -139,31 +141,32 @@ specs/          ← SpecKit artefacts (spec.md, plan.md, tasks.md)
 
 ## Install instructions
 
-### Option A — symlink into an existing repo
+### Option A — Go binary from clone (recommended)
+
+```bash
+git clone https://github.com/arun-gupta/agentctl
+cd agentctl
+go build -o agentctl ./cmd/agentctl
+# Keep agentctl and agents/ in the same directory (see README).
+```
+
+### Option B — symlink the built binary (agents stay in the clone)
 
 ```bash
 git clone https://github.com/arun-gupta/agentctl ~/.local/share/agentctl
-ln -s ~/.local/share/agentctl/agent.sh /path/to/your/repo/scripts/agent.sh
-# The agents/ directory is resolved relative to agent.sh automatically.
+cd ~/.local/share/agentctl && go build -o agentctl ./cmd/agentctl
+ln -sf ~/.local/share/agentctl/agentctl ~/.local/bin/agentctl
+# Adapters resolve from the real path of the agentctl binary (~/.local/share/agentctl/agents/).
 ```
 
-### Option B — git subtree
+### Option C — git subtree
 
 ```bash
 git subtree add --prefix agentctl \
   https://github.com/arun-gupta/agentctl main --squash
 ```
 
-### Option C — curl install (single-file, no history)
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/arun-gupta/agentctl/main/agent.sh \
-  -o scripts/agent.sh
-mkdir -p scripts/agents
-curl -fsSL https://raw.githubusercontent.com/arun-gupta/agentctl/main/agents/claude.sh \
-  -o scripts/agents/claude.sh
-chmod +x scripts/agent.sh scripts/agents/claude.sh
-```
+Then `cd agentctl && go build -o agentctl ./cmd/agentctl` (or use a **GitHub Release** archive that already contains `agentctl` + `agents/`).
 
 ## CI
 
@@ -171,5 +174,5 @@ This repository runs [ShellCheck](https://www.shellcheck.net/) on every push and
 
 ```bash
 # Run locally
-shellcheck agent.sh agents/claude.sh agents/copilot.sh agents/codex.sh
+shellcheck agents/claude.sh agents/copilot.sh agents/codex.sh
 ```
