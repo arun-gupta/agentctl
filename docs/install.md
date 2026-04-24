@@ -1,19 +1,6 @@
-# Install and layout
+# Install
 
-How to install **agentctl**, what you need on your machine, and how files are arranged.
-
-## Repository layout
-
-```
-cmd/agentctl/     ← Go CLI (cobra)
-internal/         ← git, process, state, commands
-agents/
-  claude.sh       ← Claude Code adapter
-  codex.sh        ← OpenAI Codex CLI adapter
-  copilot.sh      ← GitHub Copilot adapter (stub)
-```
-
-The **`agentctl` binary must live in the same directory as the `agents/` folder** (the executable's directory is used to resolve adapter paths). Building from a clone at repo root keeps `./agentctl` next to `./agents/`.
+How to install **agentctl** and what you need on your machine.
 
 ## Prerequisites
 
@@ -113,6 +100,19 @@ git subtree add --prefix agentctl \
 ```
 
 Then `cd agentctl && go build -o agentctl ./cmd/agentctl`, or unpack a **GitHub Release** archive that already contains `agentctl` + `agents/`.
+
+## Binary and adapter layout
+
+The **`agentctl` binary must live in the same directory as the `agents/` folder** (the executable's directory is used to resolve adapter paths). Release archives already use this layout, and building from a clone at repo root keeps `./agentctl` next to `./agents/`.
+
+```
+cmd/agentctl/     ← Go CLI (cobra)
+internal/         ← git, process, state, commands
+agents/
+  claude.sh       ← Claude Code adapter
+  codex.sh        ← OpenAI Codex CLI adapter
+  copilot.sh      ← GitHub Copilot adapter (stub)
+```
 
 ## Contributor builds
 
