@@ -24,6 +24,7 @@ How to install **agentctl** and what you need on your machine.
 | Requirement | Purpose |
 |-------------|---------|
 | `codex` CLI | required only when using `--agent codex` (`npm install -g @openai/codex`) |
+| `gemini` CLI | required only when using `--agent gemini` (`npm install -g @google/gemini-cli`); auth via `GEMINI_API_KEY` |
 | GitHub Copilot CLI | required only when using `--agent copilot` once the adapter is implemented; install from [GitHub Copilot CLI](https://github.com/features/copilot/cli) (`npm install -g @github/copilot` or install script) |
 | Go | only to build from source (see `go.mod`) |
 
@@ -112,6 +113,7 @@ agents/
   claude.sh       ← Claude Code adapter
   codex.sh        ← OpenAI Codex CLI adapter
   copilot.sh      ← GitHub Copilot adapter (stub)
+  gemini.sh       ← Google Gemini CLI adapter
 ```
 
 ## Contributor builds
