@@ -1,6 +1,6 @@
 # Development
 
-Contributor-oriented notes: full CLI reference, workflows, adapters, layout, install variants, and CI.
+Contributor-oriented notes: full CLI reference, workflows, adapters, layout, install variants, and CI. For **SDD and Spec Kit** behavior, see [spec-driven.md](spec-driven.md).
 
 ## Usage
 
@@ -168,11 +168,43 @@ git subtree add --prefix agentctl \
 
 Then `cd agentctl && go build -o agentctl ./cmd/agentctl` (or use a **GitHub Release** archive that already contains `agentctl` + `agents/`).
 
+## Testing strategy
+
+### Unit tests — pure helpers
+
+Pure, deterministic functions (slug conversion, spec-state inference, kickoff building, PID formatting) live in `internal/cmd` and are tested with table-driven tests in `commands_test.go`. No external processes or filesystem side-effects.
+
+### Hermetic integration tests — git helpers
+
+Functions in `internal/git` that shell out to the `git` CLI are tested with real temporary repositories created by `t.TempDir()` + `git init`. Each test is self-contained: it creates a repo, adds worktrees or branches as needed, exercises the helper, and the directory is cleaned up automatically by the test framework. Tests are skipped when `git` is not on `PATH`.
+
+### Process tests
+
+`internal/process` tests use the live OS: `IsAlive` is exercised against the test process's own PID; `Kill` is exercised by spawning a real `sleep` process, terminating it, and waiting for the child to be reaped before asserting liveness.
+
+### What is not tested (and why)
+
+- **Cobra command wiring** (`cmd/agentctl/main.go`): the entry point is a thin dispatch layer; coverage comes from the `internal/cmd` tests above.
+- **`runSpawn`, `runCleanupMerged`, `runStatus`**: these call `gh`, `npm`, `lsof`, and `uuidgen`; stub-based integration tests are tracked in [#19](https://github.com/arun-gupta/agentctl/issues/19).
+- **`ghPRState`, `slugFromIssue`**: require a real `gh` authentication context; not suitable for CI without credentials.
+
+### Running with coverage
+
+```bash
+go test -cover ./...
+go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out
+```
+
+CI uploads `coverage.out` as an artifact on every run (see `.github/workflows/go.yml`).
+
 ## CI
 
-This repository runs [ShellCheck](https://www.shellcheck.net/) on every push and pull request via GitHub Actions.
+This repository runs the Go toolchain and [ShellCheck](https://www.shellcheck.net/) on every push and pull request via GitHub Actions.
 
 ```bash
 # Run locally
+go build ./...
+go test -cover ./...
+go vet ./...
 shellcheck agents/claude.sh agents/copilot.sh agents/codex.sh
 ```
