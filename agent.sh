@@ -20,7 +20,7 @@ Usage:
   scripts/agent.sh --status
 
 Options:
-  --agent <name>         Select coding agent adapter (default: claude). Must appear before issue number.
+  --agent <name>         Select coding agent adapter (default: claude).
   --headless             Run agent in background (log -> agent.log)
   --no-speckit           Skip SpecKit lifecycle; agent opens a PR directly (no spec pause)
   --approve-spec         Release the spec-review pause for a paused headless spawn
@@ -629,19 +629,25 @@ fi
 HEADLESS=0
 NO_SPECKIT=0
 AGENT="claude"
-while [[ "${1:-}" == --* ]]; do
+POSITIONAL=()
+while [[ $# -gt 0 ]]; do
   case "$1" in
     --headless)   HEADLESS=1; shift ;;
     --no-speckit) NO_SPECKIT=1; shift ;;
     --agent)
       [[ -n "${2:-}" ]] || { echo "--agent requires a name" >&2; exit 1; }
       AGENT="$2"; shift 2 ;;
-    *) echo "Unknown option: $1" >&2; exit 1 ;;
+    --*) echo "Unknown option: $1" >&2; exit 1 ;;
+    *)   POSITIONAL+=("$1"); shift ;;
   esac
 done
 
-ISSUE="${1:?Usage: $0 [--agent <name>] [--headless] [--no-speckit] <issue-number> [slug]}"
-SLUG="${2:-}"
+if [[ ${#POSITIONAL[@]} -eq 0 ]]; then
+  echo "Usage: $0 [--agent <name>] [--headless] [--no-speckit] <issue-number> [slug]" >&2
+  exit 1
+fi
+ISSUE="${POSITIONAL[0]}"
+SLUG="${POSITIONAL[1]:-}"
 
 source_adapter "$AGENT"
 
