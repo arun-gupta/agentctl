@@ -88,9 +88,6 @@ Expand-Archive agentctl-windows-amd64.zip -DestinationPath .
 > **Note:** The archive contains both the `agentctl` binary and the `agents/` adapter scripts.  
 > Keep both in the same directory (e.g. `/opt/agentctl/`) and add that directory to your `PATH`.
 
-- Per-commit / release automation: [#13](https://github.com/arun-gupta/agentctl/issues/13)
-- Homebrew: [#14](https://github.com/arun-gupta/agentctl/issues/14)
-
 ## Prebuilt binaries — per-commit snapshots
 
 Every push to `main` runs the [`snapshot` workflow](../.github/workflows/snapshot.yml) which publishes
