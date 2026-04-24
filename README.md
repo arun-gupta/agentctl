@@ -1,6 +1,6 @@
 # agentctl
 
-**agentctl** is a **Go** CLI that creates a [git worktree](https://git-scm.com/docs/git-worktree) per GitHub issue and launches a coding agent there, using Bash adapters in `agents/`.
+**agentctl** is a **Go** CLI that creates a [git worktree](https://git-scm.com/docs/git-worktree) per GitHub issue and launches a coding agent there. Built-in agent integrations currently support **Claude Code** (default), **OpenAI Codex**, **Gemini CLI**, and **OpenCode**; **GitHub Copilot CLI** is present as a stub.
 
 ## Install
 
