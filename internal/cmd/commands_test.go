@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -149,14 +150,5 @@ func TestDash(t *testing.T) {
 
 // contains is a simple substring helper for tests.
 func contains(s, sub string) bool {
-	return len(s) >= len(sub) && findInStr(s, sub)
-}
-
-func findInStr(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(s, sub)
 }
