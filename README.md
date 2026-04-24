@@ -2,7 +2,7 @@
 
 **agentctl** is a **Go** CLI for provisioning isolated [git worktrees](https://git-scm.com/docs/git-worktree) per GitHub issue and launching a coding agent inside each one. It supports multiple agent back-ends via Bash adapter scripts under `agents/` (sourced at runtime). By default it follows **spec-driven development (SDD)**: a spec is produced and reviewed before the agent carries out the full implementation plan.
 
-Migrated from [arun-gupta/repo-pulse](https://github.com/arun-gupta/repo-pulse) with full commit history preserved.
+Migrated from [arun-gupta/repo-pulse](https://github.com/arun-gupta/repo-pulse) with full commit history preserved. See [AGENTS.md](AGENTS.md) for AI agent and contributor conventions.
 
 ## Spec-driven development and SpecKit
 
