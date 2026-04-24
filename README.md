@@ -4,7 +4,7 @@
 
 | Coding agents | SDD methodologies |
 |---|---|
-| <img src="https://cdn.simpleicons.org/anthropic/000000" alt="" width="16" height="16"> Claude Code (default)<br><img src="https://upload.wikimedia.org/wikipedia/commons/4/4d/OpenAI_Logo.svg" alt="" width="16" height="16"> OpenAI Codex<br><img src="https://cdn.simpleicons.org/googlegemini/8E75B2" alt="" width="16" height="16"> Gemini CLI<br><img src="https://opencode.ai/favicon.svg" alt="" width="16" height="16"> OpenCode<br><img src="https://cdn.simpleicons.org/githubcopilot/000000" alt="" width="16" height="16"> GitHub Copilot CLI (stub) | **Spec Kit** (default)<br>OpenSpec ([#38](https://github.com/arun-gupta/agentctl/issues/38))<br>AgentOS ([#35](https://github.com/arun-gupta/agentctl/issues/35))<br>specs.md ([#36](https://github.com/arun-gupta/agentctl/issues/36))<br>Kiro-style specs ([#39](https://github.com/arun-gupta/agentctl/issues/39)) |
+| Claude Code (default)<br>OpenAI Codex<br>Gemini CLI<br>OpenCode<br>GitHub Copilot CLI (stub) | **Spec Kit** (default)<br>OpenSpec ([#38](https://github.com/arun-gupta/agentctl/issues/38))<br>AgentOS ([#35](https://github.com/arun-gupta/agentctl/issues/35))<br>specs.md ([#36](https://github.com/arun-gupta/agentctl/issues/36))<br>Kiro-style specs ([#39](https://github.com/arun-gupta/agentctl/issues/39)) |
 
 ## Install
 
