@@ -1,6 +1,8 @@
 # agentctl
 
-**agentctl** is a **Go** CLI that creates a [git worktree](https://git-scm.com/docs/git-worktree) per GitHub issue and launches a coding agent there, with pluggable **coding agents** and **SDD methodologies**.
+**agentctl** combines [git worktrees](https://git-scm.com/docs/git-worktree), coding agents, and optional spec-driven development (SDD) to tackle GitHub issues in isolated workspaces.
+
+It is a **Go** CLI with pluggable **coding agents** and **SDD methodologies**.
 
 | Coding agents | SDD methodologies |
 |---|---|
