@@ -1,16 +1,14 @@
 # agentctl
 
-**agentctl** combines [git worktrees](https://git-scm.com/docs/git-worktree), coding agents, and optional spec-driven development (SDD) to tackle GitHub issues in isolated workspaces.
-
-It is a **Go** CLI with pluggable **coding agents** and **SDD methodologies**.
+**agentctl** combines [git worktrees](https://git-scm.com/docs/git-worktree), coding agents, and optional spec-driven development (SDD) to tackle GitHub issues in isolated workspaces. It is a **Go** CLI with pluggable **coding agents** and **SDD methodologies**.
 
 | Coding agents | SDD methodologies |
 |---|---|
-| <img src="https://cdn.simpleicons.org/anthropic/000000" alt="" width="16" height="16"> **Claude Code** (default)<br><img src="https://upload.wikimedia.org/wikipedia/commons/4/4d/OpenAI_Logo.svg" alt="" width="16" height="16"> **OpenAI Codex**<br><img src="https://cdn.simpleicons.org/googlegemini/8E75B2" alt="" width="16" height="16"> **Gemini CLI**<br><img src="https://opencode.ai/favicon.svg" alt="" width="16" height="16"> **OpenCode**<br><img src="https://cdn.simpleicons.org/githubcopilot/000000" alt="" width="16" height="16"> **GitHub Copilot CLI** (stub) | **Spec Kit** (default, supported)<br>**OpenSpec** (planned: [#38](https://github.com/arun-gupta/agentctl/issues/38))<br>**AgentOS** (planned: [#35](https://github.com/arun-gupta/agentctl/issues/35))<br>**specs.md** (planned: [#36](https://github.com/arun-gupta/agentctl/issues/36))<br>**Kiro-style specs** (planned: [#39](https://github.com/arun-gupta/agentctl/issues/39)) |
+| Claude Code (default), OpenAI Codex, Gemini CLI, OpenCode, GitHub Copilot CLI (stub) | Spec Kit (default), OpenSpec ([#38](https://github.com/arun-gupta/agentctl/issues/38)), AgentOS ([#35](https://github.com/arun-gupta/agentctl/issues/35)), specs.md ([#36](https://github.com/arun-gupta/agentctl/issues/36)), Kiro-style specs ([#39](https://github.com/arun-gupta/agentctl/issues/39)) |
 
 ## Install
 
-**Stable release** (recommended) — download the archive for your platform, extract it, and add the `agentctl/` directory to your `PATH`:
+Download a release archive, extract it, and add the `agentctl/` directory to your `PATH`:
 
 ```bash
 # macOS (Apple Silicon)
@@ -18,17 +16,7 @@ curl -fsSL https://github.com/arun-gupta/agentctl/releases/latest/download/agent
 export PATH="$(pwd)/agentctl:$PATH"
 ```
 
-For other platforms, download the matching archive from the [Releases page](https://github.com/arun-gupta/agentctl/releases).
-
-**Build from source:**
-
-```bash
-git clone https://github.com/arun-gupta/agentctl && cd agentctl
-go build -o agentctl ./cmd/agentctl
-export PATH="$(pwd):$PATH"   # keep agentctl next to ./agents/
-```
-
-See **[docs/install.md](docs/install.md)** for full details, symlink setup, and subtree installs.
+For other platforms, source builds, symlinks, and subtree installs, see **[docs/install.md](docs/install.md)**.
 
 ## Quick start
 
