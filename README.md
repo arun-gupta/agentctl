@@ -1,10 +1,14 @@
 # agentctl
 
-**agentctl** is a **Go** CLI that creates a [git worktree](https://git-scm.com/docs/git-worktree) per GitHub issue and launches a coding agent there. Built-in agent integrations currently support **Claude Code** (default), **OpenAI Codex**, **Gemini CLI**, and **OpenCode**; **GitHub Copilot CLI** is present as a stub.
+**agentctl** combines [git worktrees](https://git-scm.com/docs/git-worktree), coding agents, and optional spec-driven development (SDD) to tackle GitHub issues in isolated workspaces. It is a **Go** CLI with pluggable **coding agents** and **SDD methodologies**.
+
+| Coding agents | SDD methodologies |
+|---|---|
+| Claude Code (default), OpenAI Codex, Gemini CLI, OpenCode, GitHub Copilot CLI (stub) | Spec Kit (default), OpenSpec ([#38](https://github.com/arun-gupta/agentctl/issues/38)), AgentOS ([#35](https://github.com/arun-gupta/agentctl/issues/35)), specs.md ([#36](https://github.com/arun-gupta/agentctl/issues/36)), Kiro-style specs ([#39](https://github.com/arun-gupta/agentctl/issues/39)) |
 
 ## Install
 
-**Stable release** (recommended) — download the archive for your platform, extract it, and add the `agentctl/` directory to your `PATH`:
+Download a release archive, extract it, and add the `agentctl/` directory to your `PATH`:
 
 ```bash
 # macOS (Apple Silicon)
@@ -12,19 +16,7 @@ curl -fsSL https://github.com/arun-gupta/agentctl/releases/latest/download/agent
 export PATH="$(pwd)/agentctl:$PATH"
 ```
 
-Replace `darwin-arm64` with `darwin-amd64`, `linux-amd64`, or `linux-arm64` as needed. Windows users: download `agentctl-windows-amd64.zip` from the [Releases page](https://github.com/arun-gupta/agentctl/releases).
-
-**Latest build** — per-commit snapshot artifacts are published on every push to `main` via [Actions → snapshot](https://github.com/arun-gupta/agentctl/actions/workflows/snapshot.yml) (14-day retention).
-
-**Build from source:**
-
-```bash
-git clone https://github.com/arun-gupta/agentctl && cd agentctl
-go build -o agentctl ./cmd/agentctl
-export PATH="$(pwd):$PATH"   # keep agentctl next to ./agents/
-```
-
-See **[docs/install.md](docs/install.md)** for full details, symlink setup, and subtree installs.
+For other platforms, source builds, symlinks, and subtree installs, see **[docs/install.md](docs/install.md)**.
 
 ## Quick start
 
