@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Provision an isolated agent worktree for an issue and launch a coding agent in it.
-# Run `scripts/agent.sh --help` for usage.
+# Run `agent.sh --help` for usage.
 
 set -euo pipefail
 
@@ -11,13 +11,13 @@ print_usage() {
 Provision an isolated agent worktree for an issue and launch a coding agent in it.
 
 Usage:
-  scripts/agent.sh [--agent <name>] [--headless] [--no-speckit] <issue-number> [slug]
-  scripts/agent.sh --approve-spec        <issue-number>
-  scripts/agent.sh --revise-spec         <issue-number> <feedback>
-  scripts/agent.sh --discard             [<issue-number>]
-  scripts/agent.sh --cleanup-merged      [<issue-number>]
-  scripts/agent.sh --cleanup-all-merged
-  scripts/agent.sh --status
+  agent.sh [--agent <name>] [--headless] [--no-speckit] <issue-number> [slug]
+  agent.sh --approve-spec        <issue-number>
+  agent.sh --revise-spec         <issue-number> <feedback>
+  agent.sh --discard             [<issue-number>]
+  agent.sh --cleanup-merged      [<issue-number>]
+  agent.sh --cleanup-all-merged
+  agent.sh --status
 
 Options:
   --agent <name>         Select coding agent adapter (default: claude).
@@ -37,14 +37,14 @@ Available adapters:
   copilot     GitHub Copilot (stub)
 
 For --discard and --cleanup-merged, the issue number is inferred from the branch
-when run from inside a linked worktree. See docs/DEVELOPMENT.md for full behavior,
+when run from inside a linked worktree. See README.md for full behavior,
 the numbering rule, and the permission model.
 
 Batch example:
-  for i in 210 211 212; do scripts/agent.sh --headless "$i"; done
-  for i in 210 211 212; do scripts/agent.sh --approve-spec "$i"; done
-  scripts/agent.sh --cleanup-all-merged
-  scripts/agent.sh --status
+  for i in 210 211 212; do agent.sh --headless "$i"; done
+  for i in 210 211 212; do agent.sh --approve-spec "$i"; done
+  agent.sh --cleanup-all-merged
+  agent.sh --status
 EOF
 }
 
@@ -106,7 +106,9 @@ resolve_worktree_context() {
   if [[ "$git_common_dir" != "$git_dir" ]]; then
     CTX_IS_IN_LINKED_WT=1
   fi
+  # shellcheck disable=SC2034  # CTX_MAIN_REPO/CTX_CURRENT_WT are exported globals for callers
   CTX_MAIN_REPO="$REPO_ROOT"
+  # shellcheck disable=SC2034
   CTX_CURRENT_WT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
   branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
   if [[ "$branch" =~ ^([0-9]+)- ]]; then
@@ -262,12 +264,12 @@ cleanup_merged() {
   if ! pr_state="$(cd "$REPO_ROOT" && gh pr view "$branch" --json state -q .state 2>/dev/null)"; then
     echo "Could not determine PR state for $branch." >&2
     echo "Is gh installed and authenticated? If this branch has no PR, use:" >&2
-    echo "  scripts/agent.sh --discard $issue" >&2
+    echo "  agent.sh --discard $issue" >&2
     exit 1
   fi
   if [[ "$pr_state" != "MERGED" ]]; then
     echo "PR for $branch is $pr_state, not MERGED." >&2
-    echo "Use: scripts/agent.sh --discard $issue" >&2
+    echo "Use: agent.sh --discard $issue" >&2
     exit 1
   fi
 

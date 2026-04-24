@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Claude Code adapter for scripts/agent.sh
+# Claude Code adapter for agent.sh
 # Implements: agent_launch, agent_resume, agent_pause_state
 
 agent_launch() {
-  local wt="$1" issue="$2" port="$3" session_id="$4" kickoff="$5" headless="$6"
+  local wt="$1" issue="$2" _port="$3" session_id="$4" kickoff="$5" headless="$6"
 
-  cd "$wt"
+  cd "$wt" || exit 1
   if (( headless )); then
     nohup claude -p "$kickoff" --session-id "$session_id" > agent.log 2>&1 &
     local pid=$!
     echo "agent-pid=$pid" >> ".agent"
     echo "Claude (headless) PID $pid — log: $wt/agent.log"
     echo "Session ID: $session_id (recorded in $wt/.agent)"
-    echo "Release the pause with: scripts/agent.sh --approve-spec $issue"
+    echo "Release the pause with: agent.sh --approve-spec $issue"
   else
     exec claude --session-id "$session_id" "$kickoff"
   fi

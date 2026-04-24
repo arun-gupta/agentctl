@@ -1,0 +1,4 @@
+# Disable info-level items that are pre-existing in the migrated scripts.
+# SC2012: Use find instead of ls — false positive for simple glob patterns
+# SC2015: A && B || C pattern — intentional use of "|| true" for best-effort kills
+disable=SC2012,SC2015
