@@ -6,9 +6,7 @@ Migrated from [arun-gupta/repo-pulse](https://github.com/arun-gupta/repo-pulse) 
 
 ## Spec-driven development and SpecKit
 
-Today’s default workflow is **SDD with a human checkpoint**: the agent runs **Stage 1** (write a spec), stops for your approval or revision (`approve-spec` / `revise-spec` when headless), then **Stage 2** (plan, tasks, implement) and opens a PR. That flow is **implemented in terms of [Spec Kit](https://github.com/github/spec-kit)**—the kickoff tells the agent to use `/speckit.specify`, `/speckit.plan`, `/speckit.tasks`, and `/speckit.implement`, and `agentctl` infers pause state from files under `specs/` (for example `spec.md` vs `plan.md` / `tasks.md`).
-
-**agentctl does not install or vendor Spec Kit.** The **target repository** (and your agent setup, e.g. Claude Code slash commands) must already support that SpecKit-style lifecycle. If your repo is not set up for it, use **`--no-speckit`** on `spawn` so the agent skips that lifecycle and works straight toward a PR with no spec-review pause.
+By default `agentctl spawn` follows **spec-driven development (SDD)**: Stage 1 writes a spec and pauses for human review; Stage 2 implements and opens a PR. This is built on [Spec Kit](https://github.com/github/spec-kit), which must already be set up in the **target repository**. Use `--no-speckit` to skip the spec-review pause. See [docs/development.md](docs/development.md#spec-driven-development-and-speckit) for full details.
 
 ## Repository layout
 
@@ -52,9 +50,13 @@ To install elsewhere, keep **`agentctl` and `agents/` in the same directory** (f
 
 ### Prebuilt binaries
 
-Publishing **Go** snapshot binaries per commit and documenting install from **GitHub Releases** is tracked in **[#13](https://github.com/arun-gupta/agentctl/issues/13)**. Homebrew is tracked in **[#14](https://github.com/arun-gupta/agentctl/issues/14)**.
+Tagged [GitHub Releases](https://github.com/arun-gupta/agentctl/releases/latest) publish archives for
+`linux-amd64`, `linux-arm64`, `darwin-amd64`, `darwin-arm64`, and `windows-amd64`. Every push to `main`
+also produces per-commit snapshot artifacts (14-day retention) via the
+[`snapshot` workflow](https://github.com/arun-gupta/agentctl/actions/workflows/snapshot.yml).
 
-Tagged **GitHub Releases** attach archives that contain **`agentctl` plus `agents/`**; extract and add that folder to your `PATH`. Vendoring the repo (e.g. git subtree) is described in **[docs/development.md](docs/development.md)**.
+For platform-specific download commands, Windows notes, and snapshot artifact details, see
+**[docs/install.md](docs/install.md)**.
 
 ## Quick start
 
