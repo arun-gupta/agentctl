@@ -52,6 +52,10 @@ CI runs all of the above on every push and pull request (`.github/workflows/go.y
 - **No new adapter stubs** unless the agent CLI has a stable non-interactive launch mechanism (see [#16](https://github.com/arun-gupta/agentctl/issues/16)).
 - **Do not bump the Go toolchain version** incidentally while fixing something else.
 
+## Merging
+
+- **Never invoke `gh pr merge` directly.** Open the PR and ask the user to merge it manually.
+
 ## PR hygiene
 
 - One logical change per PR; no unrelated cleanups.
