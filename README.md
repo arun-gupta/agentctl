@@ -42,8 +42,9 @@ agentctl cleanup-merged 42
 ## Documentation
 
 - **[docs/install.md](docs/install.md)** — prerequisites, layout, install paths, releases  
+- **[docs/cli.md](docs/cli.md)** — command reference and workflows  
 - **[docs/spec-driven.md](docs/spec-driven.md)** — SDD, Spec Kit, `--no-speckit`  
-- **[docs/development.md](docs/development.md)** — CLI reference, batches, adapters, worktrees, CI  
+- **[docs/development.md](docs/development.md)** — adapters, testing, CI  
 - **[docs/build.md](docs/build.md)** — contributor build, test, coverage  
 - **[AGENTS.md](AGENTS.md)** — conventions for AI agents working in this repo  
 

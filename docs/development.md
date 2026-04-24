@@ -1,58 +1,10 @@
 # Development
 
-Contributor-oriented notes: full CLI reference, workflows, adapters, layout, and CI. For **install and prerequisites**, see [install.md](install.md). For **SDD and Spec Kit**, see [spec-driven.md](spec-driven.md).
+Contributor-oriented notes: adapter contracts, worktree layout, testing, and CI.
 
-## Spec-driven development and SpecKit
-
-The default `agentctl spawn` workflow is **SDD with a human checkpoint**: the agent runs **Stage 1** (write a spec), stops for your approval or revision (`approve-spec` / `revise-spec` when headless), then **Stage 2** (plan, tasks, implement) and opens a PR. That flow is implemented in terms of [Spec Kit](https://github.com/github/spec-kit)—the kickoff tells the agent to use `/speckit.specify`, `/speckit.plan`, `/speckit.tasks`, and `/speckit.implement`, and `agentctl` infers pause state from files under `specs/` (for example `spec.md` vs `plan.md` / `tasks.md`).
-
-**agentctl does not install or vendor Spec Kit.** The **target repository** (and your agent setup, e.g. Claude Code slash commands) must already support that SpecKit-style lifecycle. If your repo is not set up for it, use **`--no-speckit`** on `spawn` so the agent skips that lifecycle and works straight toward a PR with no spec-review pause.
-
-## Usage
-
-```
-Provision an isolated agent worktree for an issue and launch a coding agent in it.
-
-Usage:
-  agentctl spawn [--agent <name>] [--headless] [--no-speckit] <issue-number> [slug]
-  agentctl approve-spec        <issue-number>
-  agentctl revise-spec         <issue-number> <feedback>
-  agentctl discard             [<issue-number>]
-  agentctl cleanup-merged      [<issue-number>]
-  agentctl cleanup-all-merged
-  agentctl status
-
-Flags (spawn):
-  --agent <name>         Select coding agent adapter (default: claude).
-  --headless             Run agent in background (log -> agent.log)
-  --no-speckit           Skip SpecKit lifecycle; agent opens a PR directly (no spec pause)
-
-Subcommands:
-  approve-spec           Release the spec-review pause for a paused headless spawn
-  revise-spec            Send non-empty revision feedback to a paused spawn
-  discard                Discard worktree + delete local/remote branch (unrecoverable; prompts for confirmation)
-  cleanup-merged         Post-merge: pull main, remove worktree, delete local+remote branch
-  cleanup-all-merged     Batch sweep: run cleanup-merged on every worktree whose PR is MERGED
-  status                 Compact table: issue, branch, agent, port, spec state, PR state.
-  status --verbose       Full table: adds PATH, DEV-PID, AGENT-PID, SESSION.
-  -h, --help             Show help and exit
-```
-
-### Batch workflow
-
-```bash
-# Spawn three issues in parallel (headless)
-for i in 210 211 212; do agentctl spawn --headless "$i"; done
-
-# Approve all specs once you've reviewed them
-for i in 210 211 212; do agentctl approve-spec "$i"; done
-
-# Sweep up everything that's been merged
-agentctl cleanup-all-merged
-
-# Check the status of all active worktrees
-agentctl status
-```
+For user-facing command docs and operating workflows, see **[cli.md](cli.md)**.
+For install and prerequisites, see **[install.md](install.md)**.
+For SDD and Spec Kit behavior, see **[spec-driven.md](spec-driven.md)**.
 
 ## Adapter interface
 

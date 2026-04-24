@@ -18,4 +18,5 @@ If the repo is not set up for it, use **`agentctl spawn --no-speckit`** so the a
 ## Related
 
 - [install.md](install.md) — prerequisites and installing `agentctl`
-- [development.md](development.md) — CLI usage, batch flows, adapters, worktree layout
+- [cli.md](cli.md) — CLI usage and workflows
+- [development.md](development.md) — adapters, testing, and CI
