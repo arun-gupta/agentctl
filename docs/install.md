@@ -37,7 +37,7 @@ The **`agentctl` binary must live in the same directory as the `agents/` folder*
 | Requirement | Purpose |
 |-------------|---------|
 | `codex` CLI | required only when using `--agent codex` (`npm install -g @openai/codex`) |
-| `gh copilot` | intended for `--agent copilot` (stub) |
+| GitHub Copilot CLI | required only when using `--agent copilot` once the adapter is implemented; install from [GitHub Copilot CLI](https://github.com/features/copilot/cli) (`npm install -g @github/copilot` or install script) |
 | Go | only to build from source (see `go.mod`) |
 
 ## Prebuilt binaries — GitHub Releases (stable)
