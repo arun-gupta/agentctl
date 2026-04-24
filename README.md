@@ -17,6 +17,7 @@ agents/
   claude.sh       ← Claude Code adapter
   codex.sh        ← OpenAI Codex CLI adapter
   copilot.sh      ← GitHub Copilot adapter (stub — not yet implemented)
+  gemini.sh       ← Google Gemini CLI adapter
 ```
 
 The **`agentctl` binary must live in the same directory as the `agents/` folder** (the executable’s directory is used to resolve adapter paths). A normal clone + `go build` from repo root satisfies that.
@@ -30,6 +31,7 @@ The **`agentctl` binary must live in the same directory as the `agents/` folder*
 | `gh` CLI | PR management (`cleanup-merged`, `status`), slug-from-title |
 | `claude` CLI | required when using the `claude` adapter (default) |
 | `codex` CLI | required when using the `codex` adapter (`npm install -g @openai/codex`) |
+| `gemini` CLI | required when using the `gemini` adapter (`npm install -g @google/gemini-cli`); auth via `GEMINI_API_KEY` |
 | SpecKit (or equivalent) in the **target repo** | Needed for the default SDD flow (see above). `agentctl` does not install or verify it. Use `--no-speckit` when the repo is not set up for that workflow. |
 | GitHub Copilot CLI (`gh copilot`) | optional; intended for the `copilot` adapter (stub until non-interactive launch/resume exists) |
 | Go | only if you build from source (see `go.mod` for the toolchain version) |
