@@ -20,8 +20,6 @@ export PATH="$(pwd)/agentctl:$PATH"
 
 For other platforms, download the matching archive from the [Releases page](https://github.com/arun-gupta/agentctl/releases).
 
-**Latest build** — per-commit snapshot artifacts are published on every push to `main` via [Actions → snapshot](https://github.com/arun-gupta/agentctl/actions/workflows/snapshot.yml) (14-day retention).
-
 **Build from source:**
 
 ```bash
