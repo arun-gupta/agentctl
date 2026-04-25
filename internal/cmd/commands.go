@@ -913,10 +913,9 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 		select {
 		case <-sigCh:
 			signal.Stop(sigCh)
-			process.Kill(pidStr)
-			time.Sleep(200 * time.Millisecond)
 			_ = tail.Process.Kill()
 			_ = tail.Wait()
+			fmt.Printf("\nagent still running in background (pid %d)\n", pid)
 			return nil
 		case <-time.After(500 * time.Millisecond):
 		}
