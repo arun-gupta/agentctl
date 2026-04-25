@@ -961,5 +961,7 @@ func agentResume(adapterName, wtPath, sessionID, prompt string) error {
 		return fmt.Errorf("agent resume failed to start: %w", err)
 	}
 	logFile.Close()
-	return resumeCmd.Process.Release()
+	// Release our reference to the process handle; the agent runs independently.
+	_ = resumeCmd.Process.Release()
+	return nil
 }

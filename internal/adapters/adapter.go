@@ -271,12 +271,10 @@ func listDir(dir string) []string {
 func loadBuiltin(name string) (*Adapter, error) {
 	data, err := builtinFS.ReadFile("builtin/" + name + ".yml")
 	if err != nil {
-		available := listBuiltins()
 		all := List()
 		if len(all) == 0 {
 			return nil, fmt.Errorf("unknown adapter: %s. Available: none", name)
 		}
-		_ = available
 		return nil, fmt.Errorf("unknown adapter: %s. Available: %s", name, strings.Join(all, " "))
 	}
 	return load(data, "builtin/"+name+".yml")
