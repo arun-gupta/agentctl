@@ -21,10 +21,13 @@ import (
 	"github.com/arun-gupta/agentctl/internal/cmd"
 )
 
+var version = "dev"
+
 func main() {
 	root := &cobra.Command{
-		Use:   "agentctl",
-		Short: "Provision isolated git worktrees per issue and launch coding agents",
+		Use:     "agentctl",
+		Version: version,
+		Short:   "Provision isolated git worktrees per issue and launch coding agents",
 		Long: `agentctl provisions isolated git worktrees per GitHub issue and launches
 coding agents inside each one. It supports multiple agent back-ends via
 a simple adapter registry and follows spec-driven development (SDD) by default.`,
