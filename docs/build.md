@@ -104,14 +104,39 @@ go build -trimpath -ldflags="-s -w -X main.version=<tag>" -o dist/agentctl ./cmd
 
 ## Releasing
 
-To publish a new release and trigger the binary build workflow, create and push a `v*` tag:
+Push a `v*` tag to publish a new release:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
-This triggers the [`release` workflow](../.github/workflows/release.yml), which builds archives for all supported platforms and publishes them as a GitHub Release. Use `v<major>.<minor>.0` for a new release (e.g. `v0.1.0`, `v0.2.0`).
+This triggers a chain of three automated workflows:
+
+```
+tag push
+  └─▶ release workflow        — builds archives for all platforms, publishes GitHub Release
+        └─▶ bump-homebrew      — opens a PR in homebrew-tap with updated version + SHA256s
+              └─▶ tap CI       — brew audit + brew install smoke test on the bump PR
+```
+
+**release workflow** ([`.github/workflows/release.yml`](../.github/workflows/release.yml))
+- Builds `agentctl` for Linux/macOS/Windows × amd64/arm64
+- Publishes archives (`agentctl-<os>-<arch>.tar.gz` / `.zip`) as release assets
+- Generates `checksums.txt` (SHA256 per archive) and includes it in the release
+
+**bump-homebrew workflow** ([`.github/workflows/bump-homebrew.yml`](../.github/workflows/bump-homebrew.yml))
+- Triggered automatically when the GitHub Release is published
+- Downloads `checksums.txt` from the new release
+- Patches `version` and `sha256` values in `Formula/agentctl.rb` in [homebrew-tap](https://github.com/arun-gupta/homebrew-tap)
+- Opens a PR (`bump/agentctl-vX.Y.Z`) in homebrew-tap for review
+- Requires the `HOMEBREW_TAP_TOKEN` secret (fine-grained PAT scoped to homebrew-tap with contents + pull-requests write)
+
+**tap CI** ([homebrew-tap `.github/workflows/ci.yml`](https://github.com/arun-gupta/homebrew-tap/blob/main/.github/workflows/ci.yml))
+- Runs `brew audit --strict agentctl` on every push and PR
+- Runs `brew install arun-gupta/tap/agentctl` and `agentctl --version` smoke test
+
+Merge the bump PR in homebrew-tap once tap CI is green. Use `v<major>.<minor>.0` for a new release (e.g. `v0.2.0`, `v0.3.0`).
 
 ## CI
 
