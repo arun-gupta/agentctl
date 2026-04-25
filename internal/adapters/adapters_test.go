@@ -214,16 +214,8 @@ func TestResumeCmd_structured_usesResumeID(t *testing.T) {
 // ─── resolution chain ─────────────────────────────────────────────────────────
 
 func TestGet_userLevelOverridesBuiltin(t *testing.T) {
-	// Write a user-level adapter that overrides the built-in "claude"
 	cfgDir := t.TempDir()
-	adapterDir := filepath.Join(cfgDir, "agentctl", "adapters")
-	if err := os.MkdirAll(adapterDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(adapterDir, "claude.yml"),
-		[]byte("binary: custom-claude\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeAdapter(t, filepath.Join(cfgDir, "agentctl", "adapters"), "claude.yml", "binary: custom-claude\n")
 	t.Setenv("XDG_CONFIG_HOME", cfgDir)
 
 	a, err := adapters.Get("claude")
@@ -236,16 +228,8 @@ func TestGet_userLevelOverridesBuiltin(t *testing.T) {
 }
 
 func TestGet_projectLocalOverridesUserLevel(t *testing.T) {
-	// Create a temp dir to act as the working directory with a project-local adapter
 	tmpDir := t.TempDir()
-	adapterDir := filepath.Join(tmpDir, ".agentctl", "adapters")
-	if err := os.MkdirAll(adapterDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(adapterDir, "myagent.yml"),
-		[]byte("binary: project-myagent\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeAdapter(t, filepath.Join(tmpDir, ".agentctl", "adapters"), "myagent.yml", "binary: project-myagent\n")
 
 	orig, err := os.Getwd()
 	if err != nil {
@@ -268,17 +252,8 @@ func TestGet_projectLocalOverridesUserLevel(t *testing.T) {
 func TestGet_duplicateExtension_ymlWins(t *testing.T) {
 	tmpDir := t.TempDir()
 	adapterDir := filepath.Join(tmpDir, ".agentctl", "adapters")
-	if err := os.MkdirAll(adapterDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(adapterDir, "dup.yml"),
-		[]byte("binary: from-yml\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(adapterDir, "dup.yaml"),
-		[]byte("binary: from-yaml\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeAdapter(t, adapterDir, "dup.yml", "binary: from-yml\n")
+	writeAdapter(t, adapterDir, "dup.yaml", "binary: from-yaml\n")
 
 	orig, err := os.Getwd()
 	if err != nil {
@@ -312,18 +287,8 @@ func TestGet_duplicateExtension_ymlWins(t *testing.T) {
 func TestList_userLevelShadowsBuiltin(t *testing.T) {
 	cfgDir := t.TempDir()
 	adapterDir := filepath.Join(cfgDir, "agentctl", "adapters")
-	if err := os.MkdirAll(adapterDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// shadow "claude" and add a new "myagent"
-	if err := os.WriteFile(filepath.Join(adapterDir, "claude.yml"),
-		[]byte("binary: custom-claude\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(adapterDir, "myagent.yml"),
-		[]byte("binary: myagent\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeAdapter(t, adapterDir, "claude.yml", "binary: custom-claude\n")
+	writeAdapter(t, adapterDir, "myagent.yml", "binary: myagent\n")
 	t.Setenv("XDG_CONFIG_HOME", cfgDir)
 
 	names := adapters.List()
@@ -353,14 +318,7 @@ func TestList_userLevelShadowsBuiltin(t *testing.T) {
 
 func TestLoad_missingBinary(t *testing.T) {
 	tmpDir := t.TempDir()
-	adapterDir := filepath.Join(tmpDir, ".agentctl", "adapters")
-	if err := os.MkdirAll(adapterDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(adapterDir, "nobinary.yml"),
-		[]byte("prompt: -p\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeAdapter(t, filepath.Join(tmpDir, ".agentctl", "adapters"), "nobinary.yml", "prompt: -p\n")
 
 	orig, err := os.Getwd()
 	if err != nil {
@@ -462,6 +420,18 @@ func TestCheckBinary_notFound_noHint(t *testing.T) {
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
+
+// writeAdapter creates an adapter file at dir/filename with the given YAML content.
+// It creates the directory if needed and fails the test on any error.
+func writeAdapter(t *testing.T, dir, filename, content string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, filename), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // captureStderr temporarily redirects os.Stderr so the provided function's
 // stderr writes can be inspected. Not safe for parallel tests.

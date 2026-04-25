@@ -67,18 +67,7 @@ func (a *Adapter) LaunchCmd(kickoff, sessionID string) *exec.Cmd {
 			"{session_id}": sessionID,
 		})
 	}
-	promptFlag := a.Prompt
-	if promptFlag == "" {
-		promptFlag = "-p"
-	}
-	parts := strings.Fields(a.Binary)
-	args := make([]string, 0, len(parts)+4)
-	args = append(args, parts[1:]...)
-	args = append(args, promptFlag, kickoff)
-	if a.Session != "" && a.SessionType != "directory" {
-		args = append(args, a.Session, sessionID)
-	}
-	return exec.Command(parts[0], args...)
+	return a.buildStructuredCmd(kickoff, a.Session, sessionID)
 }
 
 // ResumeCmd returns an *exec.Cmd that resumes the agent with a new prompt.
@@ -91,20 +80,31 @@ func (a *Adapter) ResumeCmd(prompt, sessionID string) *exec.Cmd {
 			"{kickoff}":    prompt,
 		})
 	}
-	promptFlag := a.Prompt
-	if promptFlag == "" {
-		promptFlag = "-p"
-	}
 	resumeID := a.ResumeID
 	if resumeID == "" {
 		resumeID = a.Session
 	}
+	return a.buildStructuredCmd(prompt, resumeID, sessionID)
+}
+
+// effectivePromptFlag returns the configured prompt flag, defaulting to "-p".
+func (a *Adapter) effectivePromptFlag() string {
+	if a.Prompt != "" {
+		return a.Prompt
+	}
+	return "-p"
+}
+
+// buildStructuredCmd assembles an *exec.Cmd from the adapter's structured fields.
+// text is the prompt/kickoff text; sessionFlag and sessionID are appended when
+// sessionFlag is non-empty and SessionType is not "directory".
+func (a *Adapter) buildStructuredCmd(text, sessionFlag, sessionID string) *exec.Cmd {
 	parts := strings.Fields(a.Binary)
 	args := make([]string, 0, len(parts)+4)
 	args = append(args, parts[1:]...)
-	args = append(args, promptFlag, prompt)
-	if resumeID != "" && a.SessionType != "directory" {
-		args = append(args, resumeID, sessionID)
+	args = append(args, a.effectivePromptFlag(), text)
+	if sessionFlag != "" && a.SessionType != "directory" {
+		args = append(args, sessionFlag, sessionID)
 	}
 	return exec.Command(parts[0], args...)
 }
