@@ -77,7 +77,6 @@ func (a *Adapter) ResumeCmd(prompt, sessionID string) *exec.Cmd {
 		return buildFromTemplate(a.ResumeCmdTemplate, map[string]string{
 			"{prompt}":     prompt,
 			"{session_id}": sessionID,
-			"{kickoff}":    prompt,
 		})
 	}
 	resumeID := a.ResumeID

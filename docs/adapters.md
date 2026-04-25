@@ -57,9 +57,17 @@ The adapter name is always the filename stem (`cursor.yml` → `cursor`). There 
 
 Placeholders must be standalone tokens (surrounded by whitespace):
 
+#### `launch` placeholders
+
 | Placeholder | Value |
 |-------------|-------|
 | `{kickoff}` | Multi-line kickoff prompt |
+| `{session_id}` | UUID assigned by agentctl |
+
+#### `resume_cmd` placeholders
+
+| Placeholder | Value |
+|-------------|-------|
 | `{prompt}` | Resume/revision prompt |
 | `{session_id}` | UUID assigned by agentctl |
 
