@@ -8,7 +8,7 @@ For SDD and Spec Kit behavior, see **[spec-driven.md](spec-driven.md)**.
 
 ## Adapter interface
 
-Each adapter is a Bash file in the `agents/` directory that `agentctl` sources via Bash at runtime. An adapter **must** implement three functions:
+Each adapter is a Bash file in the `agents/` directory that `agentctl` sources via Bash at runtime. An adapter **must** implement two functions:
 
 ### `agent_launch(wt, issue, port, session_id, kickoff, headless)`
 
@@ -34,17 +34,6 @@ Resumes a paused headless agent with new instructions.
 | `wt` | Absolute path to the linked worktree |
 | `prompt` | Revision feedback string |
 
-### `agent_pause_state(wt, issue)` → stdout
-
-Returns a single-word state string based on the presence of spec artefacts in `$wt/specs/`:
-
-| Return value | Meaning |
-|-------------|---------|
-| `no-spec` | No spec directory found |
-| `paused` | `spec.md` exists but no `plan.md` or `tasks.md` |
-| `in-progress` | `plan.md` exists but no `tasks.md` |
-| `done` | `tasks.md` exists |
-
 ### Naming convention
 
 The file must be named `agents/<name>.sh`. It is selected with `agentctl spawn --agent <name>`. Use `agentctl spawn --help` to see flags; available adapters are the `*.sh` files under `agents/`.
@@ -69,21 +58,6 @@ agent_launch() {
 agent_resume() {
   local wt="$1" prompt="$2"
   ( cd "$wt" && nohup my-bot --resume --message "$prompt" >> agent.log 2>&1 & )
-}
-
-agent_pause_state() {
-  local wt="$1" issue="$2"
-  local state="no-spec"
-  if [[ -n "${issue:-}" ]] && compgen -G "$wt/specs/${issue}-*/spec.md" > /dev/null 2>&1; then
-    if compgen -G "$wt/specs/${issue}-*/tasks.md" > /dev/null 2>&1; then
-      state="done"
-    elif compgen -G "$wt/specs/${issue}-*/plan.md" > /dev/null 2>&1; then
-      state="in-progress"
-    else
-      state="paused"
-    fi
-  fi
-  echo "$state"
 }
 ```
 

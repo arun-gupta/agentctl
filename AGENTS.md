@@ -45,7 +45,7 @@ CI runs all of the above on every push and pull request (`.github/workflows/go.y
 ## Constraints
 
 - **No direct commits.** PRs only (see Workflow above).
-- **Adapter interface is stable.** Each `agents/<name>.sh` must export exactly `agent_launch`, `agent_resume`, and `agent_pause_state`. Signatures are in `docs/development.md`. Do not rename or remove parameters.
+- **Adapter interface is stable.** Each `agents/<name>.sh` must export exactly `agent_launch` and `agent_resume`. Signatures are in `docs/development.md`. Do not rename or remove parameters.
 - **Co-location contract.** Do not move `agentctl` or `agents/` independently; adapter resolution is path-based.
 - **Spec artefact paths.** Pause-state logic depends on `specs/<issue>-*/spec.md`, `plan.md`, `tasks.md`. Changing these paths requires updating all three adapters and `internal/state` in the same PR.
 - **No new top-level commands** without a corresponding issue and discussion.

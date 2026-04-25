@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # OpenCode CLI adapter for agentctl
-# Implements: agent_launch, agent_resume, agent_pause_state
+# Implements: agent_launch, agent_resume
 #
 # Requires the OpenCode CLI (https://opencode.ai).
 # Install: npm install -g opencode@latest
@@ -37,19 +37,4 @@ agent_resume() {
     exit 1
   fi
   ( cd "$wt" && nohup opencode run -p "$prompt" --session "$session_id" >> agent.log 2>&1 & )
-}
-
-agent_pause_state() {
-  local wt="$1" issue="$2"
-  local state="no-spec"
-  if [[ -n "${issue:-}" ]] && compgen -G "$wt/specs/${issue}-*/spec.md" > /dev/null 2>&1; then
-    if compgen -G "$wt/specs/${issue}-*/tasks.md" > /dev/null 2>&1; then
-      state="done"
-    elif compgen -G "$wt/specs/${issue}-*/plan.md" > /dev/null 2>&1; then
-      state="in-progress"
-    else
-      state="paused"
-    fi
-  fi
-  echo "$state"
 }
