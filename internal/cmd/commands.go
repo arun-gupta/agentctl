@@ -17,7 +17,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/arun-gupta/agentctl/internal/agents"
+	"github.com/arun-gupta/agentctl/internal/adapters"
 	"github.com/arun-gupta/agentctl/internal/git"
 	"github.com/arun-gupta/agentctl/internal/process"
 	"github.com/arun-gupta/agentctl/internal/state"
@@ -824,9 +824,9 @@ func resolveIssueArg(flag string, args []string) (string, error) {
 	return issue, nil
 }
 
-// validateAdapter checks that an embedded adapter script exists.
+// validateAdapter checks that an adapter exists and is loadable.
 func validateAdapter(name string) error {
-	_, err := agents.Read(name)
+	_, err := adapters.Get(name)
 	return err
 }
 
@@ -847,31 +847,42 @@ STAGE 2: After approval, run /speckit.plan, then /speckit.tasks, then /speckit.i
 Dev server is already running on port %s.`, issue, portStr)
 }
 
-// launchAgent inlines the embedded adapter, backgrounds the agent, then either
-// returns immediately (headless) or streams agent.log to stdout until the agent
-// exits (non-headless).
+// launchAgent starts the coding agent in the background via the named adapter,
+// then either returns immediately (headless) or streams agent.log to stdout
+// until the agent exits (non-headless).
 func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, headless bool) error {
-	adapterScript, err := agents.Read(adapterName)
+	ad, err := adapters.Get(adapterName)
 	if err != nil {
 		return err
 	}
 
-	script := fmt.Sprintf("set -euo pipefail\n%s\nagent_launch %q %q %q %q %q\n",
-		adapterScript, wtPath, issue, port, sessionID, kickoff)
-
-	cmd := exec.Command("bash", "-c", script)
-	cmd.Dir = wtPath
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("agent failed to start: %w", err)
-	}
-
-	agentFile := filepath.Join(wtPath, ".agent")
-	pid, err := waitForPID(agentFile, 5*time.Second)
-	if err != nil {
-		return err
-	}
+	agentCmd := ad.LaunchCmd(kickoff, sessionID)
+	agentCmd.Dir = wtPath
 
 	logPath := filepath.Join(wtPath, "agent.log")
+	logFile, err := os.Create(logPath)
+	if err != nil {
+		return fmt.Errorf("create agent.log: %w", err)
+	}
+	agentCmd.Stdout = logFile
+	agentCmd.Stderr = logFile
+	detachProcess(agentCmd)
+
+	if err := agentCmd.Start(); err != nil {
+		logFile.Close()
+		return fmt.Errorf("agent failed to start: %w", err)
+	}
+	// The child process inherits the fd; close our copy.
+	logFile.Close()
+
+	pid := agentCmd.Process.Pid
+	// Release our reference to the process handle; monitoring is done via PID.
+	_ = agentCmd.Process.Release()
+
+	// Record the agent PID in .agent (core fields were already written by runSpawn).
+	if err := state.AppendKey(wtPath, "agent-pid", strconv.Itoa(pid)); err != nil {
+		return err
+	}
 
 	if headless {
 		fmt.Printf("Agent PID %d — log: %s\n", pid, logPath)
@@ -914,25 +925,6 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 	return nil
 }
 
-// waitForPID polls agentFile until it contains an "agent-pid=<n>" line or the
-// timeout elapses.
-func waitForPID(agentFile string, timeout time.Duration) (int, error) {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if data, err := os.ReadFile(agentFile); err == nil {
-			for _, line := range strings.Split(string(data), "\n") {
-				if val, ok := strings.CutPrefix(line, "agent-pid="); ok {
-					if pid, err := strconv.Atoi(strings.TrimSpace(val)); err == nil && pid > 0 {
-						return pid, nil
-					}
-				}
-			}
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return 0, fmt.Errorf("agent did not write PID to %s within %s", agentFile, timeout)
-}
-
 // waitForFile polls until path exists or the timeout elapses.
 func waitForFile(path string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
@@ -945,21 +937,29 @@ func waitForFile(path string, timeout time.Duration) error {
 	return fmt.Errorf("%s did not appear within %s", path, timeout)
 }
 
-// agentResume inlines the embedded adapter and calls its agent_resume function.
+// agentResume starts the coding agent in resume mode using the named adapter.
 func agentResume(adapterName, wtPath, sessionID, prompt string) error {
-	adapterScript, err := agents.Read(adapterName)
+	ad, err := adapters.Get(adapterName)
 	if err != nil {
 		return err
 	}
 
-	script := fmt.Sprintf(`set -euo pipefail
-%s
-agent_resume %q %q
-`, adapterScript, wtPath, prompt)
+	resumeCmd := ad.ResumeCmd(prompt, sessionID)
+	resumeCmd.Dir = wtPath
 
-	cmd := exec.Command("bash", "-c", script)
-	cmd.Dir = wtPath
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	logFile, err := os.OpenFile(filepath.Join(wtPath, "agent.log"),
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return fmt.Errorf("open agent.log for append: %w", err)
+	}
+	resumeCmd.Stdout = logFile
+	resumeCmd.Stderr = logFile
+	detachProcess(resumeCmd)
+
+	if err := resumeCmd.Start(); err != nil {
+		logFile.Close()
+		return fmt.Errorf("agent resume failed to start: %w", err)
+	}
+	logFile.Close()
+	return resumeCmd.Process.Release()
 }

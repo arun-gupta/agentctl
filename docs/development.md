@@ -5,68 +5,37 @@ Contributor-oriented notes: adapter contracts, worktree layout, testing, and CI.
 For user-facing command docs and operating workflows, see **[cli.md](cli.md)**.
 For install and prerequisites, see **[install.md](install.md)**.
 For SDD and Spec Kit behavior, see **[spec-driven.md](spec-driven.md)**.
+For the YAML adapter schema, lookup hierarchy, and drop-in locations, see **[adapters.md](adapters.md)**.
 
 ## Adapter interface
 
-Each adapter is a Bash file in the `agents/` directory that `agentctl` sources via Bash at runtime. An adapter **must** implement two functions:
+Adapters are YAML files that describe how to launch and resume a coding agent. See **[adapters.md](adapters.md)** for the full schema and examples.
 
-### `agent_launch(wt, issue, port, session_id, kickoff)`
+### Adding a new adapter
 
-Starts the coding agent in the worktree `$wt`. The adapter **must** always background the agent and write a fresh `$wt/.agent` file containing `agent-pid=<pid>` and `session-id=<session_id>` lines. Go owns the headless/non-headless distinction after the agent is started.
+Drop a YAML file in one of the lookup locations:
 
-| Parameter | Description |
-|-----------|-------------|
-| `wt` | Absolute path to the linked worktree |
-| `issue` | Issue number (string) |
-| `port` | Reserved dev-server port |
-| `session_id` | Unique session identifier (UUID) |
-| `kickoff` | Multi-line kickoff prompt string |
+1. **Project-local**: `.agentctl/adapters/<name>.yml` (relative to cwd)
+2. **User-level**: `~/.config/agentctl/adapters/<name>.yml`
+3. **Built-in** (PR required): `internal/adapters/builtin/<name>.yml`
 
-### `agent_resume(wt, prompt)`
+The adapter name is the filename stem. Select it with `agentctl spawn --agent <name>`.
 
-Resumes a paused headless agent with new instructions.
+### Minimum viable adapter
 
-| Parameter | Description |
-|-----------|-------------|
-| `wt` | Absolute path to the linked worktree |
-| `prompt` | Revision feedback string |
-
-### Naming convention
-
-The file must be named `agents/<name>.sh`. It is selected with `agentctl spawn --agent <name>`. Use `agentctl spawn --help` to see flags; available adapters are the `*.sh` files under `agents/`.
-
-### Example skeleton
-
-```bash
-#!/usr/bin/env bash
-# my-bot adapter for agentctl
-
-agent_launch() {
-  local wt="$1" _issue="$2" _port="$3" session_id="$4" kickoff="$5"
-  cd "$wt" || exit 1
-  nohup my-bot --session "$session_id" -p "$kickoff" > agent.log 2>&1 &
-  printf 'agent-pid=%s\nsession-id=%s\n' "$!" "$session_id" > .agent
-}
-
-agent_resume() {
-  local wt="$1" prompt="$2"
-  ( cd "$wt" && nohup my-bot --resume --message "$prompt" >> agent.log 2>&1 & )
-}
+```yaml
+binary: my-bot
 ```
 
-## Adapter notes
+This gives `my-bot -p {kickoff}` on launch and `my-bot -p {prompt}` on resume.
 
-### GitHub Copilot CLI (`copilot`)
+### Full example
 
-| Property | Detail |
-|----------|--------|
-| Binary | `copilot` |
-| Install | `npm install -g @github/copilot` |
-| Auth | `GITHUB_TOKEN` env var, or run `copilot auth` interactively |
-| Non-interactive flag | `-p / --prompt` |
-| Session continuity | `--session-id <uuid>` on both launch and resume |
-| Headless | Runs safely under `nohup`; does not require a TTY |
-| Resume limitation | `--session-id` support depends on the installed CLI version. If the flag is not recognised, resume with `cd <worktree> && copilot` manually. |
+```yaml
+binary: my-bot
+launch: my-bot --init {kickoff} --id {session_id}
+resume_cmd: my-bot --continue {prompt} --id {session_id}
+```
 
 ## Worktree layout
 
@@ -116,7 +85,6 @@ CI uploads `coverage.out` as an artifact on every run (see `.github/workflows/go
 This repository runs several GitHub Actions workflows on every push and pull request:
 
 - **[go](../.github/workflows/go.yml)** — `go build ./...`, `go test -cover ./...`, `go vet ./...`
-- **[shellcheck](../.github/workflows/shellcheck.yml)** — lints the `agents/` Bash adapters with [ShellCheck](https://www.shellcheck.net/)
 - **[snapshot](../.github/workflows/snapshot.yml)** — cross-compiles `agentctl` for all supported platforms on every push to `main` and uploads archives as workflow artifacts (14-day retention); see [install.md](install.md#prebuilt-binaries----per-commit-snapshots)
 - **[release](../.github/workflows/release.yml)** — builds and attaches release archives when a `v*` tag is pushed
 
@@ -125,5 +93,4 @@ This repository runs several GitHub Actions workflows on every push and pull req
 go build ./...
 go test -cover ./...
 go vet ./...
-shellcheck agents/claude.sh agents/copilot.sh agents/codex.sh agents/gemini.sh agents/opencode.sh
 ```
