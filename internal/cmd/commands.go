@@ -23,17 +23,17 @@ import (
 	"github.com/arun-gupta/agentctl/internal/state"
 )
 
-// ─── spawn ────────────────────────────────────────────────────────────────────
+// ─── start ────────────────────────────────────────────────────────────────────
 
-// NewSpawnCmd creates the `spawn` subcommand.
-func NewSpawnCmd() *cobra.Command {
+// NewStartCmd creates the `start` subcommand.
+func NewStartCmd() *cobra.Command {
 	var (
 		agentName  string
 		headless   bool
 		noSpeckit  bool
 	)
 	c := &cobra.Command{
-		Use:   "spawn <issue> [slug]",
+		Use:   "start <issue> [slug]",
 		Short: "Provision a worktree for an issue and launch a coding agent",
 		Long: `Provision an isolated git worktree for a GitHub issue and launch a
 coding agent inside it. By default the agent follows the SpecKit
@@ -48,7 +48,7 @@ directly toward a PR without a spec-review pause.`,
 			if len(args) > 1 {
 				slug = args[1]
 			}
-			return runSpawn(issue, slug, agentName, headless, noSpeckit)
+			return runStart(issue, slug, agentName, headless, noSpeckit)
 		},
 	}
 	c.Flags().StringVar(&agentName, "agent", "claude", "Coding agent adapter to use")
@@ -57,7 +57,7 @@ directly toward a PR without a spec-review pause.`,
 	return c
 }
 
-func runSpawn(issue, slug, agentName string, headless, noSpeckit bool) error {
+func runStart(issue, slug, agentName string, headless, noSpeckit bool) error {
 	// Validate the adapter exists before doing any setup work.
 	if err := validateAdapter(agentName); err != nil {
 		return err
@@ -186,7 +186,7 @@ func runSpawn(issue, slug, agentName string, headless, noSpeckit bool) error {
 func NewApproveSpecCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "approve-spec <issue>",
-		Short: "Release the spec-review pause for a paused headless spawn",
+		Short: "Release the spec-review pause for a paused headless start",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runReleasePausedSession(args[0], "proceed")
@@ -200,7 +200,7 @@ func NewApproveSpecCmd() *cobra.Command {
 func NewReviseSpecCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "revise-spec <issue> <feedback>",
-		Short: "Send non-empty revision feedback to a paused spawn",
+		Short: "Send non-empty revision feedback to a paused start",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(args[1]) == "" {
@@ -856,6 +856,10 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 		return err
 	}
 
+	if err := ad.CheckBinary(); err != nil {
+		return err
+	}
+
 	agentCmd := ad.LaunchCmd(kickoff, sessionID)
 	agentCmd.Dir = wtPath
 
@@ -879,7 +883,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 	// Release our reference to the process handle; monitoring is done via PID.
 	_ = agentCmd.Process.Release()
 
-	// Record the agent PID in .agent (core fields were already written by runSpawn).
+	// Record the agent PID in .agent (core fields were already written by runStart).
 	if err := state.AppendKey(wtPath, "agent-pid", strconv.Itoa(pid)); err != nil {
 		return err
 	}

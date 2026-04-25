@@ -1,2 +1,3 @@
 binary: opencode run
 session: --session
+install: npm install -g opencode@latest

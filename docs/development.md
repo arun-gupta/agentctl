@@ -19,7 +19,7 @@ Drop a YAML file in one of the lookup locations:
 2. **User-level**: `~/.config/agentctl/adapters/<name>.yml`
 3. **Built-in** (PR required): `internal/adapters/builtin/<name>.yml`
 
-The adapter name is the filename stem. Select it with `agentctl spawn --agent <name>`.
+The adapter name is the filename stem. Select it with `agentctl start --agent <name>`.
 
 ### Minimum viable adapter
 
@@ -39,7 +39,7 @@ resume_cmd: my-bot --continue {prompt} --id {session_id}
 
 ## Worktree layout
 
-When `agentctl spawn <issue>` runs, it creates a linked worktree at `../<repo>-<issue>-<slug>/` containing:
+When `agentctl start <issue>` runs, it creates a linked worktree at `../<repo>-<issue>-<slug>/` containing:
 
 ```
 .agent          ← key=value metadata (agent, port, session-id, agent-pid, dev-pid)
@@ -68,7 +68,7 @@ Functions in `internal/git` that shell out to the `git` CLI are tested with real
 ### What is not tested (and why)
 
 - **Cobra command wiring** (`cmd/agentctl/main.go`): the entry point is a thin dispatch layer; coverage comes from the `internal/cmd` tests above.
-- **`runSpawn`, `runCleanupMerged`, `runStatus`**: these call `gh`, `npm`, `lsof`, and `uuidgen`; stub-based integration tests are tracked in [#19](https://github.com/arun-gupta/agentctl/issues/19).
+- **`runStart`, `runCleanupMerged`, `runStatus`**: these call `gh`, `npm`, `lsof`, and `uuidgen`; stub-based integration tests are tracked in [#19](https://github.com/arun-gupta/agentctl/issues/19).
 - **`ghPRState`, `slugFromIssue`**: require a real `gh` authentication context; not suitable for CI without credentials.
 
 ### Running with coverage

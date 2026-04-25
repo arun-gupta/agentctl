@@ -2,3 +2,4 @@ binary: codex
 prompt: -q
 session: --session
 resume_id: --resume
+install: npm install -g @openai/codex

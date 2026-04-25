@@ -1,3 +1,4 @@
 binary: claude
 launch: claude --permission-mode bypassPermissions -p {kickoff} --session-id {session_id}
 resume_cmd: claude -p {prompt} --resume {session_id}
+install: npm install -g @anthropic-ai/claude-code

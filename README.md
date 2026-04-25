@@ -32,7 +32,7 @@ Run commands from your **application** repository (the primary git worktree):
 
 ```bash
 cd /path/to/your/app-repo
-agentctl spawn 42
+agentctl start 42
 agentctl approve-spec 42       # headless: after you review the spec
 agentctl cleanup-merged 42
 ```

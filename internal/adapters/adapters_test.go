@@ -1,6 +1,8 @@
 package adapters_test
 
 import (
+	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -287,12 +289,23 @@ func TestGet_duplicateExtension_ymlWins(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	a, err := adapters.Get("dup")
-	if err != nil {
-		t.Fatal(err)
+	var a *adapters.Adapter
+	stderr := captureStderr(t, func() {
+		var getErr error
+		a, getErr = adapters.Get("dup")
+		if getErr != nil {
+			t.Errorf("Get(dup) unexpected error: %v", getErr)
+		}
+	})
+
+	if a == nil {
+		t.Fatal("expected adapter, got nil")
 	}
 	if a.Binary != "from-yml" {
 		t.Errorf("expected .yml to win over .yaml, got Binary=%q", a.Binary)
+	}
+	if !strings.Contains(stderr, "warning") || !strings.Contains(stderr, ".yml") {
+		t.Errorf("expected duplicate-extension warning on stderr, got: %q", stderr)
 	}
 }
 
@@ -364,7 +377,114 @@ func TestLoad_missingBinary(t *testing.T) {
 	}
 }
 
+func TestResumeCmd_copilot_resumeIDFallsBackToSession(t *testing.T) {
+	// copilot.yml has session: --session-id but no resume_id,
+	// so ResumeCmd should fall back to using --session-id.
+	a, err := adapters.Get("copilot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := a.ResumeCmd("fix it", "sess-cp")
+	args := cmd.Args
+	assertContains(t, args, "--session-id") // falls back to Session flag
+	assertContains(t, args, "sess-cp")
+}
+
+// ─── install hints ────────────────────────────────────────────────────────────
+
+func TestBuiltins_installHints(t *testing.T) {
+	cases := []struct {
+		name    string
+		binary  string
+		install string
+	}{
+		{"claude", "claude", "npm install -g @anthropic-ai/claude-code"},
+		{"gemini", "gemini", "npm install -g @google/gemini-cli"},
+		{"opencode", "opencode", "npm install -g opencode@latest"},
+		{"codex", "codex", "npm install -g @openai/codex"},
+		{"copilot", "copilot", "npm install -g @github/copilot"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a, err := adapters.Get(tc.name)
+			if err != nil {
+				t.Fatalf("Get(%q): %v", tc.name, err)
+			}
+			first := strings.Fields(a.Binary)[0]
+			if first != tc.binary {
+				t.Errorf("first binary token = %q, want %q", first, tc.binary)
+			}
+			if a.Install != tc.install {
+				t.Errorf("Install = %q, want %q", a.Install, tc.install)
+			}
+		})
+	}
+}
+
+func TestCheckBinary_notFound(t *testing.T) {
+	a, err := adapters.LoadBytes(
+		[]byte("binary: __nonexistent_binary_xyz__\ninstall: npm install -g something\n"),
+		"test-fixture",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = a.CheckBinary()
+	if err == nil {
+		t.Fatal("expected error for missing binary, got nil")
+	}
+	if !strings.Contains(err.Error(), "__nonexistent_binary_xyz__") {
+		t.Errorf("error should mention binary name, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "npm install -g something") {
+		t.Errorf("error should include install hint, got: %v", err)
+	}
+}
+
+func TestCheckBinary_notFound_noHint(t *testing.T) {
+	a, err := adapters.LoadBytes(
+		[]byte("binary: __nonexistent_binary_xyz__\n"),
+		"test-fixture",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = a.CheckBinary()
+	if err == nil {
+		t.Fatal("expected error for missing binary, got nil")
+	}
+	if !strings.Contains(err.Error(), "__nonexistent_binary_xyz__") {
+		t.Errorf("error should mention binary name, got: %v", err)
+	}
+	if strings.Contains(err.Error(), "install") {
+		t.Errorf("error should not mention install when hint is absent, got: %v", err)
+	}
+}
+
 // ─── helpers ──────────────────────────────────────────────────────────────────
+
+// captureStderr temporarily redirects os.Stderr so the provided function's
+// stderr writes can be inspected. Not safe for parallel tests.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	t.Cleanup(func() { os.Stderr = old })
+
+	fn()
+
+	w.Close()
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, r); err != nil {
+		t.Fatal(err)
+	}
+	r.Close()
+	return buf.String()
+}
 
 func assertContains(t *testing.T, args []string, want string) {
 	t.Helper()

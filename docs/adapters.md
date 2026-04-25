@@ -46,6 +46,9 @@ launch: <string>          # default: derived from binary + prompt + session
 # Full resume command override. Ignores binary/prompt/resume_id for resume.
 # launch still falls back to structured fields if not set.
 resume_cmd: <string>      # default: derived from binary + prompt + resume_id
+
+# Install hint shown when the binary is not found on PATH.
+install: <string>         # optional; e.g. "npm install -g @anthropic-ai/claude-code"
 ```
 
 The adapter name is always the filename stem (`cursor.yml` → `cursor`). There is no `name:` field.
@@ -99,6 +102,7 @@ The binary ships with these five built-in adapters. Override any by dropping a s
 binary: claude
 launch: claude --permission-mode bypassPermissions -p {kickoff} --session-id {session_id}
 resume_cmd: claude -p {prompt} --resume {session_id}
+install: npm install -g @anthropic-ai/claude-code
 ```
 
 ### gemini
@@ -106,6 +110,7 @@ resume_cmd: claude -p {prompt} --resume {session_id}
 ```yaml
 binary: gemini
 session_type: directory
+install: npm install -g @google/gemini-cli
 ```
 
 ### opencode
@@ -113,6 +118,7 @@ session_type: directory
 ```yaml
 binary: opencode run
 session: --session
+install: npm install -g opencode@latest
 ```
 
 ### codex
@@ -122,6 +128,7 @@ binary: codex
 prompt: -q
 session: --session
 resume_id: --resume
+install: npm install -g @openai/codex
 ```
 
 ### copilot
@@ -129,6 +136,7 @@ resume_id: --resume
 ```yaml
 binary: copilot
 session: --session-id
+install: npm install -g @github/copilot
 ```
 
 ## Drop-in locations
@@ -171,4 +179,4 @@ When `launch` / `resume_cmd` are not set, commands are assembled from structured
 | Invalid YAML | Error at load time with file path |
 | Unknown fields | Ignored (forward compatibility) |
 | Both `.yml` and `.yaml` exist | `.yml` wins, warning to stderr |
-| Binary not on PATH | Error at invocation time |
+| Binary not on PATH | Error at invocation time with `install` hint when set |

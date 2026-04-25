@@ -1,9 +1,9 @@
 // agentctl – Go CLI for provisioning isolated git worktrees per GitHub issue
 // and launching coding agents inside each one.
 //
-// Command surface (spawn, approve-spec, …):
+// Command surface (start, approve-spec, …):
 //
-//	agentctl spawn [--agent name] [--headless] [--no-speckit] <issue> [slug]
+//	agentctl start [--agent name] [--headless] [--no-speckit] <issue> [slug]
 //	agentctl approve-spec  <issue>
 //	agentctl revise-spec   <issue> <feedback>
 //	agentctl discard       [issue]
@@ -35,7 +35,7 @@ a simple adapter registry and follows spec-driven development (SDD) by default.`
 	}
 
 	root.AddCommand(
-		cmd.NewSpawnCmd(),
+		cmd.NewStartCmd(),
 		cmd.NewApproveSpecCmd(),
 		cmd.NewReviseSpecCmd(),
 		cmd.NewDiscardCmd(),

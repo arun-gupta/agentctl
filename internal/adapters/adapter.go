@@ -40,7 +40,7 @@ type Adapter struct {
 	SessionType string `yaml:"session_type"`
 
 	// LaunchTemplate is a full launch command override. Placeholders:
-	// {kickoff}, {session_id}, {prompt}. When set, Binary/Prompt/Session are
+	// {kickoff}, {session_id}. When set, Binary/Prompt/Session are
 	// ignored for launch.
 	LaunchTemplate string `yaml:"launch"`
 
@@ -48,6 +48,10 @@ type Adapter struct {
 	// {prompt}, {session_id}, {kickoff}. When set, Binary/Prompt/ResumeID are
 	// ignored for resume.
 	ResumeCmdTemplate string `yaml:"resume_cmd"`
+
+	// Install is an optional hint shown when the binary is not found on PATH.
+	// Example: "npm install -g @anthropic-ai/claude-code"
+	Install string `yaml:"install"`
 
 	// source is the file path this adapter was loaded from (not in YAML).
 	source string
@@ -61,7 +65,6 @@ func (a *Adapter) LaunchCmd(kickoff, sessionID string) *exec.Cmd {
 		return buildFromTemplate(a.LaunchTemplate, map[string]string{
 			"{kickoff}":    kickoff,
 			"{session_id}": sessionID,
-			"{prompt}":     kickoff,
 		})
 	}
 	promptFlag := a.Prompt
@@ -104,6 +107,20 @@ func (a *Adapter) ResumeCmd(prompt, sessionID string) *exec.Cmd {
 		args = append(args, resumeID, sessionID)
 	}
 	return exec.Command(parts[0], args...)
+}
+
+// CheckBinary verifies that the adapter's binary is available on PATH.
+// Returns a clear, actionable error (including the install hint when set)
+// if the binary is not found.
+func (a *Adapter) CheckBinary() error {
+	binary := strings.Fields(a.Binary)[0]
+	if _, err := exec.LookPath(binary); err != nil {
+		if a.Install != "" {
+			return fmt.Errorf("agent binary %q not found on PATH\ninstall it with: %s", binary, a.Install)
+		}
+		return fmt.Errorf("agent binary %q not found on PATH", binary)
+	}
+	return nil
 }
 
 // buildFromTemplate splits template on whitespace and replaces tokens that
