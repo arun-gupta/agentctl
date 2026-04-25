@@ -7,9 +7,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -843,34 +847,102 @@ STAGE 2: After approval, run /speckit.plan, then /speckit.tasks, then /speckit.i
 Dev server is already running on port %s.`, issue, portStr)
 }
 
-// launchAgent inlines the embedded adapter and calls its agent_launch function.
+// launchAgent inlines the embedded adapter, backgrounds the agent, then either
+// returns immediately (headless) or streams agent.log to stdout until the agent
+// exits (non-headless).
 func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, headless bool) error {
 	adapterScript, err := agents.Read(adapterName)
 	if err != nil {
 		return err
 	}
 
-	headlessStr := "0"
-	if headless {
-		headlessStr = "1"
-	}
+	script := fmt.Sprintf("set -euo pipefail\n%s\nagent_launch %q %q %q %q %q\n",
+		adapterScript, wtPath, issue, port, sessionID, kickoff)
 
-	script := fmt.Sprintf(`set -euo pipefail
-%s
-agent_launch %q %q %q %q %q %s
-`, adapterScript, wtPath, issue, port, sessionID, kickoff, headlessStr)
-
-	var cmd *exec.Cmd
-	if headless {
-		cmd = exec.Command("bash", "-c", script)
-	} else {
-		cmd = exec.Command("bash", "-c", script)
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-	}
+	cmd := exec.Command("bash", "-c", script)
 	cmd.Dir = wtPath
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("agent failed to start: %w", err)
+	}
+
+	agentFile := filepath.Join(wtPath, ".agent")
+	pid, err := waitForPID(agentFile, 5*time.Second)
+	if err != nil {
+		return err
+	}
+
+	logPath := filepath.Join(wtPath, "agent.log")
+
+	if headless {
+		fmt.Printf("Agent PID %d — log: %s\n", pid, logPath)
+		fmt.Printf("Session ID: %s\n", sessionID)
+		fmt.Printf("Release the pause with: agentctl approve-spec %s\n", issue)
+		return nil
+	}
+
+	if err := waitForFile(logPath, 10*time.Second); err != nil {
+		return err
+	}
+
+	tail := exec.Command("tail", "-F", logPath)
+	tail.Stdout = os.Stdout
+	tail.Stderr = os.Stderr
+	if err := tail.Start(); err != nil {
+		return fmt.Errorf("tail agent.log: %w", err)
+	}
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	pidStr := strconv.Itoa(pid)
+	for process.IsAlive(pidStr) {
+		select {
+		case <-sigCh:
+			signal.Stop(sigCh)
+			process.Kill(pidStr)
+			time.Sleep(200 * time.Millisecond)
+			_ = tail.Process.Kill()
+			_ = tail.Wait()
+			return nil
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+	signal.Stop(sigCh)
+
+	time.Sleep(200 * time.Millisecond)
+	_ = tail.Process.Kill()
+	_ = tail.Wait()
+	return nil
+}
+
+// waitForPID polls agentFile until it contains an "agent-pid=<n>" line or the
+// timeout elapses.
+func waitForPID(agentFile string, timeout time.Duration) (int, error) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if data, err := os.ReadFile(agentFile); err == nil {
+			for _, line := range strings.Split(string(data), "\n") {
+				if val, ok := strings.CutPrefix(line, "agent-pid="); ok {
+					if pid, err := strconv.Atoi(strings.TrimSpace(val)); err == nil && pid > 0 {
+						return pid, nil
+					}
+				}
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return 0, fmt.Errorf("agent did not write PID to %s within %s", agentFile, timeout)
+}
+
+// waitForFile polls until path exists or the timeout elapses.
+func waitForFile(path string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("%s did not appear within %s", path, timeout)
 }
 
 // agentResume inlines the embedded adapter and calls its agent_resume function.

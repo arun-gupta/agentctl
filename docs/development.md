@@ -10,9 +10,9 @@ For SDD and Spec Kit behavior, see **[spec-driven.md](spec-driven.md)**.
 
 Each adapter is a Bash file in the `agents/` directory that `agentctl` sources via Bash at runtime. An adapter **must** implement two functions:
 
-### `agent_launch(wt, issue, port, session_id, kickoff, headless)`
+### `agent_launch(wt, issue, port, session_id, kickoff)`
 
-Starts the coding agent in the worktree `$wt`.
+Starts the coding agent in the worktree `$wt`. The adapter **must** always background the agent and write a fresh `$wt/.agent` file containing `agent-pid=<pid>` and `session-id=<session_id>` lines. Go owns the headless/non-headless distinction after the agent is started.
 
 | Parameter | Description |
 |-----------|-------------|
@@ -21,9 +21,6 @@ Starts the coding agent in the worktree `$wt`.
 | `port` | Reserved dev-server port |
 | `session_id` | Unique session identifier (UUID) |
 | `kickoff` | Multi-line kickoff prompt string |
-| `headless` | `1` = background mode, `0` = interactive |
-
-When running headless, the adapter **must** append `agent-pid=<pid>` to `$wt/.agent`.
 
 ### `agent_resume(wt, prompt)`
 
@@ -45,14 +42,10 @@ The file must be named `agents/<name>.sh`. It is selected with `agentctl spawn -
 # my-bot adapter for agentctl
 
 agent_launch() {
-  local wt="$1" issue="$2" _port="$3" session_id="$4" kickoff="$5" headless="$6"
+  local wt="$1" _issue="$2" _port="$3" session_id="$4" kickoff="$5"
   cd "$wt" || exit 1
-  if (( headless )); then
-    nohup my-bot --session "$session_id" < "$kickoff" > agent.log 2>&1 &
-    echo "agent-pid=$!" >> .agent
-  else
-    exec my-bot --session "$session_id" < "$kickoff"
-  fi
+  nohup my-bot --session "$session_id" -p "$kickoff" > agent.log 2>&1 &
+  printf 'agent-pid=%s\nsession-id=%s\n' "$!" "$session_id" > .agent
 }
 
 agent_resume() {
