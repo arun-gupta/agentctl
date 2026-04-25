@@ -3,19 +3,11 @@
 # Implements: agent_launch, agent_resume
 
 agent_launch() {
-  local wt="$1" issue="$2" _port="$3" session_id="$4" kickoff="$5" headless="$6"
-
+  local wt="$1" _issue="$2" _port="$3" session_id="$4" kickoff="$5"
   cd "$wt" || exit 1
-  if (( headless )); then
-    nohup claude -p "$kickoff" --session-id "$session_id" > agent.log 2>&1 &
-    local pid=$!
-    echo "agent-pid=$pid" >> ".agent"
-    echo "Claude (headless) PID $pid — log: $wt/agent.log"
-    echo "Session ID: $session_id (recorded in $wt/.agent)"
-    echo "Release the pause with: agentctl approve-spec $issue"
-  else
-    exec claude -p "$kickoff" --session-id "$session_id"
-  fi
+  nohup claude --permission-mode bypassPermissions \
+    -p "$kickoff" --session-id "$session_id" > agent.log 2>&1 &
+  printf 'agent-pid=%s\nsession-id=%s\n' "$!" "$session_id" > .agent
 }
 
 agent_resume() {
