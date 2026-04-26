@@ -47,7 +47,8 @@ launch: <string>          # default: derived from binary + prompt + session
 # launch still falls back to structured fields if not set.
 resume_cmd: <string>      # default: derived from binary + prompt + resume_id
 
-# Install hint shown when the binary is not found on PATH.
+# Hint shown in the error message when the binary is not found on PATH.
+# agentctl never executes this string — it is displayed to the user only.
 install: <string>         # optional; e.g. "npm install -g @anthropic-ai/claude-code"
 ```
 
