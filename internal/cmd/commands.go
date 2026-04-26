@@ -965,11 +965,12 @@ func locateOrCloneRepo(owner, repoName string) (string, error) {
 		if matchesGitHubOrigin(sibling, owner, repoName) {
 			return sibling, nil
 		}
+		return "", fmt.Errorf("directory %s exists but does not match %s/%s", sibling, owner, repoName)
 	}
 
 	// 3. Clone via gh repo clone.
 	target := filepath.Join(filepath.Dir(cwd), repoName)
-	fmt.Printf("Cloning %s/%s into %s ...\n", owner, repoName, target)
+	fmt.Fprintf(os.Stdout, "Cloning %s/%s into %s ...\n", owner, repoName, target)
 	cloneCmd := exec.Command("gh", "repo", "clone", owner+"/"+repoName, target)
 	cloneCmd.Stdout = os.Stdout
 	cloneCmd.Stderr = os.Stderr

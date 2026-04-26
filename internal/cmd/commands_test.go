@@ -331,6 +331,134 @@ func TestMatchesGitHubOrigin_noOrigin(t *testing.T) {
 	}
 }
 
+// ─── locateOrCloneRepo ───────────────────────────────────────────────────────
+
+func TestLocateOrCloneRepo_cwdMatch(t *testing.T) {
+	dir := initGitRepoWithOrigin(t, "https://github.com/myorg/myrepo.git")
+	chdirTemp(t, dir)
+
+	got, err := locateOrCloneRepo("myorg", "myrepo")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != dir {
+		t.Errorf("got %q, want %q", got, dir)
+	}
+}
+
+func TestLocateOrCloneRepo_siblingMatch(t *testing.T) {
+	// Create a parent directory to hold both CWD and sibling repos.
+	parent := t.TempDir()
+	cwdDir := filepath.Join(parent, "some-other-repo")
+	if err := os.MkdirAll(cwdDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// CWD repo does not match target.
+	cwdRepo := initGitRepoWithOrigin(t, "https://github.com/otherorg/otherrepo.git")
+	chdirTemp(t, cwdRepo)
+
+	// Sibling directory at ../myrepo relative to CWD.
+	cwd, _ := os.Getwd()
+	siblingDir := filepath.Join(filepath.Dir(cwd), "myrepo")
+	if err := os.MkdirAll(siblingDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(siblingDir) })
+	// Init a git repo with matching origin inside the sibling.
+	for _, args := range [][]string{
+		{"init"},
+		{"remote", "add", "origin", "https://github.com/myorg/myrepo.git"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = siblingDir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	got, err := locateOrCloneRepo("myorg", "myrepo")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != siblingDir {
+		t.Errorf("got %q, want %q", got, siblingDir)
+	}
+}
+
+func TestLocateOrCloneRepo_siblingWrongOrigin(t *testing.T) {
+	// CWD repo does not match.
+	cwdRepo := initGitRepoWithOrigin(t, "https://github.com/otherorg/otherrepo.git")
+	chdirTemp(t, cwdRepo)
+
+	// Create a sibling named "myrepo" with the wrong origin.
+	cwd, _ := os.Getwd()
+	siblingDir := filepath.Join(filepath.Dir(cwd), "myrepo")
+	if err := os.MkdirAll(siblingDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(siblingDir) })
+	for _, args := range [][]string{
+		{"init"},
+		{"remote", "add", "origin", "https://github.com/wrongorg/myrepo.git"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = siblingDir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	_, err := locateOrCloneRepo("myorg", "myrepo")
+	if err == nil {
+		t.Fatal("expected error when sibling has wrong origin")
+	}
+	if !strings.Contains(err.Error(), "does not match") {
+		t.Errorf("expected 'does not match' in error, got: %v", err)
+	}
+}
+
+// ─── repoRootForIssue ────────────────────────────────────────────────────────
+
+func TestRepoRootForIssue_bareNumber(t *testing.T) {
+	dir := initGitRepoWithOrigin(t, "https://github.com/myorg/myrepo.git")
+	chdirTemp(t, dir)
+
+	root, issueNum, ghArg, err := repoRootForIssue("42")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if root != dir {
+		t.Errorf("root = %q, want %q", root, dir)
+	}
+	if issueNum != "42" {
+		t.Errorf("issueNum = %q, want %q", issueNum, "42")
+	}
+	if ghArg != "42" {
+		t.Errorf("ghArg = %q, want %q", ghArg, "42")
+	}
+}
+
+func TestRepoRootForIssue_urlCwdMatch(t *testing.T) {
+	dir := initGitRepoWithOrigin(t, "https://github.com/myorg/myrepo.git")
+	chdirTemp(t, dir)
+
+	const rawURL = "https://github.com/myorg/myrepo/issues/99"
+	root, issueNum, ghArg, err := repoRootForIssue(rawURL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if root != dir {
+		t.Errorf("root = %q, want %q", root, dir)
+	}
+	if issueNum != "99" {
+		t.Errorf("issueNum = %q, want %q", issueNum, "99")
+	}
+	if ghArg != rawURL {
+		t.Errorf("ghArg = %q, want %q", ghArg, rawURL)
+	}
+}
+
+
 func contains(s, sub string) bool {
 	return strings.Contains(s, sub)
 }

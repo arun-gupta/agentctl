@@ -239,5 +239,5 @@ func InferIssue(branch string) string {
 
 // OriginURL returns the fetch URL of the "origin" remote in the given repo root.
 func OriginURL(repoRoot string) (string, error) {
-	return run(repoRoot, "-C", repoRoot, "remote", "get-url", "origin")
+	return run(repoRoot, "remote", "get-url", "origin")
 }
