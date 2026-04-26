@@ -116,6 +116,21 @@ kickoff: |
 agentctl start --sdd plain 42
 ```
 
+> **Planned:** [#68](https://github.com/arun-gupta/agentctl/issues/68) will add a prescribed `spec.md` format (Problem / Approach / Changes / Out of scope) as a hint in the kickoff prompt so specs have a consistent shape to review.
+
+### Planned built-in methodologies
+
+The following methodologies are tracked as issues and will be added as built-ins once their kickoff prompts are defined:
+
+| Methodology | Issue |
+|-------------|-------|
+| [AgentOS](https://github.com/arun-gupta/agentctl/issues/35) | [#35](https://github.com/arun-gupta/agentctl/issues/35) |
+| [Specs.MD](https://github.com/arun-gupta/agentctl/issues/36) | [#36](https://github.com/arun-gupta/agentctl/issues/36) |
+| [OpenSpec](https://github.com/arun-gupta/agentctl/issues/38) | [#38](https://github.com/arun-gupta/agentctl/issues/38) |
+| [Kiro-style specs](https://github.com/arun-gupta/agentctl/issues/39) | [#39](https://github.com/arun-gupta/agentctl/issues/39) |
+
+In the meantime, any of these can be used today by dropping a custom YAML file in a drop-in location (see below).
+
 ## Drop-in locations
 
 To add or override a methodology without modifying the binary:
