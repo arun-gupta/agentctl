@@ -170,6 +170,21 @@ Create `~/.config/agentctl/adapters/` (respects `$XDG_CONFIG_HOME`):
 └── my-custom-agent.yml   ← new personal adapter
 ```
 
+## Adapter recipes
+
+Ready-to-use YAML files for agents not included as built-ins. Save any of these to a [drop-in location](#drop-in-locations) to enable the adapter.
+
+### KiloCode
+
+KiloCode is a standalone AI coding agent with a `kilo run` CLI. It uses `--auto` to disable permission prompts and `--continue` to resume a previous session in the same directory:
+
+```yaml
+binary: kilo
+launch: kilo run --auto {kickoff}
+resume_cmd: kilo run --auto --continue {prompt}
+install: npm install -g @kilocode/cli
+```
+
 ## Command assembly (structured fields)
 
 When `launch` / `resume_cmd` are not set, commands are assembled from structured fields:
