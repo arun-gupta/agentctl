@@ -24,6 +24,16 @@ sudo mv agentctl /usr/local/bin/
 
 For other platforms, source builds, and subtree installs, see **[docs/install.md](docs/install.md)**.
 
+## Upgrade
+
+**Homebrew:**
+
+```bash
+brew upgrade agentctl
+```
+
+**Manual** — re-run the same `curl` command from Install to replace the binary.
+
 ## Quick start
 
 Run commands from your **application** repository (the primary git worktree):
