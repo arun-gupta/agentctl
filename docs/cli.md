@@ -250,7 +250,7 @@ agentctl start --no-sdd 42
 
 This skips the spec-review pause. The agent works directly toward a PR.
 
-See [spec-driven.md](spec-driven.md) for default SDD behavior and target-repo expectations.
+See [sdd.md](sdd.md) for default SDD behavior and target-repo expectations.
 
 ### Recovery and maintenance
 
@@ -294,5 +294,5 @@ The primary worktree is the first worktree reported by `git worktree list --porc
 ## Related docs
 
 - [install.md](install.md) — prerequisites, binary layout, and installation.
-- [spec-driven.md](spec-driven.md) — default SDD / Spec Kit behavior.
-- [development.md](development.md) — adapter contract, testing, and CI.
+- [sdd.md](sdd.md) — SDD overview, methodology schema, and drop-in locations.
+- [development.md](development.md) — adapter contract, build, testing, and CI.

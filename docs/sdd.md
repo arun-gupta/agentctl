@@ -1,6 +1,19 @@
 # SDD methodologies
 
-agentctl uses a **YAML methodology system** to drive spec-driven development (SDD). Any methodology (Spec Kit, OpenSpec, AgentOS, specs.md, Kiro-style) can be selected without changing Go code — by dropping a single YAML file into a config directory.
+## Overview
+
+By default, **agentctl** assumes spec-driven development with a human checkpoint:
+
+1. **Stage 1** — The agent writes a spec, then stops for your approval or revision. In headless mode use `agentctl approve-spec` and `agentctl revise-spec`.
+2. **Stage 2** — After approval, the agent implements the changes, pushes the branch, and opens a PR.
+
+The exact lifecycle is defined by the **SDD methodology** selected with `--sdd`. The default is `speckit`.
+
+Use `--no-sdd` to skip SDD entirely — the agent works directly toward a PR with no spec-review pause:
+
+```bash
+agentctl start --no-sdd 42
+```
 
 ## How it works
 
@@ -155,6 +168,5 @@ agentctl start --sdd openspec 42
 
 ## Related
 
-- [spec-driven.md](spec-driven.md) — SDD overview and the `--no-sdd` skip workflow
 - [adapters.md](adapters.md) — YAML adapter schema for coding agents (reference implementation)
 - [cli.md](cli.md) — command reference and workflows

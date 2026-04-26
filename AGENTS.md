@@ -23,9 +23,8 @@ agents/
   codex.sh        ← OpenAI Codex CLI adapter
   copilot.sh      ← GitHub Copilot CLI adapter
 docs/
-  build.md        ← build, test, cross-compile, release instructions
   cli.md          ← command reference and workflows
-  development.md  ← adapter contract, worktree layout, testing, CI
+  development.md  ← build, test, release, adapter contract, worktree layout, CI
 ```
 
 **The `agentctl` binary must live next to the `agents/` directory.** The executable's directory is used at runtime to resolve adapter paths; `go build -o agentctl ./cmd/agentctl` from the repo root satisfies this.
