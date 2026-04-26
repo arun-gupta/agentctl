@@ -4,6 +4,7 @@ package cmd
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -1135,16 +1136,60 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 	if err != nil {
 		return fmt.Errorf("create agent.log: %w", err)
 	}
-	agentCmd.Stdout = logFile
-	agentCmd.Stderr = logFile
+
+	// In interactive mode, capture output through a pipe so we can parse
+	// stream-json events and write human-readable text to the log file
+	// progressively. In headless mode the agent writes directly to the file.
+	var pr, pw *os.File
+	if !headless {
+		pr, pw, err = os.Pipe()
+		if err != nil {
+			logFile.Close()
+			return fmt.Errorf("os.Pipe: %w", err)
+		}
+		agentCmd.Args = append(agentCmd.Args, "--output-format", "stream-json")
+		agentCmd.Stdout = pw
+		agentCmd.Stderr = pw
+	} else {
+		agentCmd.Stdout = logFile
+		agentCmd.Stderr = logFile
+	}
+
 	detachProcess(agentCmd)
 
 	if err := agentCmd.Start(); err != nil {
+		if pw != nil {
+			pw.Close()
+			pr.Close()
+		}
 		logFile.Close()
 		return fmt.Errorf("agent failed to start: %w", err)
 	}
-	// The child process inherits the fd; close our copy.
-	logFile.Close()
+
+	// convWg tracks the converter goroutine so we can drain all remaining pipe
+	// content into the log file before signalling followLog to do its final read.
+	var convWg sync.WaitGroup
+	if headless {
+		// The child process inherits the fd; close our copy.
+		logFile.Close()
+	} else {
+		// Close the write end in the parent; the child has its own copy.
+		pw.Close()
+		// Convert JSON stream events to readable text written to logFile.
+		convWg.Add(1)
+		go func() {
+			defer convWg.Done()
+			defer pr.Close()
+			defer logFile.Close()
+			sc := bufio.NewScanner(pr)
+			sc.Buffer(make([]byte, 512*1024), 512*1024)
+			for sc.Scan() {
+				if text := extractStreamText(sc.Text()); text != "" {
+					fmt.Fprintln(logFile, text)
+				}
+			}
+		}()
+	}
 
 	pid := agentCmd.Process.Pid
 	// Do NOT call Process.Release(): we need to call Wait() below to properly
@@ -1193,6 +1238,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 		select {
 		case <-exitCh:
 			signal.Stop(sigCh)
+			convWg.Wait() // drain remaining pipe → log before the final read
 			close(logDone)
 			wg.Wait()
 			return nil
@@ -1216,6 +1262,46 @@ func waitForFile(path string, timeout time.Duration) error {
 		time.Sleep(100 * time.Millisecond)
 	}
 	return fmt.Errorf("%s did not appear within %s", path, timeout)
+}
+
+// extractStreamText converts a single claude --output-format stream-json line
+// into human-readable text. It extracts assistant text/tool-use blocks and the
+// final result. Non-JSON lines are returned as-is (plain-text fallback).
+func extractStreamText(line string) string {
+	var ev struct {
+		Type    string `json:"type"`
+		Subtype string `json:"subtype"`
+		Message struct {
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+				Name string `json:"name"`
+			} `json:"content"`
+		} `json:"message"`
+		Result string `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(line), &ev); err != nil {
+		return strings.TrimSpace(line) // not JSON — pass through verbatim
+	}
+	switch ev.Type {
+	case "assistant":
+		var sb strings.Builder
+		for _, c := range ev.Message.Content {
+			switch c.Type {
+			case "text":
+				if t := strings.TrimSpace(c.Text); t != "" {
+					sb.WriteString(t)
+					sb.WriteByte('\n')
+				}
+			case "tool_use":
+				fmt.Fprintf(&sb, "[%s]\n", c.Name)
+			}
+		}
+		return strings.TrimRight(sb.String(), "\n")
+	case "result":
+		return strings.TrimSpace(ev.Result)
+	}
+	return ""
 }
 
 // spinnerFrames are the braille Unicode characters used for the spinner animation.
