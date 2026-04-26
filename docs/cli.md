@@ -9,13 +9,14 @@ Run `agentctl --help` or `agentctl <command> --help` for generated help from the
 ### `agentctl start`
 
 ```bash
-agentctl start [--agent <name>] [--headless] [--sdd <name>] <issue-number> [slug]
+agentctl start [--agent <name>] [--headless] [--quiet] [--sdd <name>] <issue-number> [slug]
 ```
 
 Creates a linked worktree for a GitHub issue and launches the selected coding agent inside it.
 
 - `--agent <name>`: adapter name; default is `claude`. See [adapters.md](adapters.md) for available adapters.
 - `--headless`: run the agent in the background and write agent output to `agent.log`.
+- `--quiet`: suppress agent log output in the terminal; show only the spinner (TTY) or heartbeat lines (non-TTY/CI). Has no effect with `--headless`.
 - `--sdd <name>`: opt into an SDD methodology (e.g. `plain`, `speckit`, or a custom methodology). Omit to skip SDD and work directly toward a PR. See [sdd.md](sdd.md).
 - `<issue-number>`: GitHub issue number.
 - `[slug]`: optional branch/worktree slug. If omitted, `agentctl` uses `gh issue view` to fetch the issue title and derive a slug.
@@ -190,7 +191,13 @@ Error cases:
 agentctl start 42
 ```
 
-The agent runs interactively in your terminal. Without `--sdd`, the agent works directly toward a PR. Use `--sdd plain` or `--sdd speckit` to add a spec-review checkpoint.
+The agent runs in your terminal with its log streamed live so you can follow along. Without `--sdd`, the agent works directly toward a PR. Use `--sdd plain` or `--sdd speckit` to add a spec-review checkpoint.
+
+To suppress log output and show only a spinner/heartbeat:
+
+```bash
+agentctl start --quiet 42
+```
 
 After the PR is merged:
 
@@ -292,7 +299,7 @@ Each started worktree contains:
 
 ```text
 .agent          key=value metadata (agent, session-id, dev-pid, agent-pid)
-agent.log       coding-agent output in headless mode
+agent.log       coding-agent output (streamed to terminal in interactive mode; only file in headless mode)
 dev.log         dev-server output
 specs/          SDD spec artifacts (e.g. spec.md, plan.md, tasks.md) when using SDD
 ```

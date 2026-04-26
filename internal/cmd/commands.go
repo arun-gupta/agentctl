@@ -34,6 +34,7 @@ func NewStartCmd() *cobra.Command {
 	var (
 		agentName string
 		headless  bool
+		quiet     bool
 		sddName   string
 	)
 	c := &cobra.Command{
@@ -52,16 +53,17 @@ Use --sdd <name> to opt into a spec-driven development (SDD) methodology
 			if len(args) > 1 {
 				slug = args[1]
 			}
-			return runStart(issue, slug, agentName, sddName, headless)
+			return runStart(issue, slug, agentName, sddName, headless, quiet)
 		},
 	}
 	c.Flags().StringVar(&agentName, "agent", "claude", "Coding agent adapter to use")
 	c.Flags().BoolVar(&headless, "headless", false, "Run agent in background (log -> agent.log)")
+	c.Flags().BoolVar(&quiet, "quiet", false, "Suppress agent log output; show spinner/heartbeat only")
 	c.Flags().StringVar(&sddName, "sdd", "", "SDD methodology to use (e.g. plain, speckit, or custom); omit to skip SDD")
 	return c
 }
 
-func runStart(issue, slug, agentName, sddName string, headless bool) error {
+func runStart(issue, slug, agentName, sddName string, headless, quiet bool) error {
 	// Validate the adapter exists before doing any setup work.
 	if err := validateAdapter(agentName); err != nil {
 		return err
@@ -185,7 +187,7 @@ func runStart(issue, slug, agentName, sddName string, headless bool) error {
 		kickoff = m.KickoffPrompt(issue, portStr)
 	}
 
-	return launchAgent(agentName, wtPath, issue, portStr, sessionID, kickoff, headless)
+	return launchAgent(agentName, wtPath, issue, portStr, sessionID, kickoff, headless, quiet)
 }
 
 // ─── approve-spec ─────────────────────────────────────────────────────────────
@@ -1009,8 +1011,9 @@ func findWorktreePath(issue string) (string, error) {
 
 // launchAgent starts the coding agent in the background via the named adapter,
 // then either returns immediately (headless) or streams agent.log to stdout
-// until the agent exits (non-headless).
-func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, headless bool) error {
+// until the agent exits (non-headless). quiet suppresses log lines, showing
+// only the spinner/heartbeat.
+func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, headless, quiet bool) error {
 	ad, err := adapters.Get(adapterName)
 	if err != nil {
 		return err
@@ -1064,7 +1067,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		followLog(logPath, os.Stdout, logDone)
+		followLog(logPath, os.Stdout, logDone, quiet)
 	}()
 
 	sigCh := make(chan os.Signal, 1)
@@ -1112,10 +1115,11 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 // On a TTY the spinner is redrawn on the next 100 ms tick after a log line is
 // printed — there is intentionally no immediate redraw to keep the logic simple.
 //
-// After done is closed, any remaining content in the file is flushed to out.
+// When quiet is true, log lines are suppressed and only the spinner/heartbeat
+// is shown. After done is closed, any remaining content is flushed (unless quiet).
 // Note: agent-process hang-on-exit (issue #78) is a separate concern and is
 // not addressed here; that fix belongs in the process-monitoring loop.
-func followLog(logPath string, out io.Writer, done <-chan struct{}) {
+func followLog(logPath string, out io.Writer, done <-chan struct{}, quiet bool) {
 	f, err := os.Open(logPath)
 	if err != nil {
 		fmt.Fprintf(out, "warning: unable to follow log: %v\n", err)
@@ -1143,7 +1147,7 @@ func followLog(logPath string, out io.Writer, done <-chan struct{}) {
 	drainLines := func() {
 		for {
 			line, err := reader.ReadString('\n')
-			if line != "" {
+			if line != "" && !quiet {
 				clearSpinner()
 				fmt.Fprint(out, line)
 			}
