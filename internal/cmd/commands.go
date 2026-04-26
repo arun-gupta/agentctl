@@ -32,20 +32,17 @@ func NewStartCmd() *cobra.Command {
 	var (
 		agentName string
 		headless  bool
-		noSDD     bool
 		sddName   string
 	)
 	c := &cobra.Command{
 		Use:   "start <issue> [slug]",
 		Short: "Provision a worktree for an issue and launch a coding agent",
 		Long: `Provision an isolated git worktree for a GitHub issue and launch a
-coding agent inside it. By default the agent follows the spec-driven
-development (SDD) lifecycle with a human-in-the-loop pause.
+coding agent inside it. By default the agent works directly toward a PR
+with no spec-review pause.
 
-Use --no-sdd to skip the spec lifecycle and have the agent work
-directly toward a PR without a spec-review pause.
-
-Use --sdd <name> to select a different SDD methodology (default: plain).`,
+Use --sdd <name> to opt into a spec-driven development (SDD) methodology
+(e.g. plain, speckit, or a custom methodology).`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			issue := args[0]
@@ -53,20 +50,16 @@ Use --sdd <name> to select a different SDD methodology (default: plain).`,
 			if len(args) > 1 {
 				slug = args[1]
 			}
-			if noSDD && cmd.Flags().Changed("sdd") {
-				fmt.Fprintln(os.Stderr, "warning: --sdd is ignored when --no-sdd is set")
-			}
-			return runStart(issue, slug, agentName, sddName, headless, noSDD)
+			return runStart(issue, slug, agentName, sddName, headless)
 		},
 	}
 	c.Flags().StringVar(&agentName, "agent", "claude", "Coding agent adapter to use")
 	c.Flags().BoolVar(&headless, "headless", false, "Run agent in background (log -> agent.log)")
-	c.Flags().BoolVar(&noSDD, "no-sdd", false, "Skip SDD lifecycle; agent opens a PR directly")
-	c.Flags().StringVar(&sddName, "sdd", "plain", "SDD methodology to use (default: plain; e.g. speckit, plain, or custom)")
+	c.Flags().StringVar(&sddName, "sdd", "", "SDD methodology to use (e.g. plain, speckit, or custom); omit to skip SDD")
 	return c
 }
 
-func runStart(issue, slug, agentName, sddName string, headless, noSDD bool) error {
+func runStart(issue, slug, agentName, sddName string, headless bool) error {
 	// Validate the adapter exists before doing any setup work.
 	if err := validateAdapter(agentName); err != nil {
 		return err
@@ -178,15 +171,9 @@ func runStart(issue, slug, agentName, sddName string, headless, noSDD bool) erro
 		return err
 	}
 
-	if noSDD {
-		fmt.Fprintf(os.Stderr, "WARNING: --no-sdd skips the SDD lifecycle and the spec-review pause.\n")
-		fmt.Fprintf(os.Stderr, "         This run is fully automated with NO human-in-the-loop checkpoint.\n")
-		fmt.Fprintf(os.Stderr, "         The agent will make changes and open a PR without spec approval.\n")
-	}
-
 	var kickoff string
 	portStr := fmt.Sprintf("%d", port)
-	if noSDD {
+	if sddName == "" {
 		kickoff = sdd.SkipPrompt(issue, portStr)
 	} else {
 		m, sddErr := sdd.Get(sddName)
