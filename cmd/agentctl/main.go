@@ -7,8 +7,7 @@
 //	agentctl approve-spec  <issue>
 //	agentctl revise-spec   <issue> <feedback>
 //	agentctl discard       [issue]
-//	agentctl cleanup-merged [issue]
-//	agentctl cleanup-all-merged
+//	agentctl cleanup       [issue | --all]
 //	agentctl status [--verbose]
 //	agentctl logs   [--lines N] [--no-follow] <issue>
 //	agentctl attach <issue>
@@ -37,8 +36,8 @@ func main() {
   # Check status of all active worktrees
   agentctl status
 
-  # Merge and clean up when the PR for issue #42 is merged
-  agentctl cleanup-merged 42`,
+  # Clean up after the PR for issue #42 is merged
+  agentctl cleanup 42`,
 		SilenceUsage: true,
 	}
 
@@ -47,8 +46,7 @@ func main() {
 		cmd.NewApproveSpecCmd(),
 		cmd.NewReviseSpecCmd(),
 		cmd.NewDiscardCmd(),
-		cmd.NewCleanupMergedCmd(),
-		cmd.NewCleanupAllMergedCmd(),
+		cmd.NewCleanupCmd(),
 		cmd.NewStatusCmd(),
 		cmd.NewLogsCmd(),
 		cmd.NewAttachCmd(),

@@ -386,24 +386,37 @@ func runRemoveWorktree(issue string) error {
 // ─── cleanup-merged ───────────────────────────────────────────────────────────
 
 // NewCleanupMergedCmd creates the `cleanup-merged` subcommand.
-func NewCleanupMergedCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "cleanup-merged [issue]",
-		Short: "Post-merge: pull main, remove worktree, delete local+remote branch",
-		Long: `Post-merge cleanup for a specific issue: pull main, remove the worktree,
-and delete the local and remote branches.
+// NewCleanupCmd creates the `cleanup` subcommand.
+// With --all it sweeps all merged worktrees; otherwise it cleans up a single issue.
+func NewCleanupCmd() *cobra.Command {
+	var all bool
+	c := &cobra.Command{
+		Use:   "cleanup [issue]",
+		Short: "Remove a merged worktree and its branches",
+		Long: `Post-merge cleanup: pull main, remove the worktree, and delete the local
+and remote branches.
 
-If no issue number is given, it is inferred from the current branch when
-you are inside a linked worktree.`,
+Run without arguments inside a linked worktree to infer the issue number
+from the current branch.
+
+Use --all to sweep every linked worktree whose PR is MERGED in one pass.`,
 		Args: cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			issue, err := resolveIssueArg("cleanup-merged", args)
+			if all {
+				if len(args) > 0 {
+					return fmt.Errorf("--all and an issue number are mutually exclusive")
+				}
+				return runCleanupAllMerged()
+			}
+			issue, err := resolveIssueArg("cleanup", args)
 			if err != nil {
 				return err
 			}
 			return runCleanupMerged(issue)
 		},
 	}
+	c.Flags().BoolVar(&all, "all", false, "Clean up all worktrees whose PR is MERGED")
+	return c
 }
 
 func runCleanupMerged(issue string) error {
@@ -526,19 +539,7 @@ func cleanupMerged(repoRoot, issue string) error {
 	return nil
 }
 
-// ─── cleanup-all-merged ───────────────────────────────────────────────────────
-
-// NewCleanupAllMergedCmd creates the `cleanup-all-merged` subcommand.
-func NewCleanupAllMergedCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "cleanup-all-merged",
-		Short: "Batch sweep: run cleanup-merged on every worktree whose PR is MERGED",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runCleanupAllMerged()
-		},
-	}
-}
+// ─── cleanup (--all sweep) ────────────────────────────────────────────────────
 
 func runCleanupAllMerged() error {
 	repoRoot, err := git.RepoRoot()

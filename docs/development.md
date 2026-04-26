@@ -197,5 +197,5 @@ Functions in `internal/git` that shell out to the `git` CLI are tested with real
 ### What is not tested (and why)
 
 - **Cobra command wiring** (`cmd/agentctl/main.go`): the entry point is a thin dispatch layer; coverage comes from the `internal/cmd` tests above.
-- **`runStart`, `runCleanupMerged`, `runStatus`**: these call `gh`, `npm`, `lsof`, and `uuidgen`; stub-based integration tests are tracked in [#19](https://github.com/arun-gupta/agentctl/issues/19).
+- **`runStart`, `runCleanupMerged`, `runStatus`**: these call `gh`, `npm`, `lsof`, and `uuidgen`; stub-based integration tests are tracked in [#19](https://github.com/arun-gupta/agentctl/issues/19). (`runCleanupMerged` backs the `cleanup` command.)
 - **`ghPRState`, `slugFromIssue`**: require a real `gh` authentication context; not suitable for CI without credentials.

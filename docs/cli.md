@@ -86,10 +86,11 @@ Spec states:
 
 PR states come from `gh pr view <branch>` and are usually `none`, `OPEN`, `MERGED`, or `CLOSED`.
 
-### `agentctl cleanup-merged`
+### `agentctl cleanup`
 
 ```bash
-agentctl cleanup-merged [issue-number]
+agentctl cleanup [issue-number]
+agentctl cleanup --all
 ```
 
 Cleans up a worktree after its PR is merged.
@@ -104,17 +105,9 @@ Behavior:
 - Removes the linked worktree.
 - Deletes local and remote branches.
 
+Use `--all` to scan all linked worktrees and run the cleanup flow for every branch whose PR state is `MERGED`. Branches without PRs, unmerged PRs, detached worktrees, or branches without a numeric issue prefix are skipped.
+
 If the PR is not merged, use `agentctl discard` for abandoned work.
-
-### `agentctl cleanup-all-merged`
-
-```bash
-agentctl cleanup-all-merged
-```
-
-Scans linked worktrees and runs the merged cleanup flow for each branch whose PR state is `MERGED`.
-
-Branches without PRs, unmerged PRs, detached worktrees, or branches without a numeric issue prefix are skipped.
 
 ### `agentctl discard`
 
@@ -126,7 +119,7 @@ Permanently discards a worktree and deletes local/remote branches. This is unrec
 
 Use this for abandoned or failed work where the PR should not be merged.
 
-Like `cleanup-merged`, the issue number can be inferred from the current branch when run inside a linked worktree.
+Like `cleanup`, the issue number can be inferred from the current branch when run inside a linked worktree.
 
 ### `agentctl logs`
 
@@ -205,7 +198,7 @@ agentctl start --quiet 42
 After the PR is merged:
 
 ```bash
-agentctl cleanup-merged 42
+agentctl cleanup 42
 ```
 
 ### Headless single-issue workflow
@@ -228,7 +221,7 @@ agentctl approve-spec 42
 agentctl revise-spec 42 "Narrow scope to the API layer; avoid UI changes."
 
 # Clean up after merge
-agentctl cleanup-merged 42
+agentctl cleanup 42
 ```
 
 ### Batch headless workflow
@@ -249,7 +242,7 @@ agentctl status
 agentctl status --verbose
 
 # Sweep merged PRs
-agentctl cleanup-all-merged
+agentctl cleanup --all
 ```
 
 ### Spec-driven development (SDD)
@@ -282,7 +275,7 @@ Run cleanup/discard from inside a linked worktree without passing the issue numb
 
 ```bash
 cd ../myrepo-42-my-feature
-agentctl cleanup-merged
+agentctl cleanup
 # or
 agentctl discard
 ```
