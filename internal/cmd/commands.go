@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -685,6 +686,159 @@ func runStatus(verbose bool) error {
 	return w.Flush()
 }
 
+// ─── logs ─────────────────────────────────────────────────────────────────────
+
+// NewLogsCmd creates the `logs` subcommand.
+func NewLogsCmd() *cobra.Command {
+	var (
+		lines    int
+		noFollow bool
+	)
+	c := &cobra.Command{
+		Use:   "logs <issue>",
+		Short: "Stream the agent log for a headless run",
+		Long: `Stream agent.log for the given issue to stdout.
+
+By default the last 50 lines are printed and new output is followed until
+Ctrl+C. Use --no-follow to print history and exit immediately.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runLogs(args[0], lines, noFollow, os.Stdout)
+		},
+	}
+	c.Flags().IntVar(&lines, "lines", 50, "Lines of history to show before following")
+	c.Flags().BoolVar(&noFollow, "no-follow", false, "Print history and exit without following")
+	return c
+}
+
+// runLogs resolves the worktree for issue and streams its agent.log.
+func runLogs(issue string, lines int, noFollow bool, w io.Writer) error {
+	wtPath, err := findWorktreePath(issue)
+	if err != nil {
+		return err
+	}
+	return streamLog(wtPath, lines, noFollow, w, 10*time.Second)
+}
+
+// streamLog is the inner implementation of the logs command.
+// logWait controls how long to wait for agent.log to appear; callers should
+// pass 10*time.Second in production and a short duration in tests.
+func streamLog(wtPath string, lines int, noFollow bool, w io.Writer, logWait time.Duration) error {
+	logPath := filepath.Join(wtPath, "agent.log")
+	if err := waitForFile(logPath, logWait); err != nil {
+		return fmt.Errorf("agent log not found — is the agent running? (looked for %s)", logPath)
+	}
+
+	args := []string{"-n", strconv.Itoa(lines)}
+	if !noFollow {
+		args = append(args, "-F")
+	}
+	args = append(args, logPath)
+
+	tail := exec.Command("tail", args...)
+	tail.Stdout = w
+	tail.Stderr = os.Stderr
+
+	if noFollow {
+		return tail.Run()
+	}
+
+	if err := tail.Start(); err != nil {
+		return fmt.Errorf("tail agent.log: %w", err)
+	}
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	<-sigCh
+	signal.Stop(sigCh)
+	_ = tail.Process.Kill()
+	_ = tail.Wait()
+	return nil
+}
+
+// ─── attach ───────────────────────────────────────────────────────────────────
+
+// NewAttachCmd creates the `attach` subcommand.
+func NewAttachCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "attach <issue>",
+		Short: "Stream the agent log and exit automatically when the agent finishes",
+		Long: `Attach to a running headless agent: stream agent.log to stdout and exit
+automatically when the agent process ends.
+
+If the agent has already finished, the last 50 lines of agent.log are printed
+and the command exits with "agent has already finished".
+
+Press Ctrl+C to detach without stopping the agent.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			wtPath, err := findWorktreePath(args[0])
+			if err != nil {
+				return err
+			}
+			return attachLog(wtPath, args[0], os.Stdout, 10*time.Second)
+		},
+	}
+}
+
+// attachLog is the inner implementation of the attach command.
+// logWait controls how long to wait for agent.log to appear; callers should
+// pass 10*time.Second in production and a short duration in tests.
+func attachLog(wtPath, issue string, w io.Writer, logWait time.Duration) error {
+	af, err := state.Read(wtPath)
+	if err != nil {
+		return err
+	}
+	if af.AgentPID == "" {
+		return fmt.Errorf("no agent PID recorded for issue %s — was it started headless?", issue)
+	}
+
+	logPath := filepath.Join(wtPath, "agent.log")
+	if err := waitForFile(logPath, logWait); err != nil {
+		return fmt.Errorf("agent log not found — is the agent running? (looked for %s)", logPath)
+	}
+
+	// Agent already finished: print last 50 lines and return.
+	if !process.IsAlive(af.AgentPID) {
+		tail := exec.Command("tail", "-n", "50", logPath)
+		tail.Stdout = w
+		tail.Stderr = os.Stderr
+		_ = tail.Run()
+		fmt.Fprintln(w, "agent has already finished")
+		return nil
+	}
+
+	// Agent still running: stream log and poll for exit.
+	pid, _ := strconv.Atoi(af.AgentPID)
+
+	tail := exec.Command("tail", "-n", "50", "-F", logPath)
+	tail.Stdout = w
+	tail.Stderr = os.Stderr
+	if err := tail.Start(); err != nil {
+		return fmt.Errorf("tail agent.log: %w", err)
+	}
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	for process.IsAlive(af.AgentPID) {
+		select {
+		case <-sigCh:
+			signal.Stop(sigCh)
+			_ = tail.Process.Kill()
+			_ = tail.Wait()
+			fmt.Fprintf(w, "\nagent still running in background (pid %d)\n", pid)
+			return nil
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+	signal.Stop(sigCh)
+
+	time.Sleep(200 * time.Millisecond)
+	_ = tail.Process.Kill()
+	_ = tail.Wait()
+	return nil
+}
+
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 func dash(s string) string {
@@ -828,6 +982,22 @@ func resolveIssueArg(flag string, args []string) (string, error) {
 func validateAdapter(name string) error {
 	_, err := adapters.Get(name)
 	return err
+}
+
+// findWorktreePath resolves the linked worktree path for the given issue number.
+func findWorktreePath(issue string) (string, error) {
+	repoRoot, err := git.RepoRoot()
+	if err != nil {
+		return "", fmt.Errorf("cannot determine repo root: %w", err)
+	}
+	wt, found, err := git.FindWorktreeByIssue(repoRoot, issue)
+	if err != nil {
+		return "", err
+	}
+	if !found {
+		return "", fmt.Errorf("no worktree found for issue %s — has it been started?", issue)
+	}
+	return wt.Path, nil
 }
 
 // buildKickoff constructs the kickoff prompt for the agent.
