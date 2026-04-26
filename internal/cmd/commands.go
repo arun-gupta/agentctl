@@ -1155,6 +1155,12 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 		agentCmd.Stdout = pw
 		agentCmd.Stderr = pw
 	} else {
+		// --verbose is Claude-specific; inject it for headless Claude runs so
+		// agent.log receives the same verbose output as before this feature was
+		// introduced. Interactive mode uses --output-format stream-json instead.
+		if adapterName == "claude" {
+			agentCmd.Args = append(agentCmd.Args, "--verbose")
+		}
 		agentCmd.Stdout = logFile
 		agentCmd.Stderr = logFile
 	}
