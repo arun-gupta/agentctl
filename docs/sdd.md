@@ -4,7 +4,7 @@ agentctl uses a **YAML methodology system** to drive spec-driven development (SD
 
 ## How it works
 
-One code path handles all methodologies. Built-in and user-defined methodologies are the same type, loaded by the same loader. The binary ships with one built-in methodology (`speckit`) embedded directly as a plain YAML file, not special Go code.
+One code path handles all methodologies. Built-in and user-defined methodologies are the same type, loaded by the same loader. The binary ships with built-in methodologies (`speckit`, `plain`) embedded directly as plain YAML files, not special Go code.
 
 Select a methodology with `agentctl start --sdd <name>`. The default is `speckit`.
 
@@ -88,6 +88,23 @@ kickoff: |
   - STAGE 4: Run /speckit.implement to implement the tasks.
   Push the branch and open a PR when done. Do not merge.
   Dev server is running on port {port}.
+```
+
+### `plain`
+
+A lightweight single-file spec workflow with one approval gate and no slash commands. Use this when the target repository is not set up for Spec Kit.
+
+```yaml
+kickoff: |
+  Work on GitHub issue #{issue}. Read CLAUDE.md for project conventions.
+  Follow the plain spec workflow:
+  - STEP 1: Write a `specs/spec.md` describing your intended approach. Stop and wait for human approval.
+  - STEP 2: After approval, implement the changes directly, push the branch, and open a PR. Do not merge.
+  Dev server is running on port {port}.
+```
+
+```bash
+agentctl start --sdd plain 42
 ```
 
 ## Drop-in locations

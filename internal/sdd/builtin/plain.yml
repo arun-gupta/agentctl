@@ -1,0 +1,6 @@
+kickoff: |
+  Work on GitHub issue #{issue}. Read CLAUDE.md for project conventions.
+  Follow the plain spec workflow:
+  - STEP 1: Write a `specs/spec.md` describing your intended approach. Stop and wait for human approval.
+  - STEP 2: After approval, implement the changes directly, push the branch, and open a PR. Do not merge.
+  Dev server is running on port {port}.
