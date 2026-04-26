@@ -1051,8 +1051,6 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 	// Reap the child in a background goroutine and signal exitCh when done.
 	// Using Wait() instead of kill-0 polling is the reliable way to detect
 	// process exit regardless of session/launchd topology.
-	// The exit error is discarded: the agent's stdout/stderr is already
-	// captured in agent.log, so the exit code adds no new information here.
 	exitCh := make(chan struct{})
 	go func() {
 		if err := agentCmd.Wait(); err != nil {
