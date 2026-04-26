@@ -125,6 +125,8 @@ jobs:
         run: |
           VERSION="${VERSION#v}"
           sed -i "s/^  version \".*\"/  version \"${VERSION}\"/" Formula/agentctl.rb
+          # Update sha256 values in order: darwin-arm64, darwin-amd64, linux-arm64, linux-amd64
+          # Each sha256 line is unique in context so we replace by pairing with the preceding url line
           python3 - <<'PYEOF'
           import re, os
 
