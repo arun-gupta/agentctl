@@ -315,7 +315,7 @@ func writeLocalAdapter(t *testing.T, dir, name, content string) {
 
 func TestLaunchAgent_unknownAdapter(t *testing.T) {
 	dir := t.TempDir()
-	err := launchAgent("nonexistent-xyz-abc", dir, "42", "3010", "sess-123", "kickoff", true)
+	err := launchAgent("nonexistent-xyz-abc", dir, "42", "3010", "sess-123", "kickoff", true, false)
 	if err == nil {
 		t.Error("expected error for unknown adapter")
 	}
@@ -326,7 +326,7 @@ func TestLaunchAgent_binaryNotFound(t *testing.T) {
 	writeLocalAdapter(t, dir, "fakebinary", "binary: __nonexistent_binary_xyz__\n")
 	chdirTemp(t, dir)
 
-	err := launchAgent("fakebinary", dir, "42", "3010", "sess-123", "kickoff", true)
+	err := launchAgent("fakebinary", dir, "42", "3010", "sess-123", "kickoff", true, false)
 	if err == nil {
 		t.Fatal("expected error when binary not found")
 	}
@@ -342,7 +342,7 @@ func TestLaunchAgent_headless(t *testing.T) {
 		"binary: echo\nsession: --session\n")
 	chdirTemp(t, dir)
 
-	err := launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", true)
+	err := launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", true, false)
 	if err != nil {
 		t.Fatalf("launchAgent headless: %v", err)
 	}
@@ -452,7 +452,7 @@ func TestFollowLog_drainsContentAndExits(t *testing.T) {
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
-		followLog(logPath, &buf, done)
+		followLog(logPath, &buf, done, false)
 	}()
 
 	// Poll until followLog has picked up the initial content.
@@ -514,7 +514,7 @@ func TestFollowLog_heartbeatOnNonTTY(t *testing.T) {
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
-		followLog(logPath, &buf, done)
+		followLog(logPath, &buf, done, false)
 	}()
 
 	// The first heartbeat is emitted immediately (lastHeartbeat starts 30s in the
@@ -530,6 +530,37 @@ func TestFollowLog_heartbeatOnNonTTY(t *testing.T) {
 	out := buf.String()
 	if !strings.Contains(out, "agent running...") {
 		t.Errorf("expected heartbeat line in non-terminal output; got: %q", out)
+	}
+}
+
+// TestFollowLog_quietSuppressesLogLines verifies that log content is not written
+// to out when quiet is true, but the heartbeat still appears.
+func TestFollowLog_quietSuppressesLogLines(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "agent.log")
+	if err := os.WriteFile(logPath, []byte("secret line\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan struct{})
+	var buf bytes.Buffer
+
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		followLog(logPath, &buf, done, true)
+	}()
+
+	time.Sleep(300 * time.Millisecond)
+	close(done)
+	<-finished
+
+	out := buf.String()
+	if strings.Contains(out, "secret line") {
+		t.Errorf("quiet mode should suppress log lines; got: %q", out)
+	}
+	if !strings.Contains(out, "agent running...") {
+		t.Errorf("quiet mode should still show heartbeat; got: %q", out)
 	}
 }
 
