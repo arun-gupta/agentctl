@@ -1054,7 +1054,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 	exitCh := make(chan struct{})
 	go func() {
 		if err := agentCmd.Wait(); err != nil {
-			fmt.Fprintf(os.Stderr, "agent exited with error: %v\n", err)
+			fmt.Fprintf(os.Stderr, "agent exited: %v\n", err)
 		}
 		close(exitCh)
 	}()
