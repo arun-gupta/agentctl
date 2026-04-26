@@ -1148,10 +1148,9 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 			logFile.Close()
 			return fmt.Errorf("os.Pipe: %w", err)
 		}
-		// --output-format stream-json is a Claude-specific flag; only inject it
-		// for the claude adapter to avoid unknown-flag errors with other adapters.
+		// --output-format stream-json requires --verbose; both are Claude-specific.
 		if adapterName == "claude" {
-			agentCmd.Args = append(agentCmd.Args, "--output-format", "stream-json")
+			agentCmd.Args = append(agentCmd.Args, "--output-format", "stream-json", "--verbose")
 		}
 		agentCmd.Stdout = pw
 		agentCmd.Stderr = pw
