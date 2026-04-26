@@ -1055,7 +1055,9 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 	// captured in agent.log, so the exit code adds no new information here.
 	exitCh := make(chan struct{})
 	go func() {
-		_ = agentCmd.Wait()
+		if err := agentCmd.Wait(); err != nil {
+			fmt.Fprintf(os.Stderr, "agent exited with error: %v\n", err)
+		}
 		close(exitCh)
 	}()
 
