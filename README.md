@@ -29,7 +29,7 @@ For other platforms, source builds, and subtree installs, see **[docs/install.md
 **Homebrew:**
 
 ```bash
-brew upgrade agentctl
+brew update && brew upgrade agentctl
 ```
 
 **Manual** — re-run the same `curl` command from Install to replace the binary.
