@@ -1076,7 +1076,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 			signal.Stop(sigCh)
 			close(logDone)
 			wg.Wait()
-			fmt.Printf("agent still running in background (pid %d)\n", pid)
+			fmt.Fprintf(os.Stdout, "agent still running in background (pid %d)\n", pid)
 			return nil
 		case <-time.After(500 * time.Millisecond):
 		}
@@ -1163,9 +1163,9 @@ func followLog(logPath string, out io.Writer, done <-chan struct{}) {
 			drainLines()
 			elapsed := time.Since(start).Truncate(time.Second)
 			if isTTY {
-				fmt.Fprintf(out, "\r%s agent running... %s", spinnerFrames[frameIdx%len(spinnerFrames)], elapsed)
+				fmt.Fprintf(out, "\r%s agent running... %s", spinnerFrames[frameIdx], elapsed)
 				spinnerShown = true
-				frameIdx++
+				frameIdx = (frameIdx + 1) % len(spinnerFrames)
 			} else if time.Since(lastHeartbeat) >= 30*time.Second {
 				fmt.Fprintf(out, "agent running... %s\n", elapsed)
 				lastHeartbeat = time.Now()
