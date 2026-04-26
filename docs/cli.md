@@ -9,7 +9,7 @@ Run `agentctl --help` or `agentctl <command> --help` for generated help from the
 ### `agentctl start`
 
 ```bash
-agentctl start [--agent <name>] [--headless] [--quiet] [--sdd <name>] <issue-number> [slug]
+agentctl start [--agent <name>] [--headless] [--quiet] [--sdd <name>] <issue-number-or-url> [slug]
 ```
 
 Creates a linked worktree for a GitHub issue and launches the selected coding agent inside it.
@@ -18,7 +18,7 @@ Creates a linked worktree for a GitHub issue and launches the selected coding ag
 - `--headless`: run the agent in the background and write agent output to `agent.log`.
 - `--quiet`: suppress agent log output in the terminal; show only the spinner (TTY) or heartbeat lines (non-TTY/CI). Has no effect with `--headless`.
 - `--sdd <name>`: opt into an SDD methodology (e.g. `plain`, `speckit`, or a custom methodology). Omit to skip SDD and work directly toward a PR. See [sdd.md](sdd.md).
-- `<issue-number>`: GitHub issue number.
+- `<issue-number-or-url>`: a bare GitHub issue number (e.g. `42`) **or** a full GitHub issue URL (e.g. `https://github.com/owner/repo/issues/42`). When a URL is supplied, `agentctl` locates or clones the target repository automatically so you do not need to `cd` into it first.
 - `[slug]`: optional branch/worktree slug. If omitted, `agentctl` uses `gh issue view` to fetch the issue title and derive a slug.
 
 Side effects:
@@ -189,6 +189,9 @@ Error cases:
 ```bash
 # From your application repo's primary worktree
 agentctl start 42
+
+# Or using a full GitHub issue URL (works from any directory)
+agentctl start https://github.com/owner/repo/issues/42
 ```
 
 The agent runs in your terminal with its log streamed live so you can follow along. Without `--sdd`, the agent works directly toward a PR. Use `--sdd plain` or `--sdd speckit` to add a spec-review checkpoint.

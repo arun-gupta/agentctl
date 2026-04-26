@@ -38,11 +38,16 @@ func NewStartCmd() *cobra.Command {
 		sddName   string
 	)
 	c := &cobra.Command{
-		Use:   "start <issue> [slug]",
+		Use:   "start <issue-number-or-url> [slug]",
 		Short: "Provision a worktree for an issue and launch a coding agent",
 		Long: `Provision an isolated git worktree for a GitHub issue and launch a
 coding agent inside it. By default the agent works directly toward a PR
 with no spec-review pause.
+
+The issue argument may be a bare issue number (e.g. 42) or a full GitHub
+issue URL (e.g. https://github.com/owner/repo/issues/42). When a URL is
+given, agentctl locates or clones the target repository automatically so
+you do not need to cd into it first.
 
 Use --sdd <name> to opt into a spec-driven development (SDD) methodology
 (e.g. plain, speckit, or a custom methodology).`,
@@ -69,24 +74,26 @@ func runStart(issue, slug, agentName, sddName string, headless, quiet bool) erro
 		return err
 	}
 
-	repoRoot, err := git.RepoRoot()
+	// Resolve the repo root and issue number.  issue may be a bare number
+	// ("42") or a full GitHub issue URL ("https://github.com/owner/repo/issues/42").
+	repoRoot, issueNum, ghIssueArg, err := repoRootForIssue(issue)
 	if err != nil {
-		return fmt.Errorf("cannot determine repo root: %w", err)
+		return err
 	}
 	parentDir := filepath.Dir(repoRoot)
 	repoName := filepath.Base(repoRoot)
 
 	// Derive slug from GitHub issue title if not supplied.
 	if slug == "" {
-		slug, err = slugFromIssue(issue)
+		slug, err = slugFromIssue(ghIssueArg)
 		if err != nil {
 			return err
 		}
 		fmt.Printf("Derived slug from issue title: %s\n", slug)
 	}
 
-	branch := issue + "-" + slug
-	wtPath := filepath.Join(parentDir, repoName+"-"+issue+"-"+slug)
+	branch := issueNum + "-" + slug
+	wtPath := filepath.Join(parentDir, repoName+"-"+issueNum+"-"+slug)
 
 	// Find a free port in the 3010-3100 range.
 	port, err := findFreePort(3010, 3100)
@@ -178,16 +185,16 @@ func runStart(issue, slug, agentName, sddName string, headless, quiet bool) erro
 	var kickoff string
 	portStr := fmt.Sprintf("%d", port)
 	if sddName == "" {
-		kickoff = sdd.SkipPrompt(issue, portStr)
+		kickoff = sdd.SkipPrompt(issueNum, portStr)
 	} else {
 		m, sddErr := sdd.Get(sddName)
 		if sddErr != nil {
 			return sddErr
 		}
-		kickoff = m.KickoffPrompt(issue, portStr)
+		kickoff = m.KickoffPrompt(issueNum, portStr)
 	}
 
-	return launchAgent(agentName, wtPath, issue, portStr, sessionID, kickoff, headless, quiet)
+	return launchAgent(agentName, wtPath, issueNum, portStr, sessionID, kickoff, headless, quiet)
 }
 
 // ─── approve-spec ─────────────────────────────────────────────────────────────
@@ -903,18 +910,115 @@ func ghPRState(repoRoot, branch string) (string, error) {
 	return strings.TrimSpace(out.String()), nil
 }
 
+// parseIssueURL checks whether arg is a full GitHub issue URL of the form
+// https://github.com/<owner>/<repo>/issues/<number>.
+// If so it returns the owner, repo name, issue number string, and true.
+// Otherwise it returns the original arg as the issue and false (bare number path).
+func parseIssueURL(arg string) (owner, repo, issueNum string, ok bool) {
+	const prefix = "https://github.com/"
+	if !strings.HasPrefix(arg, prefix) {
+		return "", "", arg, false
+	}
+	tail := strings.TrimSuffix(strings.TrimPrefix(arg, prefix), "/")
+	parts := strings.Split(tail, "/")
+	if len(parts) != 4 || parts[2] != "issues" {
+		return "", "", arg, false
+	}
+	if _, err := strconv.Atoi(parts[3]); err != nil {
+		return "", "", arg, false
+	}
+	return parts[0], parts[1], parts[3], true
+}
+
+// matchesGitHubOrigin reports whether the "origin" remote of repoRoot points
+// to github.com/<owner>/<repoName>. Both HTTPS and SSH remote URL formats are
+// handled, and a trailing ".git" suffix is ignored.
+func matchesGitHubOrigin(repoRoot, owner, repoName string) bool {
+	u, err := git.OriginURL(repoRoot)
+	if err != nil {
+		return false
+	}
+	u = strings.TrimSuffix(u, ".git")
+	suffix := owner + "/" + repoName
+	return strings.HasSuffix(u, "/"+suffix) || strings.HasSuffix(u, ":"+suffix)
+}
+
+// locateOrCloneRepo returns the local git repo root for github.com/<owner>/<repoName>.
+// It searches in order:
+//  1. The repo that contains the current working directory.
+//  2. A sibling directory named <repoName> (i.e. "../<repoName>").
+//  3. Clones the repo into "../<repoName>" via `gh repo clone`.
+func locateOrCloneRepo(owner, repoName string) (string, error) {
+	// 1. Current working directory.
+	if root, err := git.RepoRoot(); err == nil && matchesGitHubOrigin(root, owner, repoName) {
+		return root, nil
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("getwd: %w", err)
+	}
+
+	// 2. Sibling directory.
+	sibling := filepath.Join(filepath.Dir(cwd), repoName)
+	if info, statErr := os.Stat(sibling); statErr == nil && info.IsDir() {
+		if matchesGitHubOrigin(sibling, owner, repoName) {
+			return sibling, nil
+		}
+		return "", fmt.Errorf("directory %s exists but does not match %s/%s", sibling, owner, repoName)
+	}
+
+	// 3. Clone via gh repo clone.
+	target := filepath.Join(filepath.Dir(cwd), repoName)
+	fmt.Fprintf(os.Stdout, "Cloning %s/%s into %s ...\n", owner, repoName, target)
+	cloneCmd := exec.Command("gh", "repo", "clone", owner+"/"+repoName, target)
+	cloneCmd.Stdout = os.Stdout
+	cloneCmd.Stderr = os.Stderr
+	if err := cloneCmd.Run(); err != nil {
+		return "", fmt.Errorf("gh repo clone %s/%s: %w", owner, repoName, err)
+	}
+	return target, nil
+}
+
+// repoRootForIssue resolves the local git repo root to use, along with the
+// bare issue number and the argument to pass to `gh issue view`.
+//
+// When arg is a bare issue number the repo is inferred from the current
+// working directory (existing behaviour). When arg is a full GitHub issue URL
+// (https://github.com/<owner>/<repo>/issues/<number>) the target repository is
+// located or cloned automatically, so the caller does not need to cd first.
+func repoRootForIssue(arg string) (repoRoot, issueNum, ghIssueArg string, err error) {
+	owner, repoName, issueNum, isURL := parseIssueURL(arg)
+	if !isURL {
+		root, err := git.RepoRoot()
+		if err != nil {
+			return "", "", "", fmt.Errorf("cannot determine repo root: %w", err)
+		}
+		return root, arg, arg, nil
+	}
+	root, err := locateOrCloneRepo(owner, repoName)
+	if err != nil {
+		return "", "", "", err
+	}
+	// Pass the original URL to gh so it resolves without requiring a
+	// matching git remote in the working directory.
+	return root, issueNum, arg, nil
+}
+
 // slugFromIssue fetches the GitHub issue title and converts it to a slug.
-func slugFromIssue(issue string) (string, error) {
-	cmd := exec.Command("gh", "issue", "view", issue, "--json", "title", "-q", ".title")
+// issueArg may be a bare issue number or a full GitHub issue URL; both are
+// accepted by `gh issue view`.
+func slugFromIssue(issueArg string) (string, error) {
+	cmd := exec.Command("gh", "issue", "view", issueArg, "--json", "title", "-q", ".title")
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &bytes.Buffer{}
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("could not fetch title for issue #%s; pass a slug explicitly", issue)
+		return "", fmt.Errorf("could not fetch title for issue %s; pass a slug explicitly", issueArg)
 	}
 	title := strings.TrimSpace(out.String())
 	if title == "" {
-		return "", fmt.Errorf("could not fetch title for issue #%s; pass a slug explicitly", issue)
+		return "", fmt.Errorf("could not fetch title for issue %s; pass a slug explicitly", issueArg)
 	}
 	slug := titleToSlug(title)
 	if slug == "" {

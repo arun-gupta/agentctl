@@ -236,3 +236,8 @@ func CheckoutMain(repoRoot string) error {
 func InferIssue(branch string) string {
 	return inferIssue(branch)
 }
+
+// OriginURL returns the fetch URL of the "origin" remote in the given repo root.
+func OriginURL(repoRoot string) (string, error) {
+	return run(repoRoot, "remote", "get-url", "origin")
+}
