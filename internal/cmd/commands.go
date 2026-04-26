@@ -1147,7 +1147,11 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 			logFile.Close()
 			return fmt.Errorf("os.Pipe: %w", err)
 		}
-		agentCmd.Args = append(agentCmd.Args, "--output-format", "stream-json")
+		// --output-format stream-json is a Claude-specific flag; only inject it
+		// for the claude adapter to avoid unknown-flag errors with other adapters.
+		if adapterName == "claude" {
+			agentCmd.Args = append(agentCmd.Args, "--output-format", "stream-json")
+		}
 		agentCmd.Stdout = pw
 		agentCmd.Stderr = pw
 	} else {
@@ -1290,7 +1294,7 @@ func extractStreamText(line string) string {
 		Result string `json:"result"`
 	}
 	if err := json.Unmarshal([]byte(line), &ev); err != nil {
-		return strings.TrimSpace(line) // not JSON — pass through verbatim
+		return line // not JSON — pass through verbatim
 	}
 	switch ev.Type {
 	case "assistant":
