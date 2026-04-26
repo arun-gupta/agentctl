@@ -45,7 +45,7 @@ development (SDD) lifecycle with a human-in-the-loop pause.
 Use --no-sdd to skip the spec lifecycle and have the agent work
 directly toward a PR without a spec-review pause.
 
-Use --sdd <name> to select a different SDD methodology (default: speckit).`,
+Use --sdd <name> to select a different SDD methodology (default: plain).`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			issue := args[0]
@@ -62,7 +62,7 @@ Use --sdd <name> to select a different SDD methodology (default: speckit).`,
 	c.Flags().StringVar(&agentName, "agent", "claude", "Coding agent adapter to use")
 	c.Flags().BoolVar(&headless, "headless", false, "Run agent in background (log -> agent.log)")
 	c.Flags().BoolVar(&noSDD, "no-sdd", false, "Skip SDD lifecycle; agent opens a PR directly")
-	c.Flags().StringVar(&sddName, "sdd", "speckit", "SDD methodology to use (default: speckit)")
+	c.Flags().StringVar(&sddName, "sdd", "plain", "SDD methodology to use (default: plain; e.g. speckit, plain, or custom)")
 	return c
 }
 

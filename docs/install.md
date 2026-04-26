@@ -16,12 +16,12 @@ How to install **agentctl** and what you need on your machine.
 | Requirement | Purpose |
 |-------------|---------|
 | `claude` CLI | default coding-agent adapter |
-| Spec Kit in the **target app repo** | default SDD flow; see [sdd.md](sdd.md). Use `start --no-sdd` if not set up |
 
 ### Optional
 
 | Requirement | Purpose |
 |-------------|---------|
+| Spec Kit in the **target app repo** | Spec Kit SDD flow; see [sdd.md](sdd.md). Opt in with `start --sdd speckit` |
 | `codex` CLI | required only when using `--agent codex` (`npm install -g @openai/codex`) |
 | `gemini` CLI | required only when using `--agent gemini` (`npm install -g @google/gemini-cli`); auth via `GEMINI_API_KEY` |
 | `opencode` CLI | required only when using `--agent opencode` (`npm install -g opencode@latest`); configure auth via `opencode auth` or set your provider API key |

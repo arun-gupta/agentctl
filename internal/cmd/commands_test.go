@@ -123,7 +123,7 @@ func TestSpecExists_present(t *testing.T) {
 	}
 }
 
-func TestSkipPrompt_noSDD(t *testing.T) {
+func TestSkipPrompt_noSDDFlag(t *testing.T) {
 	kickoff := sdd.SkipPrompt("42", "3010")
 	if !contains(kickoff, "Skip the SDD lifecycle") {
 		t.Error("no-sdd kickoff should mention skipping SDD")
@@ -146,8 +146,8 @@ func TestStartCmd_sddFlagExists(t *testing.T) {
 	if f == nil {
 		t.Fatal("--sdd flag must be registered")
 	}
-	if f.DefValue != "speckit" {
-		t.Errorf("--sdd default should be 'speckit', got %q", f.DefValue)
+	if f.DefValue != "plain" {
+		t.Errorf("--sdd default should be 'plain', got %q", f.DefValue)
 	}
 }
 

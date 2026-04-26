@@ -16,7 +16,8 @@ Creates a linked worktree for a GitHub issue and launches the selected coding ag
 
 - `--agent <name>`: adapter name; default is `claude`. See [adapters.md](adapters.md) for available adapters.
 - `--headless`: run the agent in the background and write agent output to `agent.log`.
-- `--no-sdd`: skip the default SDD lifecycle and work directly toward a PR.
+- `--no-sdd`: skip the SDD lifecycle entirely and work directly toward a PR (no spec-review pause).
+- `--sdd <name>`: select an SDD methodology (default: `plain`; e.g. `speckit`, `plain`, or a custom methodology). See [sdd.md](sdd.md).
 - `<issue-number>`: GitHub issue number.
 - `[slug]`: optional branch/worktree slug. If omitted, `agentctl` uses `gh issue view` to fetch the issue title and derive a slug.
 
@@ -190,7 +191,7 @@ Error cases:
 agentctl start 42
 ```
 
-The agent runs interactively in your terminal. With the default Spec Kit workflow, review the generated spec when the agent stops, then tell the agent to continue in the interactive session.
+The agent runs interactively in your terminal. With the default plain spec workflow, review the generated spec when the agent stops, then tell the agent to continue in the interactive session.
 
 After the PR is merged:
 
@@ -244,6 +245,16 @@ agentctl cleanup-all-merged
 
 ### Repo without Spec Kit
 
+`agentctl start 42` works out of the box for any repo — the default `plain` methodology requires no external tooling.
+
+Use `--sdd speckit` to opt into the Spec Kit workflow if your repo is set up for it:
+
+```bash
+agentctl start --sdd speckit 42
+```
+
+Use `--no-sdd` for fully automated runs with no spec-review pause:
+
 ```bash
 agentctl start --no-sdd 42
 ```
@@ -286,7 +297,7 @@ Each started worktree contains:
 .agent          key=value metadata (agent, session-id, dev-pid, agent-pid)
 agent.log       coding-agent output in headless mode
 dev.log         dev-server output
-specs/          Spec Kit artifacts when using the default SDD flow
+specs/          SDD spec artifacts (e.g. spec.md, plan.md, tasks.md) when using SDD
 ```
 
 The primary worktree is the first worktree reported by `git worktree list --porcelain`; linked worktrees are created next to it.

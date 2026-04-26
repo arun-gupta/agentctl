@@ -7,7 +7,7 @@ By default, **agentctl** assumes spec-driven development with a human checkpoint
 1. **Stage 1** — The agent writes a spec, then stops for your approval or revision. In headless mode use `agentctl approve-spec` and `agentctl revise-spec`.
 2. **Stage 2** — After approval, the agent implements the changes, pushes the branch, and opens a PR.
 
-The exact lifecycle is defined by the **SDD methodology** selected with `--sdd`. The default is `speckit`.
+The exact lifecycle is defined by the **SDD methodology** selected with `--sdd`. The default is `plain`.
 
 Use `--no-sdd` to skip SDD entirely — the agent works directly toward a PR with no spec-review pause:
 
@@ -21,7 +21,7 @@ This always uses the hardcoded generic skip prompt, regardless of which methodol
 
 One code path handles all methodologies. Built-in and user-defined methodologies are the same type, loaded by the same loader. The binary ships with built-in methodologies (`speckit`, `plain`) embedded directly as plain YAML files, not special Go code.
 
-Select a methodology with `agentctl start --sdd <name>`. The default is `speckit`.
+Select a methodology with `agentctl start --sdd <name>`. The default is `plain`.
 
 ## Methodology resolution
 
@@ -66,7 +66,7 @@ Unknown fields are ignored for forward compatibility.
 
 ## `--sdd` and `--no-sdd` interaction
 
-- `--sdd <name>` selects the methodology (default: `speckit`)
+- `--sdd <name>` selects the methodology (default: `plain`)
 - `--no-sdd` skips SDD entirely — the generic skip prompt is always used and `--sdd` is ignored
 - Passing both together prints a warning: `--sdd is ignored when --no-sdd is set`
 
@@ -91,7 +91,7 @@ and open a PR. Do not merge. Dev server is running on port {port}.
 
 ## Built-in methodologies
 
-### `speckit` (default)
+### `speckit`
 
 ```yaml
 kickoff: |
@@ -105,7 +105,7 @@ kickoff: |
   Dev server is running on port {port}.
 ```
 
-### `plain`
+### `plain` (default)
 
 A lightweight single-file spec workflow with one approval gate and no slash commands. Use this when the target repository is not set up for Spec Kit.
 
