@@ -10,6 +10,8 @@
 //	agentctl cleanup-merged [issue]
 //	agentctl cleanup-all-merged
 //	agentctl status [--verbose]
+//	agentctl logs   [--lines N] [--no-follow] <issue>
+//	agentctl attach <issue>
 package main
 
 import (
@@ -42,6 +44,8 @@ a simple adapter registry and follows spec-driven development (SDD) by default.`
 		cmd.NewCleanupMergedCmd(),
 		cmd.NewCleanupAllMergedCmd(),
 		cmd.NewStatusCmd(),
+		cmd.NewLogsCmd(),
+		cmd.NewAttachCmd(),
 	)
 
 	if err := root.Execute(); err != nil {

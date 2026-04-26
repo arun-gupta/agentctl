@@ -127,6 +127,60 @@ Use this for abandoned or failed work where the PR should not be merged.
 
 Like `cleanup-merged`, the issue number can be inferred from the current branch when run inside a linked worktree.
 
+### `agentctl logs`
+
+```bash
+agentctl logs <issue-number>
+agentctl logs <issue-number> --lines 100
+agentctl logs <issue-number> --no-follow
+```
+
+Streams `agent.log` for the given issue to stdout.
+
+Flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--lines N` | `50` | Lines of history to show before following |
+| `--no-follow` | `false` | Print history and exit without following |
+
+Behavior:
+
+- Looks up the worktree path from state (same as `agentctl status`).
+- Prints the last `--lines N` lines of `agent.log`.
+- Then follows new output until Ctrl+C (unless `--no-follow` is set).
+- If `agent.log` does not exist yet, waits up to 10 seconds for it to appear.
+
+Error cases:
+
+| Condition | Error message |
+|-----------|---------------|
+| Issue not found | `no worktree found for issue N — has it been started?` |
+| `agent.log` missing after 10s | `agent log not found — is the agent running? (looked for <path>)` |
+
+### `agentctl attach`
+
+```bash
+agentctl attach <issue-number>
+```
+
+Streams `agent.log` and exits automatically when the agent process finishes — mirrors the non-headless `start` experience for an already-running headless agent.
+
+Behavior:
+
+- Looks up the worktree path from state and reads the agent PID from `.agent`.
+- If the agent is already dead: prints the last 50 lines of `agent.log` and prints `agent has already finished`.
+- If the agent is still running: streams `agent.log` to stdout and exits when the process ends.
+- On Ctrl+C: prints `agent still running in background (pid N)` and exits without killing the agent.
+
+Error cases:
+
+| Condition | Error message |
+|-----------|---------------|
+| Issue not found | `no worktree found for issue N — has it been started?` |
+| `.agent` file missing or no PID | `no agent PID recorded for issue N — was it started headless?` |
+| `agent.log` missing after 10s | `agent log not found — is the agent running? (looked for <path>)` |
+
 ## Workflows
 
 ### Interactive single-issue workflow
@@ -152,7 +206,10 @@ agentctl start --headless 42
 
 # Watch progress
 agentctl status --verbose
-tail -f ../<repo>-42-<slug>/agent.log
+agentctl logs 42
+
+# Attach and wait for the agent to finish
+agentctl attach 42
 
 # Approve the spec after review
 agentctl approve-spec 42

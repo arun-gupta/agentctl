@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -364,5 +366,157 @@ func TestAgentResume_success(t *testing.T) {
 
 	if err := agentResume("echoagent", dir, "sess-123", "my feedback"); err != nil {
 		t.Errorf("agentResume: %v", err)
+	}
+}
+
+// ─── streamLog ────────────────────────────────────────────────────────────────
+
+func TestStreamLog_fileExists(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "agent.log")
+	content := "line one\nline two\nline three\n"
+	if err := os.WriteFile(logPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := streamLog(dir, 50, true, &buf, 100*time.Millisecond); err != nil {
+		t.Fatalf("streamLog: %v", err)
+	}
+	out := buf.String()
+	for _, line := range []string{"line one", "line two", "line three"} {
+		if !strings.Contains(out, line) {
+			t.Errorf("output missing %q; got: %q", line, out)
+		}
+	}
+}
+
+func TestStreamLog_fileMissing(t *testing.T) {
+	dir := t.TempDir()
+	var buf bytes.Buffer
+	err := streamLog(dir, 50, true, &buf, 50*time.Millisecond)
+	if err == nil {
+		t.Fatal("expected error when agent.log is missing")
+	}
+	logPath := filepath.Join(dir, "agent.log")
+	if !strings.Contains(err.Error(), logPath) {
+		t.Errorf("error should contain log path %q; got: %v", logPath, err)
+	}
+	if !strings.Contains(err.Error(), "agent log not found") {
+		t.Errorf("error should contain 'agent log not found'; got: %v", err)
+	}
+}
+
+func TestRunLogs_unknownIssue(t *testing.T) {
+	var buf bytes.Buffer
+	err := runLogs("99999", 50, true, &buf)
+	if err == nil {
+		t.Fatal("expected error for unknown issue")
+	}
+	if !strings.Contains(err.Error(), "no worktree found") {
+		t.Errorf("error should contain 'no worktree found'; got: %v", err)
+	}
+}
+
+// ─── attachLog ────────────────────────────────────────────────────────────────
+
+func TestAttachLog_missingPID(t *testing.T) {
+	dir := t.TempDir()
+	// Write a .agent file without an agent-pid key.
+	if err := state.Write(dir, state.AgentFile{Agent: "claude", SessionID: "s1", DevPID: "999"}); err != nil {
+		t.Fatal(err)
+	}
+	// Create agent.log so the wait-for-file check passes.
+	if err := os.WriteFile(filepath.Join(dir, "agent.log"), []byte("log\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	err := attachLog(dir, "42", &buf, 100*time.Millisecond)
+	if err == nil {
+		t.Fatal("expected error when agent-pid is missing")
+	}
+	if !strings.Contains(err.Error(), "no agent PID recorded") {
+		t.Errorf("error should contain 'no agent PID recorded'; got: %v", err)
+	}
+}
+
+func TestAttachLog_agentAlreadyDead(t *testing.T) {
+	dir := t.TempDir()
+
+	// Spawn a short-lived process and capture its PID after it exits.
+	proc := exec.Command("true")
+	if err := proc.Start(); err != nil {
+		t.Fatalf("start true: %v", err)
+	}
+	pid := proc.Process.Pid
+	_ = proc.Wait() // wait until truly dead
+
+	// Write .agent with the dead PID.
+	if err := state.Write(dir, state.AgentFile{
+		Agent:    "claude",
+		SessionID: "s1",
+		DevPID:   "0",
+		AgentPID: strconv.Itoa(pid),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write an agent.log with recognisable content.
+	logContent := "agent did some work\n"
+	if err := os.WriteFile(filepath.Join(dir, "agent.log"), []byte(logContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := attachLog(dir, "42", &buf, 100*time.Millisecond); err != nil {
+		t.Fatalf("attachLog: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "agent has already finished") {
+		t.Errorf("expected 'agent has already finished' in output; got: %q", out)
+	}
+}
+
+func TestAttachLog_agentRunning(t *testing.T) {
+	dir := t.TempDir()
+
+	// Spawn a real short-lived process.
+	proc := exec.Command("sleep", "1")
+	if err := proc.Start(); err != nil {
+		t.Fatalf("start sleep: %v", err)
+	}
+	pid := proc.Process.Pid
+	// Reap the child asynchronously so it is promptly removed from the
+	// process table and IsAlive returns false once it exits.
+	go func() { _ = proc.Wait() }()
+
+	// Write .agent with the running PID.
+	if err := state.Write(dir, state.AgentFile{
+		Agent:    "claude",
+		SessionID: "s1",
+		DevPID:   "0",
+		AgentPID: strconv.Itoa(pid),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write an agent.log so tail has something to read.
+	if err := os.WriteFile(filepath.Join(dir, "agent.log"), []byte("starting\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	start := time.Now()
+	if err := attachLog(dir, "42", &buf, 100*time.Millisecond); err != nil {
+		t.Fatalf("attachLog: %v", err)
+	}
+	elapsed := time.Since(start)
+	// The process sleeps for 1s; attachLog should return shortly after.
+	if elapsed < 800*time.Millisecond {
+		t.Errorf("attachLog returned too quickly (%v); expected ~1s wait", elapsed)
+	}
+	if elapsed > 5*time.Second {
+		t.Errorf("attachLog took too long (%v)", elapsed)
 	}
 }
