@@ -9,7 +9,7 @@ How to install **agentctl** and what you need on your machine.
 | Requirement | Purpose |
 |-------------|---------|
 | `git` ≥ 2.5 | worktree support |
-| `gh` CLI | PR management (`cleanup-merged`, `status`), slug-from-title |
+| `gh` CLI | PR management (`cleanup`, `status`), slug-from-title |
 
 ### Required for the default workflow
 

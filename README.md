@@ -46,7 +46,7 @@ agentctl start https://github.com/owner/repo/issues/42
 
 # Back in your application repo's primary worktree
 cd /path/to/your/app-repo
-agentctl cleanup-merged 42
+agentctl cleanup 42
 ```
 
 `agentctl --help` and `agentctl <command> --help` list all flags.
