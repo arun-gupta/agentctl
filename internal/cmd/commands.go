@@ -1181,11 +1181,20 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 			defer convWg.Done()
 			defer pr.Close()
 			defer logFile.Close()
-			sc := bufio.NewScanner(pr)
-			sc.Buffer(make([]byte, 512*1024), 512*1024)
-			for sc.Scan() {
-				if text := extractStreamText(sc.Text()); text != "" {
-					fmt.Fprintln(logFile, text)
+
+			r := bufio.NewReader(pr)
+			for {
+				line, err := r.ReadString('\n')
+				if line != "" {
+					if text := extractStreamText(strings.TrimSuffix(line, "\n")); text != "" {
+						fmt.Fprintln(logFile, text)
+					}
+				}
+				if err != nil {
+					if !errors.Is(err, io.EOF) {
+						fmt.Fprintf(logFile, "converter read error: %v\n", err)
+					}
+					break
 				}
 			}
 		}()
