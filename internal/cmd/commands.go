@@ -1043,8 +1043,21 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 	logFile.Close()
 
 	pid := agentCmd.Process.Pid
-	// Release our reference to the process handle; monitoring is done via PID.
-	_ = agentCmd.Process.Release()
+	// Do NOT call Process.Release(): we need to call Wait() below to properly
+	// reap the child. Releasing the handle prevents Wait() from working, and
+	// kill(0) polling on a zombie process always returns success — causing the
+	// monitor loop to spin forever after the agent exits.
+
+	// Reap the child in a background goroutine and signal exitCh when done.
+	// Using Wait() instead of kill-0 polling is the reliable way to detect
+	// process exit regardless of session/launchd topology.
+	// The exit error is discarded: the agent's stdout/stderr is already
+	// captured in agent.log, so the exit code adds no new information here.
+	exitCh := make(chan struct{})
+	go func() {
+		_ = agentCmd.Wait()
+		close(exitCh)
+	}()
 
 	// Record the agent PID in .agent (core fields were already written by runStart).
 	if err := state.AppendKey(wtPath, "agent-pid", strconv.Itoa(pid)); err != nil {
@@ -1072,23 +1085,21 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	pidStr := strconv.Itoa(pid)
-	for process.IsAlive(pidStr) {
+	for {
 		select {
+		case <-exitCh:
+			signal.Stop(sigCh)
+			close(logDone)
+			wg.Wait()
+			return nil
 		case <-sigCh:
 			signal.Stop(sigCh)
 			close(logDone)
 			wg.Wait()
 			fmt.Fprintf(os.Stdout, "agent still running in background (pid %d)\n", pid)
 			return nil
-		case <-time.After(500 * time.Millisecond):
 		}
 	}
-	signal.Stop(sigCh)
-
-	close(logDone)
-	wg.Wait()
-	return nil
 }
 
 // waitForFile polls until path exists or the timeout elapses.
