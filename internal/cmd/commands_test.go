@@ -214,7 +214,123 @@ func TestResolveIssueArg_noArgs_notLinked(t *testing.T) {
 	}
 }
 
-// contains is a simple substring helper for tests.
+// ─── parseIssueURL ───────────────────────────────────────────────────────────
+
+func TestParseIssueURL_bareNumber(t *testing.T) {
+	owner, repo, issueNum, ok := parseIssueURL("42")
+	if ok {
+		t.Errorf("parseIssueURL(\"42\") should return ok=false")
+	}
+	if owner != "" || repo != "" {
+		t.Errorf("expected empty owner/repo for bare number, got %q %q", owner, repo)
+	}
+	if issueNum != "42" {
+		t.Errorf("expected issueNum=42, got %q", issueNum)
+	}
+}
+
+func TestParseIssueURL_validURL(t *testing.T) {
+	owner, repo, issueNum, ok := parseIssueURL("https://github.com/myorg/myrepo/issues/99")
+	if !ok {
+		t.Fatal("parseIssueURL should return ok=true for a valid URL")
+	}
+	if owner != "myorg" {
+		t.Errorf("owner = %q, want %q", owner, "myorg")
+	}
+	if repo != "myrepo" {
+		t.Errorf("repo = %q, want %q", repo, "myrepo")
+	}
+	if issueNum != "99" {
+		t.Errorf("issueNum = %q, want %q", issueNum, "99")
+	}
+}
+
+func TestParseIssueURL_trailingSlash(t *testing.T) {
+	_, _, issueNum, ok := parseIssueURL("https://github.com/myorg/myrepo/issues/7/")
+	if !ok {
+		t.Fatal("trailing slash should be accepted")
+	}
+	if issueNum != "7" {
+		t.Errorf("issueNum = %q, want %q", issueNum, "7")
+	}
+}
+
+func TestParseIssueURL_invalidPaths(t *testing.T) {
+	cases := []string{
+		"https://github.com/myorg/myrepo/pull/42",   // pull request URL
+		"https://github.com/myorg/myrepo/issues/",   // missing number
+		"https://github.com/myorg/myrepo/issues/abc", // non-numeric
+		"https://github.com/myorg/myrepo",            // no issues path
+		"https://example.com/owner/repo/issues/1",   // wrong host
+	}
+	for _, c := range cases {
+		_, _, _, ok := parseIssueURL(c)
+		if ok {
+			t.Errorf("parseIssueURL(%q) should return ok=false", c)
+		}
+	}
+}
+
+// ─── matchesGitHubOrigin ─────────────────────────────────────────────────────
+
+// initGitRepoWithOrigin creates a bare git repo and sets a given origin URL.
+// Returns the repo directory path.
+func initGitRepoWithOrigin(t *testing.T, originURL string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, args := range [][]string{
+		{"init"},
+		{"remote", "add", "origin", originURL},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	return dir
+}
+
+func TestMatchesGitHubOrigin_https(t *testing.T) {
+	dir := initGitRepoWithOrigin(t, "https://github.com/myorg/myrepo.git")
+	if !matchesGitHubOrigin(dir, "myorg", "myrepo") {
+		t.Error("expected matchesGitHubOrigin to return true for https URL")
+	}
+}
+
+func TestMatchesGitHubOrigin_ssh(t *testing.T) {
+	dir := initGitRepoWithOrigin(t, "git@github.com:myorg/myrepo.git")
+	if !matchesGitHubOrigin(dir, "myorg", "myrepo") {
+		t.Error("expected matchesGitHubOrigin to return true for SSH URL")
+	}
+}
+
+func TestMatchesGitHubOrigin_noGitSuffix(t *testing.T) {
+	dir := initGitRepoWithOrigin(t, "https://github.com/myorg/myrepo")
+	if !matchesGitHubOrigin(dir, "myorg", "myrepo") {
+		t.Error("expected matchesGitHubOrigin to return true when .git suffix absent")
+	}
+}
+
+func TestMatchesGitHubOrigin_wrongOwner(t *testing.T) {
+	dir := initGitRepoWithOrigin(t, "https://github.com/otherorg/myrepo.git")
+	if matchesGitHubOrigin(dir, "myorg", "myrepo") {
+		t.Error("expected matchesGitHubOrigin to return false for wrong owner")
+	}
+}
+
+func TestMatchesGitHubOrigin_noOrigin(t *testing.T) {
+	dir := t.TempDir()
+	cmd := exec.Command("git", "init")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	if matchesGitHubOrigin(dir, "myorg", "myrepo") {
+		t.Error("expected matchesGitHubOrigin to return false when no origin remote")
+	}
+}
+
 func contains(s, sub string) bool {
 	return strings.Contains(s, sub)
 }
