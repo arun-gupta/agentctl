@@ -4,6 +4,7 @@ package cmd
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -1112,6 +1113,7 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 func followLog(logPath string, out io.Writer, done <-chan struct{}) {
 	f, err := os.Open(logPath)
 	if err != nil {
+		fmt.Fprintf(out, "warning: unable to follow log: %v\n", err)
 		return
 	}
 	defer f.Close()
@@ -1139,6 +1141,11 @@ func followLog(logPath string, out io.Writer, done <-chan struct{}) {
 			if line != "" {
 				clearSpinner()
 				fmt.Fprint(out, line)
+			}
+			if errors.Is(err, io.EOF) {
+				// No more content right now; the outer ticker will call
+				// drainLines again to pick up new writes.
+				break
 			}
 			if err != nil {
 				break
