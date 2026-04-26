@@ -646,6 +646,107 @@ func TestLaunchAgent_nonHeadless_exitsWhenAgentDone(t *testing.T) {
 	}
 }
 
+// TestLaunchAgent_claudeNonHeadlessInjectsStreamJsonAndVerbose verifies that
+// launchAgent appends --output-format, stream-json, and --verbose to the
+// command line when adapterName is "claude" and headless is false.
+func TestLaunchAgent_claudeNonHeadlessInjectsStreamJsonAndVerbose(t *testing.T) {
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "argv.txt")
+
+	// Create a stub script that records its argv and exits cleanly.
+	scriptPath := filepath.Join(dir, "claude-stub")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"" + argsFile + "\"\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Shadow the built-in "claude" adapter with our stub binary.
+	writeLocalAdapter(t, dir, "claude", "binary: "+scriptPath+"\nsession: --session\n")
+	chdirTemp(t, dir)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- launchAgent("claude", dir, "42", "3010", "sess-abc", "kickoff text", false, false)
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("launchAgent: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		if p, err := os.FindProcess(os.Getpid()); err == nil {
+			_ = p.Signal(os.Interrupt)
+		}
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("launchAgent did not return after interrupt: %v", err)
+			}
+			t.Fatal("launchAgent timed out — did not detect agent exit")
+		case <-time.After(2 * time.Second):
+			t.Fatal("launchAgent hung even after interrupt")
+		}
+	}
+
+	argsData, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("reading argv file: %v", err)
+	}
+	argsStr := string(argsData)
+	for _, want := range []string{"--output-format", "stream-json", "--verbose"} {
+		if !strings.Contains(argsStr, want) {
+			t.Errorf("missing %q in spawned claude argv: %q", want, argsStr)
+		}
+	}
+}
+
+// TestLaunchAgent_claudeHeadlessInjectsVerboseOnly verifies that launchAgent
+// appends only --verbose (not --output-format stream-json) to the claude
+// command line in headless mode.
+func TestLaunchAgent_claudeHeadlessInjectsVerboseOnly(t *testing.T) {
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "argv.txt")
+
+	scriptPath := filepath.Join(dir, "claude-stub")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"" + argsFile + "\"\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	writeLocalAdapter(t, dir, "claude", "binary: "+scriptPath+"\nsession: --session\n")
+	chdirTemp(t, dir)
+
+	if err := launchAgent("claude", dir, "42", "3010", "sess-abc", "kickoff text", true, false); err != nil {
+		t.Fatalf("launchAgent headless: %v", err)
+	}
+
+	// In headless mode launchAgent returns before the subprocess exits;
+	// poll until argsFile appears.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(argsFile); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	argsData, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("reading argv file: %v", err)
+	}
+	argsStr := string(argsData)
+	if !strings.Contains(argsStr, "--verbose") {
+		t.Errorf("missing --verbose in headless claude argv: %q", argsStr)
+	}
+	if strings.Contains(argsStr, "--output-format") {
+		t.Errorf("unexpected --output-format in headless claude argv: %q", argsStr)
+	}
+	if strings.Contains(argsStr, "stream-json") {
+		t.Errorf("unexpected stream-json in headless claude argv: %q", argsStr)
+	}
+}
+
 // ─── agentResume ─────────────────────────────────────────────────────────────
 
 func TestLaunchAgent_nonZeroExitLogsToStderr(t *testing.T) {
