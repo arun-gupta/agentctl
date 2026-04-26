@@ -32,7 +32,17 @@ func main() {
 		Short:   "Provision isolated git worktrees per issue and launch coding agents",
 		Long: `agentctl provisions isolated git worktrees per GitHub issue and launches
 coding agents inside each one. It supports multiple agent back-ends via
-a simple adapter registry and follows spec-driven development (SDD) by default.`,
+a simple adapter registry and supports optional spec-driven development (SDD) methodologies via --sdd.
+
+Examples:
+  # Start work on issue #42 (launches Claude Code in a new worktree)
+  agentctl start 42
+
+  # Check status of all active worktrees
+  agentctl status
+
+  # Merge and clean up when the PR for issue #42 is merged
+  agentctl cleanup-merged 42`,
 		SilenceUsage: true,
 	}
 
