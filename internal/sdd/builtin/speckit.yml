@@ -1,0 +1,9 @@
+kickoff: |
+  Work on GitHub issue #{issue}. Read CLAUDE.md for project conventions.
+  Follow the SpecKit spec-driven development lifecycle:
+  - STAGE 1: Run /speckit.specify to create a spec. Await human approval before continuing.
+  - STAGE 2: Run /speckit.plan to break the spec into a plan.
+  - STAGE 3: Run /speckit.tasks to create task list.
+  - STAGE 4: Run /speckit.implement to implement the tasks.
+  Push the branch and open a PR when done. Do not merge.
+  Dev server is running on port {port}.

@@ -5,6 +5,7 @@ Contributor-oriented notes: adapter contracts, worktree layout, testing, and CI.
 For user-facing command docs and operating workflows, see **[cli.md](cli.md)**.
 For install and prerequisites, see **[install.md](install.md)**.
 For SDD and Spec Kit behavior, see **[spec-driven.md](spec-driven.md)**.
+For the SDD methodology YAML schema, lookup hierarchy, and drop-in locations, see **[sdd.md](sdd.md)**.
 For the YAML adapter schema, lookup hierarchy, and drop-in locations, see **[adapters.md](adapters.md)**.
 
 ## Adapter interface
@@ -55,7 +56,7 @@ See **[install.md](install.md)** for prerequisites, layout, clone/symlink/subtre
 
 ### Unit tests — pure helpers
 
-Pure, deterministic functions (slug conversion, spec-state inference, kickoff building, PID formatting) live in `internal/cmd` and are tested with table-driven tests in `commands_test.go`. No external processes or filesystem side-effects.
+Pure, deterministic functions (slug conversion, spec-state inference, kickoff building, PID formatting) live in `internal/cmd` and are tested with table-driven tests in `commands_test.go`. No external processes or filesystem side-effects. The `internal/sdd` package has its own unit tests covering YAML loading, the resolution chain, and prompt substitution.
 
 ### Hermetic integration tests — git helpers
 

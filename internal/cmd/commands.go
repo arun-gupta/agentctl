@@ -21,6 +21,7 @@ import (
 	"github.com/arun-gupta/agentctl/internal/adapters"
 	"github.com/arun-gupta/agentctl/internal/git"
 	"github.com/arun-gupta/agentctl/internal/process"
+	"github.com/arun-gupta/agentctl/internal/sdd"
 	"github.com/arun-gupta/agentctl/internal/state"
 )
 
@@ -32,6 +33,7 @@ func NewStartCmd() *cobra.Command {
 		agentName string
 		headless  bool
 		noSDD     bool
+		sddName   string
 	)
 	c := &cobra.Command{
 		Use:   "start <issue> [slug]",
@@ -41,7 +43,9 @@ coding agent inside it. By default the agent follows the spec-driven
 development (SDD) lifecycle with a human-in-the-loop pause.
 
 Use --no-sdd to skip the spec lifecycle and have the agent work
-directly toward a PR without a spec-review pause.`,
+directly toward a PR without a spec-review pause.
+
+Use --sdd <name> to select a different SDD methodology (default: speckit).`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			issue := args[0]
@@ -49,16 +53,20 @@ directly toward a PR without a spec-review pause.`,
 			if len(args) > 1 {
 				slug = args[1]
 			}
-			return runStart(issue, slug, agentName, headless, noSDD)
+			if noSDD && sddName != "speckit" {
+				fmt.Fprintln(os.Stderr, "warning: --sdd is ignored when --no-sdd is set")
+			}
+			return runStart(issue, slug, agentName, sddName, headless, noSDD)
 		},
 	}
 	c.Flags().StringVar(&agentName, "agent", "claude", "Coding agent adapter to use")
 	c.Flags().BoolVar(&headless, "headless", false, "Run agent in background (log -> agent.log)")
 	c.Flags().BoolVar(&noSDD, "no-sdd", false, "Skip SDD lifecycle; agent opens a PR directly")
+	c.Flags().StringVar(&sddName, "sdd", "speckit", "SDD methodology to use (default: speckit)")
 	return c
 }
 
-func runStart(issue, slug, agentName string, headless, noSDD bool) error {
+func runStart(issue, slug, agentName, sddName string, headless, noSDD bool) error {
 	// Validate the adapter exists before doing any setup work.
 	if err := validateAdapter(agentName); err != nil {
 		return err
@@ -176,9 +184,19 @@ func runStart(issue, slug, agentName string, headless, noSDD bool) error {
 		fmt.Fprintf(os.Stderr, "         The agent will make changes and open a PR without spec approval.\n")
 	}
 
-	kickoff := buildKickoff(issue, port, noSDD)
+	var kickoff string
+	portStr := fmt.Sprintf("%d", port)
+	if noSDD {
+		kickoff = sdd.SkipPrompt(issue, portStr)
+	} else {
+		m, sddErr := sdd.Get(sddName)
+		if sddErr != nil {
+			return sddErr
+		}
+		kickoff = m.KickoffPrompt(issue, portStr)
+	}
 
-	return launchAgent(agentName, wtPath, issue, fmt.Sprintf("%d", port), sessionID, kickoff, headless)
+	return launchAgent(agentName, wtPath, issue, portStr, sessionID, kickoff, headless)
 }
 
 // ─── approve-spec ─────────────────────────────────────────────────────────────
@@ -998,23 +1016,6 @@ func findWorktreePath(issue string) (string, error) {
 		return "", fmt.Errorf("no worktree found for issue %s — has it been started?", issue)
 	}
 	return wt.Path, nil
-}
-
-// buildKickoff constructs the kickoff prompt for the agent.
-func buildKickoff(issue string, port int, noSDD bool) string {
-	portStr := fmt.Sprintf("%d", port)
-	if noSDD {
-		return fmt.Sprintf(`Work on GitHub issue #%s. Read CLAUDE.md for project conventions. Skip the SDD lifecycle — do NOT run /speckit.specify, /speckit.plan, /speckit.tasks, or /speckit.implement. Make the changes directly, then push the branch and open a PR; do not merge.
-
-Dev server is already running on port %s.`, issue, portStr)
-	}
-	return fmt.Sprintf(`Work on GitHub issue #%s. Follow CLAUDE.md (read constitution, DEVELOPMENT.md, PRODUCT.md). Run the SpecKit lifecycle in two stages with a mandatory human-in-the-loop pause in between:
-
-STAGE 1: Run /speckit.specify. When it completes, report the generated spec file path and STOP. Do NOT proceed to /speckit.plan. Wait for explicit user approval — one of the phrases "proceed", "approved", or "go to plan". If the user replies with spec revisions instead of an approval phrase, update the spec and re-enter the paused state (report the updated spec path and wait again). Only an explicit approval phrase releases the pause.
-
-STAGE 2: After approval, run /speckit.plan, then /speckit.tasks, then /speckit.implement in sequence. When done, push the branch and open a PR; do not merge.
-
-Dev server is already running on port %s.`, issue, portStr)
 }
 
 // launchAgent starts the coding agent in the background via the named adapter,

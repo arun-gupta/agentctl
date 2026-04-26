@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arun-gupta/agentctl/internal/sdd"
 	"github.com/arun-gupta/agentctl/internal/state"
 )
 
@@ -122,13 +123,13 @@ func TestSpecExists_present(t *testing.T) {
 	}
 }
 
-func TestBuildKickoff_noSDD(t *testing.T) {
-	kickoff := buildKickoff("42", 3010, true)
+func TestSkipPrompt_noSDD(t *testing.T) {
+	kickoff := sdd.SkipPrompt("42", "3010")
 	if !contains(kickoff, "Skip the SDD lifecycle") {
 		t.Error("no-sdd kickoff should mention skipping SDD")
 	}
-	if contains(kickoff, "STAGE 1") {
-		t.Error("no-sdd kickoff should not contain STAGE 1")
+	if contains(kickoff, "/speckit") {
+		t.Error("no-sdd kickoff should not contain speckit-specific commands")
 	}
 }
 
@@ -139,13 +140,25 @@ func TestStartCmd_noSpeckitFlagRemoved(t *testing.T) {
 	}
 }
 
-func TestBuildKickoff_speckit(t *testing.T) {
-	kickoff := buildKickoff("42", 3010, false)
-	if !contains(kickoff, "STAGE 1") {
-		t.Error("speckit kickoff should contain STAGE 1")
+func TestStartCmd_sddFlagExists(t *testing.T) {
+	c := NewStartCmd()
+	f := c.Flags().Lookup("sdd")
+	if f == nil {
+		t.Fatal("--sdd flag must be registered")
 	}
-	if !contains(kickoff, "STAGE 2") {
-		t.Error("speckit kickoff should contain STAGE 2")
+	if f.DefValue != "speckit" {
+		t.Errorf("--sdd default should be 'speckit', got %q", f.DefValue)
+	}
+}
+
+func TestKickoffPrompt_speckit(t *testing.T) {
+	m, err := sdd.Get("speckit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	kickoff := m.KickoffPrompt("42", "3010")
+	if !contains(kickoff, "/speckit.specify") {
+		t.Error("speckit kickoff should contain /speckit.specify")
 	}
 	if !contains(kickoff, "3010") {
 		t.Error("kickoff should contain the port number")
