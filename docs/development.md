@@ -108,8 +108,8 @@ tag push
   └─▶ release workflow (release.yml)
         ├─▶ build jobs          — builds archives for all platforms
         ├─▶ release job         — publishes GitHub Release with archives + checksums
-        └─▶ bump-homebrew job   — opens a PR in homebrew-tap with updated version + SHA256s
-              └─▶ tap CI        — brew audit + brew install smoke test on the bump PR
+        └─▶ bump-homebrew job   — opens a PR in homebrew-tap, enables auto-merge
+              └─▶ tap CI        — brew audit + brew install; auto-merges on green
 ```
 
 **release workflow** ([`.github/workflows/release.yml`](../.github/workflows/release.yml))
@@ -118,13 +118,13 @@ tag push
 
 *`release` job* — Downloads all build artifacts, generates `checksums.txt` (SHA256 per archive), and publishes the GitHub Release.
 
-*`bump-homebrew` job* — Runs after `release`; downloads `checksums.txt` from the new release, patches `version` and `sha256` values in `Formula/agentctl.rb` in [homebrew-tap](https://github.com/arun-gupta/homebrew-tap), and opens a PR (`bump/agentctl-vX.Y.Z`) for review.
+*`bump-homebrew` job* — Runs after `release`; downloads `checksums.txt` from the new release, patches `version` and `sha256` values in `Formula/agentctl.rb` in [homebrew-tap](https://github.com/arun-gupta/homebrew-tap), opens a PR (`bump/agentctl-vX.Y.Z`), and enables auto-merge so it merges automatically once tap CI passes.
 
 > **Note:** The `bump-homebrew` job runs in the same workflow as `release` to avoid GitHub's restriction that prevents workflows triggered by `GITHUB_TOKEN` from cascading to other workflows via repository events.
 
 Requires the `HOMEBREW_TAP_TOKEN` secret — a fine-grained PAT scoped to the homebrew-tap repository with **contents** and **pull-requests** write permission. Set it in **Settings → Secrets and variables → Actions** of this repository.
 
-Merge the bump PR in homebrew-tap once tap CI is green. Use `v<major>.<minor>.0` for a new release (e.g. `v0.2.0`, `v0.3.0`).
+Use `v<major>.<minor>.0` for a new release (e.g. `v0.2.0`, `v0.3.0`).
 
 ## CI
 
