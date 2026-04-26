@@ -16,7 +16,7 @@ How to install **agentctl** and what you need on your machine.
 | Requirement | Purpose |
 |-------------|---------|
 | `claude` CLI | default coding-agent adapter |
-| Spec Kit in the **target app repo** | default SDD flow; see [spec-driven.md](spec-driven.md). Use `start --no-sdd` if not set up |
+| Spec Kit in the **target app repo** | default SDD flow; see [sdd.md](sdd.md). Use `start --no-sdd` if not set up |
 
 ### Optional
 
@@ -95,7 +95,7 @@ sudo mv agentctl /usr/local/bin/agentctl
 agentctl --version
 ```
 
-For contributor builds, test commands, and cross-compilation see **[build.md](build.md)**.
+For contributor builds, test commands, and cross-compilation see **[development.md](development.md)**.
 
 ## Provenance
 

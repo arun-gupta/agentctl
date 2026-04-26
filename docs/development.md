@@ -1,12 +1,143 @@
 # Development
 
-Contributor-oriented notes: adapter contracts, worktree layout, testing, and CI.
+Contributor-oriented notes: building, testing, releasing, adapter contracts, and CI.
 
 For user-facing command docs and operating workflows, see **[cli.md](cli.md)**.
 For install and prerequisites, see **[install.md](install.md)**.
-For SDD and Spec Kit behavior, see **[spec-driven.md](spec-driven.md)**.
 For the SDD methodology YAML schema, lookup hierarchy, and drop-in locations, see **[sdd.md](sdd.md)**.
 For the YAML adapter schema, lookup hierarchy, and drop-in locations, see **[adapters.md](adapters.md)**.
+
+## Prerequisites
+
+| Requirement | Version |
+|-------------|---------|
+| [Go](https://go.dev/dl/) | ≥ 1.24 (see `go.mod`) |
+| `git` | any recent version |
+
+## Build
+
+```bash
+# Build all packages (outputs nothing on success)
+go build ./...
+
+# Build the agentctl binary into the current directory
+go build -o agentctl ./cmd/agentctl
+```
+
+## Testing
+
+```bash
+# All packages
+go test ./...
+
+# Single package
+go test ./internal/git/...
+go test ./internal/process/...
+go test ./internal/cmd/...
+go test ./internal/state/...
+
+# Single test by name (supports regex)
+go test ./internal/git/... -run TestAddRemoveWorktree
+
+# Verbose output
+go test -v ./...
+
+# With coverage percentages
+go test -cover ./...
+
+# Coverage breakdown per function
+go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out
+
+# Open coverage in browser
+go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out
+```
+
+The hermetic git tests (`internal/git`) create temporary repositories using `t.TempDir()` and require `git` on your `PATH`. They are skipped automatically if `git` is not available.
+
+## Vet
+
+```bash
+go vet ./...
+```
+
+## Install locally
+
+```bash
+# Installs agentctl into $GOBIN (default: $GOPATH/bin or ~/go/bin)
+go install ./cmd/agentctl
+```
+
+Make sure `$GOBIN` (or `~/go/bin`) is on your `$PATH`:
+
+```bash
+export PATH="$PATH:$(go env GOPATH)/bin"
+agentctl --help
+```
+
+## Cross-compile
+
+Set `GOOS` and `GOARCH` to target a different platform. Use `CGO_ENABLED=0` for a fully static binary.
+
+```bash
+# Linux (amd64)
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o dist/agentctl-linux-amd64 ./cmd/agentctl
+
+# macOS (Apple Silicon)
+GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o dist/agentctl-darwin-arm64 ./cmd/agentctl
+
+# Windows (amd64)
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o dist/agentctl-windows-amd64.exe ./cmd/agentctl
+```
+
+The full release matrix (Linux/macOS/Windows × amd64/arm64) is built automatically by the
+[`release` workflow](../.github/workflows/release.yml) when a `v*` tag is pushed.
+
+## Releasing
+
+Push a `v*` tag to publish a new release:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+This triggers a chain of three automated workflows:
+
+```
+tag push
+  └─▶ release workflow        — builds archives for all platforms, publishes GitHub Release
+        └─▶ bump-homebrew      — opens a PR in homebrew-tap with updated version + SHA256s
+              └─▶ tap CI       — brew audit + brew install smoke test on the bump PR
+```
+
+**release workflow** ([`.github/workflows/release.yml`](../.github/workflows/release.yml))
+- Builds `agentctl` for Linux/macOS/Windows × amd64/arm64
+- Publishes archives (`agentctl-<os>-<arch>.tar.gz` / `.zip`) as release assets
+- Generates `checksums.txt` (SHA256 per archive) and includes it in the release
+
+**bump-homebrew workflow** ([`.github/workflows/bump-homebrew.yml`](../.github/workflows/bump-homebrew.yml))
+- Triggered automatically when the GitHub Release is published
+- Downloads `checksums.txt` from the new release
+- Patches `version` and `sha256` values in `Formula/agentctl.rb` in [homebrew-tap](https://github.com/arun-gupta/homebrew-tap)
+- Opens a PR (`bump/agentctl-vX.Y.Z`) in homebrew-tap for review
+
+Requires the `HOMEBREW_TAP_TOKEN` secret — a fine-grained PAT scoped to the homebrew-tap repository with **contents** and **pull-requests** write permission. Set it in **Settings → Secrets and variables → Actions** of this repository.
+
+Merge the bump PR in homebrew-tap once tap CI is green. Use `v<major>.<minor>.0` for a new release (e.g. `v0.2.0`, `v0.3.0`).
+
+## CI
+
+Every push and pull request runs the following via the [`go` workflow](../.github/workflows/go.yml):
+
+```bash
+go build ./...
+go test -cover -coverprofile=coverage.out ./...
+go vet ./...
+```
+
+CI uploads `coverage.out` as an artifact on every run (see `.github/workflows/go.yml`).
+
+The [`snapshot` workflow](../.github/workflows/snapshot.yml) cross-compiles `agentctl` for all supported platforms on every push to `main` and uploads archives as workflow artifacts (14-day retention). See [install.md](install.md#prebuilt-binaries----per-commit-snapshots) for how to use them.
 
 ## Adapter interface
 
@@ -45,12 +176,8 @@ When `agentctl start <issue>` runs, it creates a linked worktree at `../<repo>-<
 ```
 .agent          ← key=value metadata (agent, port, session-id, agent-pid, dev-pid)
 agent.log       ← agent stdout/stderr (headless mode)
-specs/          ← SpecKit artefacts (spec.md, plan.md, tasks.md)
+specs/          ← SDD artefacts (spec.md, plan.md, tasks.md)
 ```
-
-## Install
-
-See **[install.md](install.md)** for prerequisites, layout, clone/symlink/subtree installs, and release archives.
 
 ## Testing strategy
 
@@ -71,27 +198,3 @@ Functions in `internal/git` that shell out to the `git` CLI are tested with real
 - **Cobra command wiring** (`cmd/agentctl/main.go`): the entry point is a thin dispatch layer; coverage comes from the `internal/cmd` tests above.
 - **`runStart`, `runCleanupMerged`, `runStatus`**: these call `gh`, `npm`, `lsof`, and `uuidgen`; stub-based integration tests are tracked in [#19](https://github.com/arun-gupta/agentctl/issues/19).
 - **`ghPRState`, `slugFromIssue`**: require a real `gh` authentication context; not suitable for CI without credentials.
-
-### Running with coverage
-
-```bash
-go test -cover ./...
-go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out
-```
-
-CI uploads `coverage.out` as an artifact on every run (see `.github/workflows/go.yml`).
-
-## CI
-
-This repository runs several GitHub Actions workflows on every push and pull request:
-
-- **[go](../.github/workflows/go.yml)** — `go build ./...`, `go test -cover ./...`, `go vet ./...`
-- **[snapshot](../.github/workflows/snapshot.yml)** — cross-compiles `agentctl` for all supported platforms on every push to `main` and uploads archives as workflow artifacts (14-day retention); see [install.md](install.md#prebuilt-binaries----per-commit-snapshots)
-- **[release](../.github/workflows/release.yml)** — builds and attaches release archives when a `v*` tag is pushed
-
-```bash
-# Run locally
-go build ./...
-go test -cover ./...
-go vet ./...
-```
