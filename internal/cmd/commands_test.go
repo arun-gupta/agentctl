@@ -381,11 +381,68 @@ func TestLaunchAgent_nonHeadless_exitsWhenAgentDone(t *testing.T) {
 			t.Fatalf("launchAgent non-headless: %v", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("launchAgent did not return after agent process exited — would have required Ctrl+C before the fix")
+		// launchAgent listens on sigCh for os.Interrupt/SIGTERM to unblock its
+		// select loop. Sending SIGINT to this process delivers it to sigCh via
+		// signal.Notify, which causes launchAgent to return — letting the goroutine
+		// above exit cleanly rather than leaking into subsequent tests or hanging
+		// the full `go test` run until the global timeout.
+		if p, err := os.FindProcess(os.Getpid()); err == nil {
+			_ = p.Signal(os.Interrupt)
+		}
+
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("launchAgent did not return after agent process exited and cleanup returned error: %v", err)
+			}
+			t.Fatal("launchAgent did not return after agent process exited — required interrupt-driven cleanup before failing")
+		case <-time.After(2 * time.Second):
+			t.Fatal("launchAgent did not return after agent process exited, and did not exit after interrupt-driven cleanup")
+		}
 	}
 }
 
 // ─── agentResume ─────────────────────────────────────────────────────────────
+
+func TestLaunchAgent_nonZeroExitLogsToStderr(t *testing.T) {
+	dir := t.TempDir()
+	// Use `false` as the agent binary — always exits with code 1.
+	writeLocalAdapter(t, dir, "falseagent", "binary: false\n")
+	chdirTemp(t, dir)
+
+	// Redirect os.Stderr to a pipe so we can capture the error message.
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stderr = w
+	t.Cleanup(func() { os.Stderr = oldStderr })
+
+	// Run launchAgent in non-headless mode. It returns only after exitCh is
+	// closed, which happens after fmt.Fprintf(os.Stderr, ...) in the reaper
+	// goroutine — so by the time launchAgent returns, the message is already
+	// captured in the pipe.
+	launchErr := launchAgent("falseagent", dir, "42", "3010", "sess-abc", "do the thing", false, false)
+
+	// Close the write end and restore stderr before reading.
+	w.Close()
+	os.Stderr = oldStderr
+
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatalf("reading captured stderr: %v", err)
+	}
+	r.Close()
+
+	// launchAgent itself does not return the agent's exit code as an error.
+	if launchErr != nil {
+		t.Fatalf("launchAgent: unexpected error: %v", launchErr)
+	}
+	if !strings.Contains(buf.String(), "agent exited") {
+		t.Errorf("expected 'agent exited' on stderr for non-zero exit, got: %q", buf.String())
+	}
+}
 
 func TestAgentResume_unknownAdapter(t *testing.T) {
 	dir := t.TempDir()
