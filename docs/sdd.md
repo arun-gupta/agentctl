@@ -119,7 +119,7 @@ kickoff: |
 ```
 
 ```bash
-agentctl start --sdd plain 42
+agentctl start 42
 ```
 
 ## Drop-in locations
