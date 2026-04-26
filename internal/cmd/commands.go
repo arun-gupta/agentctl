@@ -1109,7 +1109,12 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 //   - On a non-terminal (pipe/CI): a "still running" heartbeat line every 30 s.
 //
 // Clearing the spinner before printing each log line keeps output clean.
+// On a TTY the spinner is redrawn on the next 100 ms tick after a log line is
+// printed — there is intentionally no immediate redraw to keep the logic simple.
+//
 // After done is closed, any remaining content in the file is flushed to out.
+// Note: agent-process hang-on-exit (issue #78) is a separate concern and is
+// not addressed here; that fix belongs in the process-monitoring loop.
 func followLog(logPath string, out io.Writer, done <-chan struct{}) {
 	f, err := os.Open(logPath)
 	if err != nil {
@@ -1143,8 +1148,10 @@ func followLog(logPath string, out io.Writer, done <-chan struct{}) {
 				fmt.Fprint(out, line)
 			}
 			if errors.Is(err, io.EOF) {
-				// No more content right now; the outer ticker will call
-				// drainLines again to pick up new writes.
+				// ReadString may return a partial line (no trailing '\n') together
+				// with io.EOF when the writer hasn't finished the line yet. The
+				// partial content is already printed above via `if line != ""`.
+				// The next drainLines call will pick up the rest once it is written.
 				break
 			}
 			if err != nil {

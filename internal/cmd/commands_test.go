@@ -455,8 +455,11 @@ func TestFollowLog_drainsContentAndExits(t *testing.T) {
 		followLog(logPath, &buf, done)
 	}()
 
-	// Give followLog a couple of ticks to pick up the initial content.
-	time.Sleep(300 * time.Millisecond)
+	// Poll until followLog has picked up the initial content.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(buf.String(), "line one") {
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	// Append more content while followLog is running.
 	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_WRONLY, 0o644)
@@ -469,7 +472,11 @@ func TestFollowLog_drainsContentAndExits(t *testing.T) {
 	}
 	f.Close()
 
-	time.Sleep(300 * time.Millisecond)
+	// Poll until followLog has picked up the appended line.
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(buf.String(), "line three") {
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	// Signal done; followLog should drain any remaining content and return.
 	close(done)
@@ -511,8 +518,11 @@ func TestFollowLog_heartbeatOnNonTTY(t *testing.T) {
 	}()
 
 	// The first heartbeat is emitted immediately (lastHeartbeat starts 30s in the
-	// past), so give it a couple of ticks to appear.
-	time.Sleep(300 * time.Millisecond)
+	// past), so poll until it appears.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(buf.String(), "agent running...") {
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	close(done)
 	<-finished
