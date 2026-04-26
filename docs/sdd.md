@@ -15,6 +15,8 @@ Use `--no-sdd` to skip SDD entirely — the agent works directly toward a PR wit
 agentctl start --no-sdd 42
 ```
 
+This always uses the hardcoded generic skip prompt, regardless of which methodology is active. The agent is fully automated — no human-in-the-loop checkpoint.
+
 ## How it works
 
 One code path handles all methodologies. Built-in and user-defined methodologies are the same type, loaded by the same loader. The binary ships with built-in methodologies (`speckit`, `plain`) embedded directly as plain YAML files, not special Go code.

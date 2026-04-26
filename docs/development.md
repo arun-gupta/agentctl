@@ -121,6 +121,8 @@ tag push
 - Patches `version` and `sha256` values in `Formula/agentctl.rb` in [homebrew-tap](https://github.com/arun-gupta/homebrew-tap)
 - Opens a PR (`bump/agentctl-vX.Y.Z`) in homebrew-tap for review
 
+Requires the `HOMEBREW_TAP_TOKEN` secret — a fine-grained PAT scoped to the homebrew-tap repository with **contents** and **pull-requests** write permission. Set it in **Settings → Secrets and variables → Actions** of this repository.
+
 Merge the bump PR in homebrew-tap once tap CI is green. Use `v<major>.<minor>.0` for a new release (e.g. `v0.2.0`, `v0.3.0`).
 
 ## CI
@@ -129,9 +131,11 @@ Every push and pull request runs the following via the [`go` workflow](../.githu
 
 ```bash
 go build ./...
-go test ./...
+go test -cover -coverprofile=coverage.out ./...
 go vet ./...
 ```
+
+CI uploads `coverage.out` as an artifact on every run (see `.github/workflows/go.yml`).
 
 The [`snapshot` workflow](../.github/workflows/snapshot.yml) cross-compiles `agentctl` for all supported platforms on every push to `main` and uploads archives as workflow artifacts (14-day retention). See [install.md](install.md#prebuilt-binaries----per-commit-snapshots) for how to use them.
 
