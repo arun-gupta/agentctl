@@ -151,6 +151,61 @@ func TestStartCmd_sddFlagExists(t *testing.T) {
 	}
 }
 
+func TestStartCmd_sddAndNoSDD_warnsOnStderr(t *testing.T) {
+	// Capture os.Stderr writes produced inside RunE before runStart is called.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	t.Cleanup(func() { os.Stderr = old })
+
+	c := NewStartCmd()
+	c.SetArgs([]string{"--sdd", "speckit", "--no-sdd", "42"})
+	// Execute will fail (no git repo), but the warning fires before runStart.
+	_ = c.Execute()
+
+	w.Close()
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatal(err)
+	}
+	r.Close()
+
+	got := buf.String()
+	if !strings.Contains(got, "--sdd is ignored when --no-sdd is set") {
+		t.Errorf("expected --sdd ignored warning on stderr, got: %q", got)
+	}
+}
+
+func TestStartCmd_noSDD_defaultSDD_noWarning(t *testing.T) {
+	// When --no-sdd is passed without explicit --sdd, no warning should appear.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	t.Cleanup(func() { os.Stderr = old })
+
+	c := NewStartCmd()
+	c.SetArgs([]string{"--no-sdd", "42"})
+	_ = c.Execute()
+
+	w.Close()
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatal(err)
+	}
+	r.Close()
+
+	got := buf.String()
+	if strings.Contains(got, "--sdd is ignored when --no-sdd is set") {
+		t.Errorf("unexpected --sdd ignored warning when --sdd was not explicitly set; got: %q", got)
+	}
+}
+
 func TestKickoffPrompt_speckit(t *testing.T) {
 	m, err := sdd.Get("speckit")
 	if err != nil {

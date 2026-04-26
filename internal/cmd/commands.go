@@ -53,7 +53,7 @@ Use --sdd <name> to select a different SDD methodology (default: speckit).`,
 			if len(args) > 1 {
 				slug = args[1]
 			}
-			if noSDD && sddName != "speckit" {
+			if noSDD && cmd.Flags().Changed("sdd") {
 				fmt.Fprintln(os.Stderr, "warning: --sdd is ignored when --no-sdd is set")
 			}
 			return runStart(issue, slug, agentName, sddName, headless, noSDD)
