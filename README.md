@@ -44,6 +44,8 @@ agentctl start 42
 # Or from anywhere, using a full GitHub issue URL
 agentctl start https://github.com/owner/repo/issues/42
 
+# Back in your application repo's primary worktree
+cd /path/to/your/app-repo
 agentctl cleanup-merged 42
 ```
 
