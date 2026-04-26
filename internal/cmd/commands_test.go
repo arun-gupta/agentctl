@@ -381,7 +381,22 @@ func TestLaunchAgent_nonHeadless_exitsWhenAgentDone(t *testing.T) {
 			t.Fatalf("launchAgent non-headless: %v", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("launchAgent did not return after agent process exited — would have required Ctrl+C before the fix")
+		// Ensure the goroutine running launchAgent is told to shut down before
+		// failing the test, otherwise it can outlive this test and hang the
+		// overall `go test` run until the global timeout.
+		if p, err := os.FindProcess(os.Getpid()); err == nil {
+			_ = p.Signal(os.Interrupt)
+		}
+
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("launchAgent did not return after agent process exited and cleanup returned error: %v", err)
+			}
+			t.Fatal("launchAgent did not return after agent process exited — required interrupt-driven cleanup before failing")
+		case <-time.After(2 * time.Second):
+			t.Fatal("launchAgent did not return after agent process exited, and did not exit after interrupt-driven cleanup")
+		}
 	}
 }
 
