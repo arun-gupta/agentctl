@@ -4,6 +4,7 @@ package cmd
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -1057,12 +1059,13 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 		return err
 	}
 
-	tail := exec.Command("tail", "-F", logPath)
-	tail.Stdout = os.Stdout
-	tail.Stderr = os.Stderr
-	if err := tail.Start(); err != nil {
-		return fmt.Errorf("tail agent.log: %w", err)
-	}
+	logDone := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		followLog(logPath, os.Stdout, logDone)
+	}()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -1071,18 +1074,17 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 		select {
 		case <-sigCh:
 			signal.Stop(sigCh)
-			_ = tail.Process.Kill()
-			_ = tail.Wait()
-			fmt.Printf("\nagent still running in background (pid %d)\n", pid)
+			close(logDone)
+			wg.Wait()
+			fmt.Fprintf(os.Stdout, "agent still running in background (pid %d)\n", pid)
 			return nil
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
 	signal.Stop(sigCh)
 
-	time.Sleep(200 * time.Millisecond)
-	_ = tail.Process.Kill()
-	_ = tail.Wait()
+	close(logDone)
+	wg.Wait()
 	return nil
 }
 
@@ -1096,6 +1098,101 @@ func waitForFile(path string, timeout time.Duration) error {
 		time.Sleep(100 * time.Millisecond)
 	}
 	return fmt.Errorf("%s did not appear within %s", path, timeout)
+}
+
+// spinnerFrames are the braille Unicode characters used for the spinner animation.
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+// followLog reads logPath continuously and writes new content to out.
+// While the agent is running (done is not yet closed) it provides feedback:
+//   - On a terminal: an in-place spinner with elapsed time, updated every 100 ms.
+//   - On a non-terminal (pipe/CI): a "still running" heartbeat line every 30 s.
+//
+// Clearing the spinner before printing each log line keeps output clean.
+// On a TTY the spinner is redrawn on the next 100 ms tick after a log line is
+// printed — there is intentionally no immediate redraw to keep the logic simple.
+//
+// After done is closed, any remaining content in the file is flushed to out.
+// Note: agent-process hang-on-exit (issue #78) is a separate concern and is
+// not addressed here; that fix belongs in the process-monitoring loop.
+func followLog(logPath string, out io.Writer, done <-chan struct{}) {
+	f, err := os.Open(logPath)
+	if err != nil {
+		fmt.Fprintf(out, "warning: unable to follow log: %v\n", err)
+		return
+	}
+	defer f.Close()
+
+	isTTY := isWriterTerminal(out)
+	start := time.Now()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	frameIdx := 0
+	spinnerShown := false
+	lastHeartbeat := time.Now().Add(-30 * time.Second) // print first heartbeat immediately
+	reader := bufio.NewReader(f)
+
+	clearSpinner := func() {
+		if isTTY && spinnerShown {
+			fmt.Fprint(out, "\r\033[K")
+			spinnerShown = false
+		}
+	}
+
+	drainLines := func() {
+		for {
+			line, err := reader.ReadString('\n')
+			if line != "" {
+				clearSpinner()
+				fmt.Fprint(out, line)
+			}
+			if errors.Is(err, io.EOF) {
+				// ReadString may return a partial line (no trailing '\n') together
+				// with io.EOF when the writer hasn't finished the line yet. The
+				// partial content is already printed above via `if line != ""`.
+				// The next drainLines call will pick up the rest once it is written.
+				break
+			}
+			if err != nil {
+				break
+			}
+		}
+	}
+
+	for {
+		select {
+		case <-done:
+			drainLines()
+			clearSpinner()
+			return
+		case <-ticker.C:
+			drainLines()
+			elapsed := time.Since(start).Truncate(time.Second)
+			if isTTY {
+				fmt.Fprintf(out, "\r%s agent running... %s", spinnerFrames[frameIdx], elapsed)
+				spinnerShown = true
+				frameIdx = (frameIdx + 1) % len(spinnerFrames)
+			} else if time.Since(lastHeartbeat) >= 30*time.Second {
+				fmt.Fprintf(out, "agent running... %s\n", elapsed)
+				lastHeartbeat = time.Now()
+			}
+		}
+	}
+}
+
+// isWriterTerminal reports whether w is backed by a character device (i.e. a
+// terminal). It returns false for pipes, regular files, and non-*os.File writers.
+func isWriterTerminal(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	fi, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
 }
 
 // agentResume starts the coding agent in resume mode using the named adapter.
