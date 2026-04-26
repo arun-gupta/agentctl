@@ -162,7 +162,7 @@ jobs:
           git push origin "$BRANCH"
           echo "BRANCH=$BRANCH" >> "$GITHUB_ENV"
 
-      - name: Open PR
+      - name: Open PR and enable auto-merge
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           VERSION: ${{ github.ref_name }}
@@ -173,3 +173,8 @@ jobs:
             --base main \
             --title "feat: bump agentctl to ${VERSION}" \
             --body "Automated formula bump for [${VERSION}](https://github.com/arun-gupta/agentctl/releases/tag/${VERSION})."
+          gh pr merge \
+            --repo arun-gupta/homebrew-tap \
+            --auto \
+            --merge \
+            "$BRANCH"
