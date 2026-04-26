@@ -9,14 +9,14 @@ Run `agentctl --help` or `agentctl <command> --help` for generated help from the
 ### `agentctl start`
 
 ```bash
-agentctl start [--agent <name>] [--headless] [--no-speckit] <issue-number> [slug]
+agentctl start [--agent <name>] [--headless] [--no-sdd] <issue-number> [slug]
 ```
 
 Creates a linked worktree for a GitHub issue and launches the selected coding agent inside it.
 
 - `--agent <name>`: adapter name; default is `claude`. See [adapters.md](adapters.md) for available adapters.
 - `--headless`: run the agent in the background and write agent output to `agent.log`.
-- `--no-speckit`: skip the default Spec Kit lifecycle and work directly toward a PR.
+- `--no-sdd`: skip the default SDD lifecycle and work directly toward a PR.
 - `<issue-number>`: GitHub issue number.
 - `[slug]`: optional branch/worktree slug. If omitted, `agentctl` uses `gh issue view` to fetch the issue title and derive a slug.
 
@@ -188,7 +188,7 @@ agentctl cleanup-all-merged
 ### Repo without Spec Kit
 
 ```bash
-agentctl start --no-speckit 42
+agentctl start --no-sdd 42
 ```
 
 This skips the spec-review pause. The agent works directly toward a PR.

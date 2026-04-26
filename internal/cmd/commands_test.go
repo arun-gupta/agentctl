@@ -120,13 +120,13 @@ func TestSpecExists_present(t *testing.T) {
 	}
 }
 
-func TestBuildKickoff_noSpeckit(t *testing.T) {
+func TestBuildKickoff_noSDD(t *testing.T) {
 	kickoff := buildKickoff("42", 3010, true)
-	if !contains(kickoff, "Skip the SpecKit lifecycle") {
-		t.Error("no-speckit kickoff should mention skipping SpecKit")
+	if !contains(kickoff, "Skip the SDD lifecycle") {
+		t.Error("no-sdd kickoff should mention skipping SDD")
 	}
 	if contains(kickoff, "STAGE 1") {
-		t.Error("no-speckit kickoff should not contain STAGE 1")
+		t.Error("no-sdd kickoff should not contain STAGE 1")
 	}
 }
 

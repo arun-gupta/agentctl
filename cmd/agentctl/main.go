@@ -3,7 +3,7 @@
 //
 // Command surface (start, approve-spec, …):
 //
-//	agentctl start [--agent name] [--headless] [--no-speckit] <issue> [slug]
+//	agentctl start [--agent name] [--headless] [--no-sdd] <issue> [slug]
 //	agentctl approve-spec  <issue>
 //	agentctl revise-spec   <issue> <feedback>
 //	agentctl discard       [issue]
