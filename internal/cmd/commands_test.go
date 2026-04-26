@@ -1001,3 +1001,60 @@ func TestAttachLog_agentRunning(t *testing.T) {
 		t.Errorf("attachLog took too long (%v)", elapsed)
 	}
 }
+
+func TestExtractStreamText(t *testing.T) {
+	cases := []struct {
+		name  string
+		line  string
+		want  string
+	}{
+		{
+			name:  "assistant text",
+			line:  `{"type":"assistant","message":{"content":[{"type":"text","text":"I'll fix the bug."}]}}`,
+			want:  "I'll fix the bug.",
+		},
+		{
+			name:  "assistant tool_use",
+			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"bash","input":{"command":"ls"}}]}}`,
+			want:  "[bash]",
+		},
+		{
+			name:  "assistant text + tool_use",
+			line:  `{"type":"assistant","message":{"content":[{"type":"text","text":"Running ls."},{"type":"tool_use","name":"bash","input":{}}]}}`,
+			want:  "Running ls.\n[bash]",
+		},
+		{
+			name:  "result success",
+			line:  `{"type":"result","subtype":"success","result":"PR opened."}`,
+			want:  "PR opened.",
+		},
+		{
+			name:  "system event skipped",
+			line:  `{"type":"system","subtype":"init","model":"claude-opus-4-5"}`,
+			want:  "",
+		},
+		{
+			name:  "user event skipped",
+			line:  `{"type":"user","message":{"role":"user","content":[]}}`,
+			want:  "",
+		},
+		{
+			name:  "non-JSON passed through",
+			line:  "plain text output",
+			want:  "plain text output",
+		},
+		{
+			name:  "empty assistant text skipped",
+			line:  `{"type":"assistant","message":{"content":[{"type":"text","text":"   "}]}}`,
+			want:  "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := extractStreamText(tc.line)
+			if got != tc.want {
+				t.Errorf("extractStreamText(%q) = %q, want %q", tc.line, got, tc.want)
+			}
+		})
+	}
+}
