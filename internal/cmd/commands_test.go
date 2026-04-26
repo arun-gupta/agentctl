@@ -130,6 +130,13 @@ func TestBuildKickoff_noSDD(t *testing.T) {
 	}
 }
 
+func TestStartCmd_noSpeckitFlagRemoved(t *testing.T) {
+	c := NewStartCmd()
+	if f := c.Flags().Lookup("no-speckit"); f != nil {
+		t.Error("--no-speckit flag must not be registered; it was removed")
+	}
+}
+
 func TestBuildKickoff_speckit(t *testing.T) {
 	kickoff := buildKickoff("42", 3010, false)
 	if !contains(kickoff, "STAGE 1") {

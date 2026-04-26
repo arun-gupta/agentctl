@@ -54,11 +54,6 @@ directly toward a PR without a spec-review pause.`,
 	c.Flags().StringVar(&agentName, "agent", "claude", "Coding agent adapter to use")
 	c.Flags().BoolVar(&headless, "headless", false, "Run agent in background (log -> agent.log)")
 	c.Flags().BoolVar(&noSDD, "no-sdd", false, "Skip SDD lifecycle; agent opens a PR directly")
-	// --no-speckit is a hidden deprecated alias for --no-sdd.
-	c.Flags().BoolVar(&noSDD, "no-speckit", false, "Deprecated: use --no-sdd")
-	if err := c.Flags().MarkHidden("no-speckit"); err != nil {
-		panic(err)
-	}
 	return c
 }
 
