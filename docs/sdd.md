@@ -10,14 +10,14 @@ Use `--sdd <name>` to opt into a spec-driven development (SDD) methodology. The 
 2. **Stage 2** — After approval, the agent implements the changes, pushes the branch, and opens a PR.
 
 ```bash
-agentctl start --sdd plain 42
+agentctl start 42 --sdd=plain
 ```
 
 ## How it works
 
 One code path handles all methodologies. Built-in and user-defined methodologies are the same type, loaded by the same loader. The binary ships with built-in methodologies (`speckit`, `plain`) embedded directly as plain YAML files, not special Go code.
 
-Select a methodology with `agentctl start --sdd <name>`. Omit `--sdd` to skip SDD entirely.
+Select a methodology with `agentctl start <issue> --sdd=<name>`. Omit `--sdd` to skip SDD entirely.
 
 ## Methodology resolution
 
@@ -62,8 +62,10 @@ Unknown fields are ignored for forward compatibility.
 
 ## `--sdd` flag
 
-- `--sdd <name>` opts into the named SDD methodology (e.g. `plain`, `speckit`, or a custom methodology)
+- `--sdd=<name>` opts into the named methodology (e.g. `--sdd=plain`, `--sdd=speckit`)
 - Omitting `--sdd` skips SDD entirely — the agent works directly toward a PR with no spec-review pause
+
+Convention: put the issue number before the flag — `agentctl start 42 --sdd=plain` — so the intent reads naturally.
 
 **Generic skip prompt** (hardcoded in Go, used when `--sdd` is omitted):
 
@@ -113,7 +115,7 @@ kickoff: |
 ```
 
 ```bash
-agentctl start --sdd plain 42
+agentctl start 42 --sdd=plain
 ```
 
 > **Planned:** [#68](https://github.com/arun-gupta/agentctl/issues/68) will add a prescribed `spec.md` format (Problem / Approach / Changes / Out of scope) as a hint in the kickoff prompt so specs have a consistent shape to review.
@@ -154,7 +156,7 @@ To add or override a methodology without modifying the binary:
 Then select it with:
 
 ```bash
-agentctl start --sdd mymethod 42
+agentctl start 42 --sdd=mymethod
 ```
 
 ## Override behaviour
@@ -174,7 +176,7 @@ kickoff: |
   then implement. Push and open a PR when done. Do not merge.
   Dev server is running on port {port}.
 EOF
-agentctl start --sdd openspec 42
+agentctl start 42 --sdd=openspec
 ```
 
 ## Related
