@@ -431,6 +431,107 @@ func TestRunLogs_unknownIssue(t *testing.T) {
 	}
 }
 
+// ─── followLog ───────────────────────────────────────────────────────────────
+
+// TestFollowLog_drainsContentAndExits verifies that followLog flushes all
+// lines written to the log file after done is closed, and that the spinner
+// escape sequences are not emitted when the writer is not a terminal.
+func TestFollowLog_drainsContentAndExits(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "agent.log")
+
+	// Write some initial content before followLog starts.
+	if err := os.WriteFile(logPath, []byte("line one\nline two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan struct{})
+	var buf bytes.Buffer
+
+	// Run followLog in a goroutine so we can control timing.
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		followLog(logPath, &buf, done)
+	}()
+
+	// Give followLog a couple of ticks to pick up the initial content.
+	time.Sleep(300 * time.Millisecond)
+
+	// Append more content while followLog is running.
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("line three\n"); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	f.Close()
+
+	time.Sleep(300 * time.Millisecond)
+
+	// Signal done; followLog should drain any remaining content and return.
+	close(done)
+
+	select {
+	case <-finished:
+	case <-time.After(2 * time.Second):
+		t.Fatal("followLog did not return within timeout after done was closed")
+	}
+
+	out := buf.String()
+	for _, want := range []string{"line one", "line two", "line three"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q; got: %q", want, out)
+		}
+	}
+	// buf is a *bytes.Buffer, not a terminal, so ANSI spinner codes must be absent.
+	if strings.Contains(out, "\r") || strings.Contains(out, "\033[K") {
+		t.Errorf("unexpected ANSI escape sequences in non-terminal output: %q", out)
+	}
+}
+
+// TestFollowLog_heartbeatOnNonTTY verifies that a heartbeat line is printed on
+// a non-terminal writer after the 30-second threshold has elapsed.
+func TestFollowLog_heartbeatOnNonTTY(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "agent.log")
+	if err := os.WriteFile(logPath, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan struct{})
+	var buf bytes.Buffer
+
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		followLog(logPath, &buf, done)
+	}()
+
+	// The first heartbeat is emitted immediately (lastHeartbeat starts 30s in the
+	// past), so give it a couple of ticks to appear.
+	time.Sleep(300 * time.Millisecond)
+
+	close(done)
+	<-finished
+
+	out := buf.String()
+	if !strings.Contains(out, "agent running...") {
+		t.Errorf("expected heartbeat line in non-terminal output; got: %q", out)
+	}
+}
+
+// TestIsWriterTerminal_nonFile verifies that a *bytes.Buffer is not reported
+// as a terminal.
+func TestIsWriterTerminal_nonFile(t *testing.T) {
+	var buf bytes.Buffer
+	if isWriterTerminal(&buf) {
+		t.Error("expected isWriterTerminal to return false for *bytes.Buffer")
+	}
+}
+
 // ─── attachLog ────────────────────────────────────────────────────────────────
 
 func TestAttachLog_missingPID(t *testing.T) {
