@@ -293,6 +293,6 @@ The primary worktree is the first worktree reported by `git worktree list --porc
 
 ## Related docs
 
-- [install.md](install.md) — prerequisites, binary layout, and installation.
+- [install.md](install.md) — prerequisites and installation.
 - [sdd.md](sdd.md) — SDD overview, methodology schema, and drop-in locations.
 - [development.md](development.md) — adapter contract, build, testing, and CI.
