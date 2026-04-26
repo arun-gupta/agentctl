@@ -101,25 +101,26 @@ git tag v0.2.0
 git push origin v0.2.0
 ```
 
-This triggers a chain of three automated workflows:
+This triggers the release workflow which runs three sequential jobs:
 
 ```
 tag push
-  └─▶ release workflow        — builds archives for all platforms, publishes GitHub Release
-        └─▶ bump-homebrew      — opens a PR in homebrew-tap with updated version + SHA256s
-              └─▶ tap CI       — brew audit + brew install smoke test on the bump PR
+  └─▶ release workflow (release.yml)
+        ├─▶ build jobs          — builds archives for all platforms
+        ├─▶ release job         — publishes GitHub Release with archives + checksums
+        └─▶ bump-homebrew job   — opens a PR in homebrew-tap with updated version + SHA256s
+              └─▶ tap CI        — brew audit + brew install smoke test on the bump PR
 ```
 
 **release workflow** ([`.github/workflows/release.yml`](../.github/workflows/release.yml))
-- Builds `agentctl` for Linux/macOS/Windows × amd64/arm64
-- Publishes archives (`agentctl-<os>-<arch>.tar.gz` / `.zip`) as release assets
-- Generates `checksums.txt` (SHA256 per archive) and includes it in the release
 
-**bump-homebrew workflow** ([`.github/workflows/bump-homebrew.yml`](../.github/workflows/bump-homebrew.yml))
-- Triggered automatically when the GitHub Release is published
-- Downloads `checksums.txt` from the new release
-- Patches `version` and `sha256` values in `Formula/agentctl.rb` in [homebrew-tap](https://github.com/arun-gupta/homebrew-tap)
-- Opens a PR (`bump/agentctl-vX.Y.Z`) in homebrew-tap for review
+*`build` jobs* — Builds `agentctl` for Linux/macOS/Windows × amd64/arm64 and uploads archives as artifacts.
+
+*`release` job* — Downloads all build artifacts, generates `checksums.txt` (SHA256 per archive), and publishes the GitHub Release.
+
+*`bump-homebrew` job* — Runs after `release`; downloads `checksums.txt` from the new release, patches `version` and `sha256` values in `Formula/agentctl.rb` in [homebrew-tap](https://github.com/arun-gupta/homebrew-tap), and opens a PR (`bump/agentctl-vX.Y.Z`) for review.
+
+> **Note:** The `bump-homebrew` job runs in the same workflow as `release` to avoid GitHub's restriction that prevents workflows triggered by `GITHUB_TOKEN` from cascading to other workflows via repository events.
 
 Requires the `HOMEBREW_TAP_TOKEN` secret — a fine-grained PAT scoped to the homebrew-tap repository with **contents** and **pull-requests** write permission. Set it in **Settings → Secrets and variables → Actions** of this repository.
 
