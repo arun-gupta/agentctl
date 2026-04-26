@@ -13,7 +13,7 @@ That flow is implemented in terms of [**Spec Kit**](https://github.com/github/sp
 
 **agentctl does not install or vendor Spec Kit.** The **target application repository** (and your coding-agent setup, e.g. Claude Code slash commands) must already support that Spec Kit–style lifecycle.
 
-If the repo is not set up for it, use **`agentctl start --no-speckit`** so the agent skips the spec lifecycle and works straight toward a PR with no spec-review pause.
+If the repo is not set up for it, use **`agentctl start --no-sdd`** so the agent skips the spec lifecycle and works straight toward a PR with no spec-review pause.
 
 ## Related
 

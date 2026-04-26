@@ -43,7 +43,7 @@ agentctl cleanup-merged 42
 
 - **[docs/install.md](docs/install.md)** — prerequisites, layout, install paths, releases  
 - **[docs/cli.md](docs/cli.md)** — command reference and workflows  
-- **[docs/spec-driven.md](docs/spec-driven.md)** — SDD, Spec Kit, `--no-speckit`  
+- **[docs/spec-driven.md](docs/spec-driven.md)** — SDD, Spec Kit, `--no-sdd`  
 - **[docs/adapters.md](docs/adapters.md)** — YAML adapter schema, lookup hierarchy, drop-in locations, built-in adapters  
 - **[docs/development.md](docs/development.md)** — testing, CI  
 - **[docs/build.md](docs/build.md)** — contributor build, test, coverage  

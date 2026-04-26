@@ -28,18 +28,18 @@ import (
 // NewStartCmd creates the `start` subcommand.
 func NewStartCmd() *cobra.Command {
 	var (
-		agentName  string
-		headless   bool
-		noSpeckit  bool
+		agentName string
+		headless  bool
+		noSDD     bool
 	)
 	c := &cobra.Command{
 		Use:   "start <issue> [slug]",
 		Short: "Provision a worktree for an issue and launch a coding agent",
 		Long: `Provision an isolated git worktree for a GitHub issue and launch a
-coding agent inside it. By default the agent follows the SpecKit
-spec-driven development lifecycle with a human-in-the-loop pause.
+coding agent inside it. By default the agent follows the spec-driven
+development (SDD) lifecycle with a human-in-the-loop pause.
 
-Use --no-speckit to skip the spec lifecycle and have the agent work
+Use --no-sdd to skip the spec lifecycle and have the agent work
 directly toward a PR without a spec-review pause.`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -48,16 +48,16 @@ directly toward a PR without a spec-review pause.`,
 			if len(args) > 1 {
 				slug = args[1]
 			}
-			return runStart(issue, slug, agentName, headless, noSpeckit)
+			return runStart(issue, slug, agentName, headless, noSDD)
 		},
 	}
 	c.Flags().StringVar(&agentName, "agent", "claude", "Coding agent adapter to use")
 	c.Flags().BoolVar(&headless, "headless", false, "Run agent in background (log -> agent.log)")
-	c.Flags().BoolVar(&noSpeckit, "no-speckit", false, "Skip SpecKit lifecycle; agent opens a PR directly")
+	c.Flags().BoolVar(&noSDD, "no-sdd", false, "Skip SDD lifecycle; agent opens a PR directly")
 	return c
 }
 
-func runStart(issue, slug, agentName string, headless, noSpeckit bool) error {
+func runStart(issue, slug, agentName string, headless, noSDD bool) error {
 	// Validate the adapter exists before doing any setup work.
 	if err := validateAdapter(agentName); err != nil {
 		return err
@@ -169,13 +169,13 @@ func runStart(issue, slug, agentName string, headless, noSpeckit bool) error {
 		return err
 	}
 
-	if noSpeckit {
-		fmt.Fprintf(os.Stderr, "WARNING: --no-speckit skips the SpecKit lifecycle and the spec-review pause.\n")
+	if noSDD {
+		fmt.Fprintf(os.Stderr, "WARNING: --no-sdd skips the SDD lifecycle and the spec-review pause.\n")
 		fmt.Fprintf(os.Stderr, "         This run is fully automated with NO human-in-the-loop checkpoint.\n")
 		fmt.Fprintf(os.Stderr, "         The agent will make changes and open a PR without spec approval.\n")
 	}
 
-	kickoff := buildKickoff(issue, port, noSpeckit)
+	kickoff := buildKickoff(issue, port, noSDD)
 
 	return launchAgent(agentName, wtPath, issue, fmt.Sprintf("%d", port), sessionID, kickoff, headless)
 }
@@ -831,10 +831,10 @@ func validateAdapter(name string) error {
 }
 
 // buildKickoff constructs the kickoff prompt for the agent.
-func buildKickoff(issue string, port int, noSpeckit bool) string {
+func buildKickoff(issue string, port int, noSDD bool) string {
 	portStr := fmt.Sprintf("%d", port)
-	if noSpeckit {
-		return fmt.Sprintf(`Work on GitHub issue #%s. Read CLAUDE.md for project conventions. Skip the SpecKit lifecycle — do NOT run /speckit.specify, /speckit.plan, /speckit.tasks, or /speckit.implement. Make the changes directly, then push the branch and open a PR; do not merge.
+	if noSDD {
+		return fmt.Sprintf(`Work on GitHub issue #%s. Read CLAUDE.md for project conventions. Skip the SDD lifecycle — do NOT run /speckit.specify, /speckit.plan, /speckit.tasks, or /speckit.implement. Make the changes directly, then push the branch and open a PR; do not merge.
 
 Dev server is already running on port %s.`, issue, portStr)
 	}
