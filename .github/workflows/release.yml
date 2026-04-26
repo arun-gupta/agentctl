@@ -175,6 +175,6 @@ jobs:
             --body "Automated formula bump for [${VERSION}](https://github.com/arun-gupta/agentctl/releases/tag/${VERSION})."
           gh pr merge \
             --repo arun-gupta/homebrew-tap \
-            --head "$BRANCH" \
             --auto \
-            --merge
+            --merge \
+            "$BRANCH"
