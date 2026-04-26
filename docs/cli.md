@@ -6,15 +6,15 @@ Run `agentctl --help` or `agentctl <command> --help` for generated help from the
 
 ## Command reference
 
-### `agentctl spawn`
+### `agentctl start`
 
 ```bash
-agentctl spawn [--agent <name>] [--headless] [--no-speckit] <issue-number> [slug]
+agentctl start [--agent <name>] [--headless] [--no-speckit] <issue-number> [slug]
 ```
 
 Creates a linked worktree for a GitHub issue and launches the selected coding agent inside it.
 
-- `--agent <name>`: adapter name from `agents/<name>.sh`; default is `claude`.
+- `--agent <name>`: adapter name; default is `claude`. See [adapters.md](adapters.md) for available adapters.
 - `--headless`: run the agent in the background and write agent output to `agent.log`.
 - `--no-speckit`: skip the default Spec Kit lifecycle and work directly toward a PR.
 - `<issue-number>`: GitHub issue number.
@@ -133,7 +133,7 @@ Like `cleanup-merged`, the issue number can be inferred from the current branch 
 
 ```bash
 # From your application repo's primary worktree
-agentctl spawn 42
+agentctl start 42
 ```
 
 The agent runs interactively in your terminal. With the default Spec Kit workflow, review the generated spec when the agent stops, then tell the agent to continue in the interactive session.
@@ -148,7 +148,7 @@ agentctl cleanup-merged 42
 
 ```bash
 # Start work in the background
-agentctl spawn --headless 42
+agentctl start --headless 42
 
 # Watch progress
 agentctl status --verbose
@@ -167,9 +167,9 @@ agentctl cleanup-merged 42
 ### Batch headless workflow
 
 ```bash
-# Spawn several issues
+# Start several issues
 for i in 210 211 212; do
-  agentctl spawn --headless "$i"
+  agentctl start --headless "$i"
 done
 
 # Review generated specs, then approve each one
@@ -188,7 +188,7 @@ agentctl cleanup-all-merged
 ### Repo without Spec Kit
 
 ```bash
-agentctl spawn --no-speckit 42
+agentctl start --no-speckit 42
 ```
 
 This skips the spec-review pause. The agent works directly toward a PR.
@@ -223,7 +223,7 @@ tail -f ../<repo>-42-<slug>/dev.log
 
 ## Worktree state files
 
-Each spawned worktree contains:
+Each started worktree contains:
 
 ```text
 .agent          key=value metadata (agent, session-id, dev-pid, agent-pid)

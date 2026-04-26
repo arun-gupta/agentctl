@@ -6,6 +6,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/arun-gupta/agentctl/internal/state"
 )
 
 func TestTitleToSlug(t *testing.T) {
@@ -192,4 +195,167 @@ func TestResolveIssueArg_noArgs_notLinked(t *testing.T) {
 // contains is a simple substring helper for tests.
 func contains(s, sub string) bool {
 	return strings.Contains(s, sub)
+}
+
+// ─── validateAdapter ─────────────────────────────────────────────────────────
+
+func TestValidateAdapter_known(t *testing.T) {
+	if err := validateAdapter("claude"); err != nil {
+		t.Errorf("validateAdapter(\"claude\") = %v; want nil", err)
+	}
+}
+
+func TestValidateAdapter_unknown(t *testing.T) {
+	if err := validateAdapter("nonexistent-xyz-abc"); err == nil {
+		t.Error("validateAdapter(nonexistent) expected error, got nil")
+	}
+}
+
+// ─── waitForFile ─────────────────────────────────────────────────────────────
+
+func TestWaitForFile_exists(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "testfile")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := waitForFile(path, time.Second); err != nil {
+		t.Errorf("waitForFile on existing file: %v", err)
+	}
+}
+
+func TestWaitForFile_timeout(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "missing")
+	err := waitForFile(path, 50*time.Millisecond)
+	if err == nil {
+		t.Error("waitForFile expected timeout error, got nil")
+	}
+	if !strings.Contains(err.Error(), "did not appear") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+// ─── findFreePort ────────────────────────────────────────────────────────────
+
+func TestFindFreePort(t *testing.T) {
+	port, err := findFreePort(3010, 3100)
+	if err != nil {
+		t.Fatalf("findFreePort: %v", err)
+	}
+	if port < 3010 || port > 3100 {
+		t.Errorf("port %d out of range [3010, 3100]", port)
+	}
+}
+
+// ─── generateUUID ────────────────────────────────────────────────────────────
+
+func TestGenerateUUID(t *testing.T) {
+	uuid, err := generateUUID()
+	if err != nil {
+		t.Fatalf("generateUUID: %v", err)
+	}
+	if len(uuid) < 32 {
+		t.Errorf("UUID too short: %q (want ≥32 chars)", uuid)
+	}
+	if uuid != strings.ToLower(uuid) {
+		t.Errorf("UUID not lowercase: %q", uuid)
+	}
+}
+
+// ─── launchAgent ─────────────────────────────────────────────────────────────
+
+// chdirTemp changes the working directory to dir for the duration of the test
+// and restores it in t.Cleanup.
+func chdirTemp(t *testing.T, dir string) {
+	t.Helper()
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+}
+
+// writeLocalAdapter writes content to .agentctl/adapters/<name>.yml under dir.
+func writeLocalAdapter(t *testing.T, dir, name, content string) {
+	t.Helper()
+	adapterDir := filepath.Join(dir, ".agentctl", "adapters")
+	if err := os.MkdirAll(adapterDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(adapterDir, name+".yml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLaunchAgent_unknownAdapter(t *testing.T) {
+	dir := t.TempDir()
+	err := launchAgent("nonexistent-xyz-abc", dir, "42", "3010", "sess-123", "kickoff", true)
+	if err == nil {
+		t.Error("expected error for unknown adapter")
+	}
+}
+
+func TestLaunchAgent_binaryNotFound(t *testing.T) {
+	dir := t.TempDir()
+	writeLocalAdapter(t, dir, "fakebinary", "binary: __nonexistent_binary_xyz__\n")
+	chdirTemp(t, dir)
+
+	err := launchAgent("fakebinary", dir, "42", "3010", "sess-123", "kickoff", true)
+	if err == nil {
+		t.Fatal("expected error when binary not found")
+	}
+	if !strings.Contains(err.Error(), "not found on PATH") {
+		t.Errorf("expected 'not found on PATH' in error, got: %v", err)
+	}
+}
+
+func TestLaunchAgent_headless(t *testing.T) {
+	dir := t.TempDir()
+	// Use `echo` as the agent binary — always on PATH, exits immediately.
+	writeLocalAdapter(t, dir, "echoagent",
+		"binary: echo\nsession: --session\n")
+	chdirTemp(t, dir)
+
+	err := launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", true)
+	if err != nil {
+		t.Fatalf("launchAgent headless: %v", err)
+	}
+
+	// Verify agent-pid was recorded in .agent.
+	af, err := state.Read(dir)
+	if err != nil {
+		t.Fatalf("state.Read: %v", err)
+	}
+	if af.AgentPID == "" {
+		t.Error("expected agent-pid to be written to .agent after headless launch")
+	}
+	if _, err := strconv.Atoi(af.AgentPID); err != nil {
+		t.Errorf("agent-pid %q is not a valid integer: %v", af.AgentPID, err)
+	}
+}
+
+// ─── agentResume ─────────────────────────────────────────────────────────────
+
+func TestAgentResume_unknownAdapter(t *testing.T) {
+	dir := t.TempDir()
+	err := agentResume("nonexistent-xyz-abc", dir, "sess-123", "my feedback")
+	if err == nil {
+		t.Error("expected error for unknown adapter")
+	}
+}
+
+func TestAgentResume_success(t *testing.T) {
+	dir := t.TempDir()
+	// Use `echo` as the resume binary — always on PATH, exits immediately.
+	writeLocalAdapter(t, dir, "echoagent",
+		"binary: echo\nsession: --session\n")
+	chdirTemp(t, dir)
+
+	if err := agentResume("echoagent", dir, "sess-123", "my feedback"); err != nil {
+		t.Errorf("agentResume: %v", err)
+	}
 }

@@ -1,0 +1,3 @@
+binary: copilot
+session: --session-id
+install: npm install -g @github/copilot

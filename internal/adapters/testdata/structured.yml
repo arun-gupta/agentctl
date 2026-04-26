@@ -1,0 +1,4 @@
+binary: structbot
+prompt: -q
+session: --session
+resume_id: --resume

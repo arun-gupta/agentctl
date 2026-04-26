@@ -9,7 +9,6 @@ How to install **agentctl** and what you need on your machine.
 | Requirement | Purpose |
 |-------------|---------|
 | `git` ≥ 2.5 | worktree support |
-| `bash` | adapters are run via Bash |
 | `gh` CLI | PR management (`cleanup-merged`, `status`), slug-from-title |
 
 ### Required for the default workflow
@@ -17,7 +16,7 @@ How to install **agentctl** and what you need on your machine.
 | Requirement | Purpose |
 |-------------|---------|
 | `claude` CLI | default coding-agent adapter |
-| Spec Kit in the **target app repo** | default SDD flow; see [spec-driven.md](spec-driven.md). Use `spawn --no-speckit` if not set up |
+| Spec Kit in the **target app repo** | default SDD flow; see [spec-driven.md](spec-driven.md). Use `start --no-speckit` if not set up |
 
 ### Optional
 
