@@ -185,6 +185,17 @@ resume_cmd: kilo run --auto --continue {prompt}
 install: npm install -g @kilocode/cli
 ```
 
+### Cursor
+
+Cursor's CLI agent binary is `cursor-agent`, installed via the `cursor-cli` cask (separate from the Cursor IDE). It uses `-p` for prompt injection and `--continue` to resume the previous session:
+
+```yaml
+binary: cursor-agent
+launch: cursor-agent -p {kickoff}
+resume_cmd: cursor-agent --continue -p {prompt}
+install: brew install --cask cursor-cli
+```
+
 ## Command assembly (structured fields)
 
 When `launch` / `resume_cmd` are not set, commands are assembled from structured fields:
