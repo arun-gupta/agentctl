@@ -4,7 +4,7 @@
 
 | Coding agents | SDD methodologies |
 |---|---|
-| [![Claude Code](https://img.shields.io/badge/Claude%20Code-1F1F1F?logo=anthropic&logoColor=white)](https://www.anthropic.com/claude-code) (default)<br>[![OpenAI Codex](https://img.shields.io/badge/OpenAI%20Codex-412991?logo=openai&logoColor=white)](https://github.com/openai/codex)<br>[![Gemini CLI](https://img.shields.io/badge/Gemini%20CLI-8E75B2?logo=googlegemini&logoColor=white)](https://github.com/google-gemini/gemini-cli)<br>…and [more](docs/adapters.md) | [**Spec Kit**](https://github.com/github/spec-kit) (default, `--sdd speckit`)<br>[**Plain**](docs/sdd.md) (`--sdd plain`)<br>…and [any methodology](docs/sdd.md) via a one-line YAML file |
+| [![Claude Code](https://img.shields.io/badge/Claude%20Code-1F1F1F?logo=anthropic&logoColor=white)](https://www.anthropic.com/claude-code) (default)<br>[![OpenAI Codex](https://img.shields.io/badge/OpenAI%20Codex-412991?logo=openai&logoColor=white)](https://github.com/openai/codex)<br>[![Gemini CLI](https://img.shields.io/badge/Gemini%20CLI-8E75B2?logo=googlegemini&logoColor=white)](https://github.com/google-gemini/gemini-cli)<br>…and [more](docs/adapters.md) | [**Spec Kit**](https://github.com/github/spec-kit) (`--sdd speckit`)<br>[**Plain**](docs/sdd.md) (`--sdd plain`)<br>…and [any methodology](docs/sdd.md) via a one-line YAML file |
 
 ## Install
 
@@ -31,7 +31,6 @@ Run commands from your **application** repository (the primary git worktree):
 ```bash
 cd /path/to/your/app-repo
 agentctl start 42
-agentctl approve-spec 42       # only needed in headless mode, after reviewing the spec
 agentctl cleanup-merged 42
 ```
 

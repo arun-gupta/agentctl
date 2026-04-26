@@ -9,14 +9,14 @@ Run `agentctl --help` or `agentctl <command> --help` for generated help from the
 ### `agentctl start`
 
 ```bash
-agentctl start [--agent <name>] [--headless] [--no-sdd] <issue-number> [slug]
+agentctl start [--agent <name>] [--headless] [--sdd <name>] <issue-number> [slug]
 ```
 
 Creates a linked worktree for a GitHub issue and launches the selected coding agent inside it.
 
 - `--agent <name>`: adapter name; default is `claude`. See [adapters.md](adapters.md) for available adapters.
 - `--headless`: run the agent in the background and write agent output to `agent.log`.
-- `--no-sdd`: skip the default SDD lifecycle and work directly toward a PR.
+- `--sdd <name>`: opt into an SDD methodology (e.g. `plain`, `speckit`, or a custom methodology). Omit to skip SDD and work directly toward a PR. See [sdd.md](sdd.md).
 - `<issue-number>`: GitHub issue number.
 - `[slug]`: optional branch/worktree slug. If omitted, `agentctl` uses `gh issue view` to fetch the issue title and derive a slug.
 
@@ -190,7 +190,7 @@ Error cases:
 agentctl start 42
 ```
 
-The agent runs interactively in your terminal. With the default Spec Kit workflow, review the generated spec when the agent stops, then tell the agent to continue in the interactive session.
+The agent runs interactively in your terminal. Without `--sdd`, the agent works directly toward a PR. Use `--sdd plain` or `--sdd speckit` to add a spec-review checkpoint.
 
 After the PR is merged:
 
@@ -242,15 +242,23 @@ agentctl status --verbose
 agentctl cleanup-all-merged
 ```
 
-### Repo without Spec Kit
+### Spec-driven development (SDD)
+
+`agentctl start 42` works out of the box for any repo — by default there is no spec step and the agent opens a PR directly.
+
+Use `--sdd plain` to add a lightweight spec-review checkpoint (no external tooling required):
 
 ```bash
-agentctl start --no-sdd 42
+agentctl start --sdd plain 42
 ```
 
-This skips the spec-review pause. The agent works directly toward a PR.
+Use `--sdd speckit` to opt into the Spec Kit workflow if your repo is set up for it:
 
-See [sdd.md](sdd.md) for default SDD behavior and target-repo expectations.
+```bash
+agentctl start --sdd speckit 42
+```
+
+See [sdd.md](sdd.md) for the SDD methodology schema and drop-in locations.
 
 ### Recovery and maintenance
 
@@ -286,7 +294,7 @@ Each started worktree contains:
 .agent          key=value metadata (agent, session-id, dev-pid, agent-pid)
 agent.log       coding-agent output in headless mode
 dev.log         dev-server output
-specs/          Spec Kit artifacts when using the default SDD flow
+specs/          SDD spec artifacts (e.g. spec.md, plan.md, tasks.md) when using SDD
 ```
 
 The primary worktree is the first worktree reported by `git worktree list --porcelain`; linked worktrees are created next to it.

@@ -2,26 +2,22 @@
 
 ## Overview
 
-By default, **agentctl** assumes spec-driven development with a human checkpoint:
+By default, **agentctl** has no spec step — the agent works directly toward a PR with no checkpoint.
+
+Use `--sdd <name>` to opt into a spec-driven development (SDD) methodology. The selected methodology defines a kickoff prompt that instructs the agent to follow a spec lifecycle with a human-in-the-loop pause:
 
 1. **Stage 1** — The agent writes a spec, then stops for your approval or revision. In headless mode use `agentctl approve-spec` and `agentctl revise-spec`.
 2. **Stage 2** — After approval, the agent implements the changes, pushes the branch, and opens a PR.
 
-The exact lifecycle is defined by the **SDD methodology** selected with `--sdd`. The default is `speckit`.
-
-Use `--no-sdd` to skip SDD entirely — the agent works directly toward a PR with no spec-review pause:
-
 ```bash
-agentctl start --no-sdd 42
+agentctl start --sdd plain 42
 ```
-
-This always uses the hardcoded generic skip prompt, regardless of which methodology is active. The agent is fully automated — no human-in-the-loop checkpoint.
 
 ## How it works
 
 One code path handles all methodologies. Built-in and user-defined methodologies are the same type, loaded by the same loader. The binary ships with built-in methodologies (`speckit`, `plain`) embedded directly as plain YAML files, not special Go code.
 
-Select a methodology with `agentctl start --sdd <name>`. The default is `speckit`.
+Select a methodology with `agentctl start --sdd <name>`. Omit `--sdd` to skip SDD entirely.
 
 ## Methodology resolution
 
@@ -64,13 +60,12 @@ Substituted via `strings.ReplaceAll` (not token-based — kickoff is free-form t
 
 Unknown fields are ignored for forward compatibility.
 
-## `--sdd` and `--no-sdd` interaction
+## `--sdd` flag
 
-- `--sdd <name>` selects the methodology (default: `speckit`)
-- `--no-sdd` skips SDD entirely — the generic skip prompt is always used and `--sdd` is ignored
-- Passing both together prints a warning: `--sdd is ignored when --no-sdd is set`
+- `--sdd <name>` opts into the named SDD methodology (e.g. `plain`, `speckit`, or a custom methodology)
+- Omitting `--sdd` skips SDD entirely — the agent works directly toward a PR with no spec-review pause
 
-**Generic skip prompt** (hardcoded in Go, used when `--no-sdd` is passed):
+**Generic skip prompt** (hardcoded in Go, used when `--sdd` is omitted):
 
 ```
 Work on GitHub issue #{issue}. Read CLAUDE.md for project conventions.
@@ -87,11 +82,10 @@ and open a PR. Do not merge. Dev server is running on port {port}.
 | Unknown fields | Ignored (forward compatibility) |
 | Both `.yml` and `.yaml` exist | `.yml` wins, warning to stderr |
 | `--sdd <name>` not found | Error: `unknown SDD methodology "name" — drop name.yml in .agentctl/sdd/ or ~/.config/agentctl/sdd/` |
-| `--sdd` and `--no-sdd` both set | Warning to stderr: `--sdd is ignored when --no-sdd is set` |
 
 ## Built-in methodologies
 
-### `speckit` (default)
+### `speckit`
 
 ```yaml
 kickoff: |
