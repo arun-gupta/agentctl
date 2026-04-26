@@ -360,6 +360,31 @@ func TestLaunchAgent_headless(t *testing.T) {
 	}
 }
 
+func TestLaunchAgent_nonHeadless_exitsWhenAgentDone(t *testing.T) {
+	dir := t.TempDir()
+	// Use `echo` as the agent binary — always on PATH, exits immediately.
+	writeLocalAdapter(t, dir, "echoagent",
+		"binary: echo\nsession: --session\n")
+	chdirTemp(t, dir)
+
+	// Run launchAgent in non-headless mode in a goroutine; it must return
+	// automatically once the agent process (echo) exits, without requiring
+	// Ctrl+C or any other intervention.
+	done := make(chan error, 1)
+	go func() {
+		done <- launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", false, false)
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("launchAgent non-headless: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("launchAgent did not return after agent process exited — would have required Ctrl+C before the fix")
+	}
+}
+
 // ─── agentResume ─────────────────────────────────────────────────────────────
 
 func TestAgentResume_unknownAdapter(t *testing.T) {
