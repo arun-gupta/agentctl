@@ -126,6 +126,12 @@ Requires the `HOMEBREW_TAP_TOKEN` secret — a fine-grained PAT scoped to the ho
 
 Use `v<major>.<minor>.0` for a new release (e.g. `v0.2.0`, `v0.3.0`).
 
+## Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AGENTCTL_NO_TOOL_DETAIL` | _(unset)_ | When set to any non-empty value, `agentctl start` suppresses tool input details from the streamed agent output (shows only the tool name). Useful when tool inputs may contain sensitive data such as credentials or signed URLs. |
+
 ## CI
 
 Every push and pull request runs the following via the [`go` workflow](../.github/workflows/go.yml):

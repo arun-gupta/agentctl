@@ -1331,12 +1331,34 @@ func extractStreamText(line string) string {
 	return ""
 }
 
+// toolDetailMaxLen is the maximum number of runes shown for a tool input detail
+// before it is truncated with an ellipsis.
+const toolDetailMaxLen = 120
+
+// sanitizeDetail normalises a raw tool-input string for terminal display:
+// leading/trailing whitespace is stripped, internal whitespace runs (including
+// newlines) are collapsed to a single space, and the result is truncated to
+// toolDetailMaxLen runes.
+func sanitizeDetail(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	r := []rune(s)
+	if len(r) > toolDetailMaxLen {
+		return string(r[:toolDetailMaxLen]) + "..."
+	}
+	return s
+}
+
 // toolLabel returns a display string for a tool_use block, including the most
 // useful input field for the given tool so the terminal output is actionable.
+// Set AGENTCTL_NO_TOOL_DETAIL=1 to suppress input details (e.g. to avoid
+// echoing sensitive data to the terminal).
 func toolLabel(name string, input json.RawMessage) string {
+	if os.Getenv("AGENTCTL_NO_TOOL_DETAIL") != "" {
+		return name
+	}
 	var detail string
-	switch name {
-	case "Bash":
+	switch strings.ToLower(name) {
+	case "bash":
 		var v struct {
 			Command     string `json:"command"`
 			Description string `json:"description"`
@@ -1348,21 +1370,21 @@ func toolLabel(name string, input json.RawMessage) string {
 				detail = v.Command
 			}
 		}
-	case "Read", "Write", "Edit":
+	case "read", "write", "edit":
 		var v struct {
 			FilePath string `json:"file_path"`
 		}
 		if json.Unmarshal(input, &v) == nil && v.FilePath != "" {
 			detail = v.FilePath
 		}
-	case "WebSearch":
+	case "websearch":
 		var v struct {
 			Query string `json:"query"`
 		}
 		if json.Unmarshal(input, &v) == nil && v.Query != "" {
 			detail = v.Query
 		}
-	case "WebFetch":
+	case "webfetch":
 		var v struct {
 			URL string `json:"url"`
 		}
@@ -1373,7 +1395,7 @@ func toolLabel(name string, input json.RawMessage) string {
 	if detail == "" {
 		return name
 	}
-	return name + ": " + detail
+	return name + ": " + sanitizeDetail(detail)
 }
 
 // spinnerFrames are the braille Unicode characters used for the spinner animation.

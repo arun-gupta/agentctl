@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1130,6 +1131,46 @@ func TestExtractStreamText(t *testing.T) {
 			want:  "[Read: /foo/bar.go]",
 		},
 		{
+			name:  "assistant tool_use Write with file_path",
+			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Write","input":{"file_path":"/foo/bar.go"}}]}}`,
+			want:  "[Write: /foo/bar.go]",
+		},
+		{
+			name:  "assistant tool_use Edit with file_path",
+			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/foo/bar.go"}}]}}`,
+			want:  "[Edit: /foo/bar.go]",
+		},
+		{
+			name:  "assistant tool_use WebSearch with query",
+			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"WebSearch","input":{"query":"go cobra optional flag"}}]}}`,
+			want:  "[WebSearch: go cobra optional flag]",
+		},
+		{
+			name:  "assistant tool_use WebFetch with url",
+			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"WebFetch","input":{"url":"https://pkg.go.dev/github.com/spf13/cobra"}}]}}`,
+			want:  "[WebFetch: https://pkg.go.dev/github.com/spf13/cobra]",
+		},
+		{
+			name:  "assistant tool_use Read missing file_path",
+			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{}}]}}`,
+			want:  "[Read]",
+		},
+		{
+			name:  "assistant tool_use lowercase bash",
+			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"bash","input":{"command":"ls -la"}}]}}`,
+			want:  "[bash: ls -la]",
+		},
+		{
+			name:  "assistant tool_use Bash multiline command collapsed",
+			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"ls -la\necho hello"}}]}}`,
+			want:  "[Bash: ls -la echo hello]",
+		},
+		{
+			name: "assistant tool_use Bash long command truncated",
+			line: `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"` + strings.Repeat("a", 130) + `"}}]}}`,
+			want: "[Bash: " + strings.Repeat("a", 120) + "...]",
+		},
+		{
 			name:  "assistant tool_use unknown no detail",
 			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"SomeTool","input":{}}]}}`,
 			want:  "[SomeTool]",
@@ -1170,6 +1211,38 @@ func TestExtractStreamText(t *testing.T) {
 			got := extractStreamText(tc.line)
 			if got != tc.want {
 				t.Errorf("extractStreamText(%q) = %q, want %q", tc.line, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestToolLabel_NoToolDetail(t *testing.T) {
+	t.Setenv("AGENTCTL_NO_TOOL_DETAIL", "1")
+	got := toolLabel("Bash", json.RawMessage(`{"command":"ls -la"}`))
+	if got != "Bash" {
+		t.Errorf("expected %q with AGENTCTL_NO_TOOL_DETAIL set, got %q", "Bash", got)
+	}
+}
+
+func TestSanitizeDetail(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"plain", "hello world", "hello world"},
+		{"trim spaces", "  hello  ", "hello"},
+		{"collapse newline", "ls -la\necho hi", "ls -la echo hi"},
+		{"collapse tab", "a\tb", "a b"},
+		{"collapse multiple spaces", "a   b", "a b"},
+		{"truncate at 120 runes", strings.Repeat("x", 130), strings.Repeat("x", 120) + "..."},
+		{"exact 120 runes no ellipsis", strings.Repeat("x", 120), strings.Repeat("x", 120)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := sanitizeDetail(tc.input)
+			if got != tc.want {
+				t.Errorf("sanitizeDetail(%q) = %q, want %q", tc.input, got, tc.want)
 			}
 		})
 	}
