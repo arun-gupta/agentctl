@@ -335,17 +335,45 @@ func TestLoad_missingBinary(t *testing.T) {
 	}
 }
 
-func TestResumeCmd_copilot_resumeIDFallsBackToSession(t *testing.T) {
-	// copilot.yml has session: --session-id but no resume_id,
-	// so ResumeCmd should fall back to using --session-id.
+func TestLaunchCmd_copilot_noSessionFlag(t *testing.T) {
+	// copilot uses session_type: directory — session continuity is implicit in
+	// the worktree, so no --session-id flag should be appended.
+	a, err := adapters.Get("copilot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := a.LaunchCmd("do the thing", "sess-cp")
+	args := cmd.Args
+	assertContains(t, args, "copilot")
+	assertContains(t, args, "do the thing")
+	for _, arg := range args {
+		if arg == "sess-cp" {
+			t.Errorf("copilot LaunchCmd should not pass session ID as flag, got args: %v", args)
+		}
+		if arg == "--session-id" {
+			t.Errorf("copilot LaunchCmd should not include --session-id, got args: %v", args)
+		}
+	}
+}
+
+func TestResumeCmd_copilot_noSessionFlag(t *testing.T) {
+	// copilot uses session_type: directory — session continuity is implicit in
+	// the worktree, so no --session-id flag should be appended on resume either.
 	a, err := adapters.Get("copilot")
 	if err != nil {
 		t.Fatal(err)
 	}
 	cmd := a.ResumeCmd("fix it", "sess-cp")
 	args := cmd.Args
-	assertContains(t, args, "--session-id") // falls back to Session flag
-	assertContains(t, args, "sess-cp")
+	assertContains(t, args, "copilot")
+	for _, arg := range args {
+		if arg == "sess-cp" {
+			t.Errorf("copilot ResumeCmd should not pass session ID, got args: %v", args)
+		}
+		if arg == "--session-id" {
+			t.Errorf("copilot ResumeCmd should not include --session-id, got args: %v", args)
+		}
+	}
 }
 
 // ─── install hints ────────────────────────────────────────────────────────────
