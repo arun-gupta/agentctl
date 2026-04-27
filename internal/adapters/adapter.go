@@ -45,7 +45,7 @@ type Adapter struct {
 	LaunchTemplate string `yaml:"launch"`
 
 	// ResumeCmdTemplate is a full resume command override. Placeholders:
-	// {prompt}, {session_id}, {kickoff}, {worktree}. When set,
+	// {prompt}, {session_id}, {worktree}. When set,
 	// Binary/Prompt/ResumeID are ignored for resume.
 	ResumeCmdTemplate string `yaml:"resume_cmd"`
 
