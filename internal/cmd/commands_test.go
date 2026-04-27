@@ -1241,7 +1241,7 @@ func TestExtractStreamText(t *testing.T) {
 		{
 			name: "assistant text PR URL gets visual separation",
 			line: `{"type":"assistant","message":{"content":[{"type":"text","text":"https://github.com/arun-gupta/agentctl/pull/135"}]}}`,
-			want: "\n>>> https://github.com/arun-gupta/agentctl/pull/135",
+			want: "\n>>> https://github.com/arun-gupta/agentctl/pull/135\n",
 		},
 		{
 			name: "assistant text PR URL embedded in sentence",

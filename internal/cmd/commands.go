@@ -1441,7 +1441,7 @@ func extractStreamText(line, wtDir string) string {
 				fmt.Fprintf(&sb, "[%s]\n", toolLabel(c.Name, c.Input, wtDir))
 			}
 		}
-		return strings.TrimRight(sb.String(), "\n")
+		return strings.TrimSuffix(sb.String(), "\n")
 	case "result":
 		return strings.TrimSpace(ev.Result)
 	}
