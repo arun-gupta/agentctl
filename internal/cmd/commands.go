@@ -1266,7 +1266,9 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 	if headless {
 		fmt.Printf("Agent PID %d — log: %s\n", pid, logPath)
 		fmt.Printf("Session ID: %s\n", sessionID)
-		fmt.Printf("Use \"agentctl resume %s [feedback]\" to continue the session.\nWithout feedback, it sends approval (\"proceed\") and the agent begins implementation.\nWith feedback, it sends the revision text and the agent rewrites the spec.\n", issue)
+		fmt.Printf("Use \"agentctl resume %s [feedback]\" to continue the session.\n", issue)
+		fmt.Println("Without feedback, it sends approval (\"proceed\") and the agent begins implementation.")
+		fmt.Println("With feedback, it sends the revision text and the agent rewrites the spec.")
 		return nil
 	}
 
