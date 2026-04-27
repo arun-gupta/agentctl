@@ -411,8 +411,7 @@ func TestLaunchCmd_copilot_addsWorktreeDir(t *testing.T) {
 	}
 	cmd := a.LaunchCmd("do the thing", "sess-cp", "/tmp/wt")
 	args := cmd.Args
-	assertContains(t, args, "--add-dir")
-	assertContains(t, args, "/tmp/wt")
+	assertAdjacentArgs(t, args, "--add-dir", "/tmp/wt")
 }
 
 func TestResumeCmd_copilot_noSessionFlag(t *testing.T) {
@@ -442,8 +441,7 @@ func TestResumeCmd_copilot_addsWorktreeDir(t *testing.T) {
 	}
 	cmd := a.ResumeCmd("fix it", "sess-cp", "/tmp/wt")
 	args := cmd.Args
-	assertContains(t, args, "--add-dir")
-	assertContains(t, args, "/tmp/wt")
+	assertAdjacentArgs(t, args, "--add-dir", "/tmp/wt")
 }
 
 // ─── install hints ────────────────────────────────────────────────────────────
@@ -562,6 +560,20 @@ func assertContains(t *testing.T, args []string, want string) {
 		}
 	}
 	t.Errorf("args %v does not contain %q", args, want)
+}
+
+func assertAdjacentArgs(t *testing.T, args []string, flag, value string) {
+	t.Helper()
+	for i, a := range args {
+		if a == flag {
+			if i+1 < len(args) && args[i+1] == value {
+				return
+			}
+			t.Errorf("args %v: %q not immediately followed by %q", args, flag, value)
+			return
+		}
+	}
+	t.Errorf("args %v does not contain %q", args, flag)
 }
 
 func loadTestdata(t *testing.T, filename string) *adapters.Adapter {
