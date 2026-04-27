@@ -96,6 +96,24 @@ func TestKickoffPrompt_speckit_content(t *testing.T) {
 	}
 }
 
+func TestKickoffPrompt_speckit_resumeInstruction(t *testing.T) {
+	m, err := sdd.Get("speckit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt := m.KickoffPrompt("55", "3030")
+	if !strings.Contains(prompt, "agentctl resume") {
+		t.Errorf("speckit prompt must tell user to run `agentctl resume`, got:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "Await human approval") {
+		t.Errorf("speckit prompt must not say 'Await human approval' (use agentctl resume instead), got:\n%s", prompt)
+	}
+	// The resume command should include the substituted issue number
+	if !strings.Contains(prompt, "agentctl resume 55") {
+		t.Errorf("speckit prompt must include `agentctl resume 55` with the issue number, got:\n%s", prompt)
+	}
+}
+
 // ─── SkipPrompt ───────────────────────────────────────────────────────────────
 
 func TestSkipPrompt_substitution(t *testing.T) {
