@@ -444,6 +444,26 @@ func TestResumeCmd_copilot_addsWorktreeDir(t *testing.T) {
 	assertAdjacentArgs(t, args, "--add-dir", "/tmp/wt")
 }
 
+func TestLaunchCmd_copilot_allowsExec(t *testing.T) {
+	// copilot needs --allow-all-tools so shell commands are not blocked in headless mode.
+	a, err := adapters.Get("copilot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := a.LaunchCmd("do the thing", "sess-cp", "/tmp/wt")
+	assertContains(t, cmd.Args, "--allow-all-tools")
+}
+
+func TestResumeCmd_copilot_allowsExec(t *testing.T) {
+	// copilot needs --allow-all-tools on resume too so shell commands are not blocked.
+	a, err := adapters.Get("copilot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := a.ResumeCmd("fix it", "sess-cp", "/tmp/wt")
+	assertContains(t, cmd.Args, "--allow-all-tools")
+}
+
 // ─── install hints ────────────────────────────────────────────────────────────
 
 func TestBuiltins_installHints(t *testing.T) {

@@ -750,6 +750,75 @@ func TestLaunchAgent_claudeHeadlessInjectsVerboseOnly(t *testing.T) {
 	}
 }
 
+// TestLaunchAgent_nonHeadless_sigintPrintsHints verifies that pressing Ctrl+C
+// while launchAgent is streaming output in non-headless mode prints the
+// expected reconnection hints (logs, attach, discard) to stdout.
+func TestLaunchAgent_nonHeadless_sigintPrintsHints(t *testing.T) {
+	dir := t.TempDir()
+
+	// Write a stub agent that sleeps long enough for SIGINT to arrive first.
+	scriptPath := filepath.Join(dir, "sleepagent")
+	script := "#!/bin/sh\nsleep 30\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeLocalAdapter(t, dir, "sleepagent", "binary: "+scriptPath+"\n")
+	chdirTemp(t, dir)
+
+	// Redirect os.Stdout to a pipe so we can capture the hint output.
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stdout = w
+	t.Cleanup(func() { os.Stdout = oldStdout })
+
+	done := make(chan error, 1)
+	go func() {
+		done <- launchAgent("sleepagent", dir, "42", "3010", "sess-abc", "do the thing", false, false)
+	}()
+
+	// Give launchAgent time to start the agent process and register its signal
+	// handler before we send the interrupt.
+	time.Sleep(500 * time.Millisecond)
+
+	if p, err := os.FindProcess(os.Getpid()); err == nil {
+		_ = p.Signal(os.Interrupt)
+	}
+
+	select {
+	case launchErr := <-done:
+		if launchErr != nil {
+			t.Fatalf("launchAgent: %v", launchErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("launchAgent did not return after SIGINT")
+	}
+
+	// Close the write end and restore stdout before reading captured output.
+	w.Close()
+	os.Stdout = oldStdout
+
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatalf("reading captured stdout: %v", err)
+	}
+	r.Close()
+
+	out := buf.String()
+	for _, want := range []string{
+		"agent still running in background",
+		"agentctl logs 42",
+		"agentctl attach 42",
+		"agentctl discard 42",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in stdout after Ctrl+C, got:\n%s", want, out)
+		}
+	}
+}
+
 // ─── agentResume ─────────────────────────────────────────────────────────────
 
 func TestLaunchAgent_nonZeroExitLogsToStderr(t *testing.T) {
