@@ -27,8 +27,7 @@ func main() {
 	root := &cobra.Command{
 		Use:     "agentctl",
 		Version: version,
-		Short:   "Provision isolated git worktrees per issue and launch coding agents",
-		Long: `agentctl provisions isolated git worktrees per GitHub issue and launches coding agents inside each one. It supports multiple agent back-ends via a simple adapter registry and supports optional spec-driven development (SDD) methodologies through the start command (for example, agentctl start --sdd <name>).`,
+		Short:   "Manage per-issue git worktrees and launch coding agents",
 		Example: `  # Start work on issue #42 (launches Claude Code in a new worktree)
   agentctl start 42
 
@@ -49,6 +48,11 @@ func main() {
 		cmd.NewLogsCmd(),
 		cmd.NewAttachCmd(),
 	)
+
+	// Pre-register --version without a short alias so that cobra's lazy
+	// InitDefaultVersionFlag does not bind -v (which users expect to mean
+	// --verbose).  Cobra still detects the flag and prints version output.
+	root.Flags().Bool("version", false, "version for agentctl")
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
