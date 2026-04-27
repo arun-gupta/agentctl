@@ -1348,3 +1348,40 @@ func TestWorktreeExistsError_noAgentFile(t *testing.T) {
 		t.Errorf("expected worktree path %q in error; got: %q", dir, msg)
 	}
 }
+
+func TestSeedEnvLocal_missing(t *testing.T) {
+	src := filepath.Join(t.TempDir(), ".env.local") // does not exist
+	dst := filepath.Join(t.TempDir(), ".env.local")
+
+	if err := seedEnvLocal(src, dst); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Dest should not exist when source is absent — no empty file created.
+	if _, err := os.Stat(dst); !os.IsNotExist(err) {
+		t.Errorf("expected dst to not exist when src is absent, but stat returned: %v", err)
+	}
+}
+
+func TestSeedEnvLocal_copies_and_strips_port(t *testing.T) {
+	srcDir := t.TempDir()
+	src := filepath.Join(srcDir, ".env.local")
+	if err := os.WriteFile(src, []byte("FOO=bar\nPORT=3000\nBAZ=qux\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(t.TempDir(), ".env.local")
+
+	if err := seedEnvLocal(src, dst); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatalf("dst not created: %v", err)
+	}
+	got := string(data)
+	if strings.Contains(got, "PORT=") {
+		t.Errorf("seedEnvLocal should strip PORT= lines, got:\n%s", got)
+	}
+	if !strings.Contains(got, "FOO=bar") || !strings.Contains(got, "BAZ=qux") {
+		t.Errorf("seedEnvLocal should preserve other vars, got:\n%s", got)
+	}
+}

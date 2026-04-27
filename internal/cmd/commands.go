@@ -110,29 +110,14 @@ func runStart(issue, slug, agentName, sddName string, headless, quiet bool) erro
 		return fmt.Errorf("git worktree add: %w", err)
 	}
 
-	// Seed .env.local from main repo, then append PORT.
+	// Seed .env.local from main repo (if present), then append PORT.
 	envLocal := filepath.Join(wtPath, ".env.local")
 	mainEnvLocal := filepath.Join(repoRoot, ".env.local")
-	if data, readErr := os.ReadFile(mainEnvLocal); readErr == nil {
-		// Strip any existing PORT= line.
-		var filtered []string
-		for _, line := range strings.Split(string(data), "\n") {
-			if !strings.HasPrefix(line, "PORT=") {
-				filtered = append(filtered, line)
-			}
-		}
-		if err := os.WriteFile(envLocal, []byte(strings.Join(filtered, "\n")), 0o600); err != nil {
-			return err
-		}
-		fmt.Printf("Copied .env.local from %s\n", repoRoot)
-	} else {
-		if err := os.WriteFile(envLocal, nil, 0o600); err != nil {
-			return err
-		}
-		fmt.Fprintf(os.Stderr, "WARNING: %s/.env.local not found — worktree will start without OAuth creds\n", repoRoot)
+	if err := seedEnvLocal(mainEnvLocal, envLocal); err != nil {
+		return err
 	}
 	portLine := fmt.Sprintf("\nPORT=%d\n", port)
-	f, err := os.OpenFile(envLocal, os.O_APPEND|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(envLocal, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
@@ -1081,6 +1066,26 @@ func titleToSlug(title string) string {
 		s = strings.TrimRight(s[:40], "-")
 	}
 	return s
+}
+
+// seedEnvLocal copies src to dst, stripping any PORT= lines. If src does not
+// exist, dst is left untouched — the caller creates it on demand when appending
+// the port assignment.
+func seedEnvLocal(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var filtered []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.HasPrefix(line, "PORT=") {
+			filtered = append(filtered, line)
+		}
+	}
+	return os.WriteFile(dst, []byte(strings.Join(filtered, "\n")), 0o600)
 }
 
 // findFreePort scans the [lo, hi] range for a port that is not in LISTEN state.
