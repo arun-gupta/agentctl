@@ -1349,16 +1349,40 @@ func TestWorktreeExistsError_noAgentFile(t *testing.T) {
 	}
 }
 
-func TestRunNpmInstall_errorIncludesDir(t *testing.T) {
-	dir := t.TempDir() // no package.json → npm install will fail
+func TestRunNpmInstall_missingPackageJSON(t *testing.T) {
+	dir := t.TempDir() // no package.json
 	err := runNpmInstall(dir)
 	if err == nil {
-		t.Fatal("expected error from npm install in empty dir, got nil")
+		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), dir) {
-		t.Errorf("error %q does not contain worktree path %q", err.Error(), dir)
+	msg := err.Error()
+	if !strings.Contains(msg, "no package.json") {
+		t.Errorf("error %q does not mention 'no package.json'", msg)
 	}
-	if !strings.Contains(err.Error(), "npm install") {
-		t.Errorf("error %q does not mention 'npm install'", err.Error())
+	if !strings.Contains(msg, dir) {
+		t.Errorf("error %q does not contain worktree path %q", msg, dir)
+	}
+	if !strings.Contains(msg, "npm init") {
+		t.Errorf("error %q does not contain 'npm init' hint", msg)
+	}
+}
+
+func TestRunNpmInstall_errorIncludesDebugHint(t *testing.T) {
+	dir := t.TempDir()
+	// Write a minimal package.json so we get past the pre-check and into the
+	// actual npm install failure (the dep doesn't exist → non-zero exit).
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"dependencies":{"__nonexistent_pkg_xyz__":"1.0.0"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := runNpmInstall(dir)
+	if err == nil {
+		t.Fatal("expected error from npm install with bad dep, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, dir) {
+		t.Errorf("error %q does not contain worktree path %q", msg, dir)
+	}
+	if !strings.Contains(msg, "cd "+dir) {
+		t.Errorf("error %q does not contain manual repro command", msg)
 	}
 }

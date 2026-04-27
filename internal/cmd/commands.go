@@ -1080,12 +1080,20 @@ func titleToSlug(title string) string {
 }
 
 func runNpmInstall(dir string) error {
+	if _, err := os.Stat(filepath.Join(dir, "package.json")); os.IsNotExist(err) {
+		return fmt.Errorf("no package.json found in %s\nagentctl start requires a Node.js project — run 'npm init' in the repo to create one", dir)
+	}
+
+	if _, err := exec.LookPath("npm"); err != nil {
+		return fmt.Errorf("npm not found in PATH\nInstall Node.js (https://nodejs.org) and ensure npm is on your PATH, then re-run agentctl start")
+	}
+
 	cmd := exec.Command("npm", "install", "--loglevel=error")
 	cmd.Dir = dir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("npm install failed in %s: %w\nRe-run manually to diagnose: cd %s && npm install", dir, err, dir)
+		return fmt.Errorf("npm install failed in %s: %w\n\nPossible causes:\n  • Node version mismatch (check .nvmrc or package.json \"engines\" field)\n  • Network error or private registry auth required\n\nTo debug: cd %s && npm install", dir, err, dir)
 	}
 	return nil
 }
