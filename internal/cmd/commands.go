@@ -104,7 +104,14 @@ func runStart(issue, slug, agentName, sddName string, headless, quiet bool) erro
 
 	// Create the worktree.
 	if _, statErr := os.Stat(wtPath); statErr == nil {
-		return fmt.Errorf("worktree already exists: %s", wtPath)
+		af, readErr := state.Read(wtPath)
+		if readErr == nil && af.AgentPID != "" && process.IsAlive(af.AgentPID) {
+			return fmt.Errorf("agent is already running for issue %s — use 'agentctl attach %s' to follow its output, or 'agentctl discard %s' to start over", issueNum, issueNum, issueNum)
+		}
+		if readErr == nil && af.AgentPID != "" {
+			return fmt.Errorf("agent has finished for issue %s — use 'agentctl cleanup %s' if the PR is merged, or 'agentctl discard %s' to start over", issueNum, issueNum, issueNum)
+		}
+		return fmt.Errorf("worktree already exists for issue %s — use 'agentctl discard %s' to remove it and start over", issueNum, issueNum)
 	}
 	if err := git.AddWorktree(repoRoot, wtPath, branch); err != nil {
 		return fmt.Errorf("git worktree add: %w", err)
