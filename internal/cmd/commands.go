@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -971,19 +972,16 @@ func repoRootForIssue(arg string) (repoRoot, issueNum, ghIssueArg string, err er
 // worktreeExistsError returns a descriptive, actionable error for the case
 // where the target worktree directory already exists. It reads the .agent
 // metadata to distinguish between a still-running agent, a finished agent,
-// and a bare worktree with no .agent file, and includes a cd hint so the
-// suggested follow-up commands work regardless of the caller's current
-// directory (e.g. when start was invoked with a full GitHub issue URL from
-// outside the repo).
+// and a bare worktree with no .agent file.
 func worktreeExistsError(wtPath, issueNum string) error {
 	af, readErr := state.Read(wtPath)
 	if readErr == nil && af.AgentPID != "" && process.IsAlive(af.AgentPID) {
-		return fmt.Errorf("agent is already running for issue %s — use 'cd %q && agentctl attach %s' to follow its output, or 'cd %q && agentctl discard %s' to start over", issueNum, wtPath, issueNum, wtPath, issueNum)
+		return fmt.Errorf("Worktree already exists for issue %s — agent is still running.\nWorktree: %s\n\n  agentctl attach %s   to follow its output\n  agentctl discard %s   to delete the worktree and start over", issueNum, wtPath, issueNum, issueNum)
 	}
 	if readErr == nil && af.AgentPID != "" {
-		return fmt.Errorf("agent has finished for issue %s — use 'cd %q && agentctl cleanup %s' if the PR is merged, or 'cd %q && agentctl discard %s' to start over", issueNum, wtPath, issueNum, wtPath, issueNum)
+		return fmt.Errorf("Worktree already exists for issue %s — agent has finished.\nWorktree: %s\n\n  agentctl cleanup %s   if the PR is merged\n  agentctl discard %s   to delete the worktree and start over", issueNum, wtPath, issueNum, issueNum)
 	}
-	return fmt.Errorf("worktree already exists for issue %s — use 'cd %q && agentctl discard %s' to remove it and start over", issueNum, wtPath, issueNum)
+	return fmt.Errorf("Worktree already exists for issue %s.\nWorktree: %s\n\n  agentctl discard %s   to delete the worktree and start over", issueNum, wtPath, issueNum)
 }
 
 // slugFromIssue fetches the GitHub issue title and converts it to a slug.
@@ -1245,6 +1243,12 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 		return err
 	}
 
+	if headless && adapterName == "claude" {
+		if err := writeClaudeSettings(wtPath); err != nil {
+			return err
+		}
+	}
+
 	agentCmd := ad.LaunchCmd(kickoff, sessionID)
 	agentCmd.Dir = wtPath
 
@@ -1366,7 +1370,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		followLog(logPath, os.Stdout, logDone, quiet)
+		followLog(logPath, os.Stdout, logDone, quiet, true)
 	}()
 
 	sigCh := make(chan os.Signal, 1)
@@ -1403,9 +1407,9 @@ func waitForFile(path string, timeout time.Duration) error {
 
 // extractStreamText converts a single claude --output-format stream-json line
 // into human-readable text. wtDir is the worktree directory; file paths inside
-// it are shown as relative paths to reduce noise in terminal output.
-// into human-readable text. It extracts assistant text/tool-use blocks and the
-// final result. Non-JSON lines are returned as-is (plain-text fallback).
+// it are shown as relative paths to reduce noise in terminal output. It
+// extracts assistant text, tool-use blocks, and the final result. Non-JSON
+// lines are returned as-is (plain-text fallback).
 func extractStreamText(line, wtDir string) string {
 	var ev struct {
 		Type    string `json:"type"`
@@ -1522,7 +1526,26 @@ func relativePath(path, base string) string {
 	if err != nil || strings.HasPrefix(rel, "..") {
 		return path
 	}
-	return rel
+	return filepath.ToSlash(rel)
+}
+
+// stackFrameRe matches JavaScript/Node.js stack-frame lines, e.g.
+//
+//	at Gaxios._request (file:///path/bundle.js:8578:19)
+var stackFrameRe = regexp.MustCompile(`^\s+at\s+\S`)
+
+// isStderrNoise reports whether line is verbose agent error noise that should
+// be suppressed from the terminal stream. It matches JavaScript/Node.js stack
+// frames and standalone JSON blobs. The raw line is still written to agent.log.
+func isStderrNoise(line string) bool {
+	if stackFrameRe.MatchString(line) {
+		return true
+	}
+	trimmed := strings.TrimSpace(line)
+	if len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') && json.Valid([]byte(trimmed)) {
+		return true
+	}
+	return false
 }
 
 // spinnerFrames are the braille Unicode characters used for the spinner animation.
@@ -1541,7 +1564,7 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 // is shown. After done is closed, any remaining content is flushed (unless quiet).
 // Note: agent-process hang-on-exit (issue #78) is a separate concern and is
 // not addressed here; that fix belongs in the process-monitoring loop.
-func followLog(logPath string, out io.Writer, done <-chan struct{}, quiet bool) {
+func followLog(logPath string, out io.Writer, done <-chan struct{}, quiet bool, filterNoise bool) {
 	f, err := os.Open(logPath)
 	if err != nil {
 		fmt.Fprintf(out, "warning: unable to follow log: %v\n", err)
@@ -1570,8 +1593,10 @@ func followLog(logPath string, out io.Writer, done <-chan struct{}, quiet bool) 
 		for {
 			line, err := reader.ReadString('\n')
 			if line != "" && !quiet {
-				clearSpinner()
-				fmt.Fprint(out, line)
+				if !filterNoise || !isStderrNoise(strings.TrimRight(line, "\r\n")) {
+					clearSpinner()
+					fmt.Fprint(out, line)
+				}
 			}
 			if errors.Is(err, io.EOF) {
 				// ReadString may return a partial line (no trailing '\n') together
@@ -1619,6 +1644,39 @@ func isWriterTerminal(w io.Writer) bool {
 		return false
 	}
 	return fi.Mode()&os.ModeCharDevice != 0
+}
+
+// writeClaudeSettings creates .claude/settings.json in wtPath with a
+// wildcard allow-list so that sub-agents spawned by the top-level Claude
+// process inherit the same bypass-permissions mode. If the file already
+// exists (e.g. committed in the repo) it is left untouched.
+func writeClaudeSettings(wtPath string) error {
+	dir := filepath.Join(wtPath, ".claude")
+	// Reject symlinks to prevent writing outside the worktree.
+	if fi, err := os.Lstat(dir); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf(".claude is a symlink; refusing to write settings to an unverified location")
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create .claude dir: %w", err)
+	}
+	dst := filepath.Join(dir, "settings.json")
+	if _, err := os.Stat(dst); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat claude settings: %w", err)
+	}
+	data, err := json.Marshal(map[string]any{
+		"permissions": map[string]any{
+			"allow": []string{"*"},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("marshal claude settings: %w", err)
+	}
+	if err := os.WriteFile(dst, data, 0o644); err != nil {
+		return fmt.Errorf("write .claude/settings.json: %w", err)
+	}
+	return nil
 }
 
 // agentResume starts the coding agent in resume mode using the named adapter.

@@ -160,6 +160,54 @@ func TestLaunchCmd_opencode_multiTokenBinary(t *testing.T) {
 	assertContains(t, args, "build it")
 }
 
+func TestLaunchCmd_opencode_noPromptFlag(t *testing.T) {
+	// opencode uses -p for --password, not for the message; kickoff must be
+	// passed as a positional argument via the launch template, never via -p.
+	a, err := adapters.Get("opencode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := a.LaunchCmd("do the work", "sess-oc")
+	args := cmd.Args
+	assertContains(t, args, "run")
+	assertContains(t, args, "do the work")
+	for _, arg := range args {
+		if arg == "-p" {
+			t.Errorf("opencode LaunchCmd must not pass -p (--password flag), got args: %v", args)
+		}
+		if arg == "--session" {
+			t.Errorf("opencode LaunchCmd must not pass --session flag, got args: %v", args)
+		}
+		if arg == "sess-oc" {
+			t.Errorf("opencode LaunchCmd must not pass session ID as flag, got args: %v", args)
+		}
+	}
+}
+
+func TestResumeCmd_opencode(t *testing.T) {
+	// opencode resume must use --continue and must not pass a session flag.
+	a, err := adapters.Get("opencode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := a.ResumeCmd("fix the bug", "sess-oc")
+	args := cmd.Args
+	assertContains(t, args, "run")
+	assertContains(t, args, "fix the bug")
+	assertContains(t, args, "--continue")
+	for _, arg := range args {
+		if arg == "-p" {
+			t.Errorf("opencode ResumeCmd must not pass -p, got args: %v", args)
+		}
+		if arg == "--session" {
+			t.Errorf("opencode ResumeCmd must not pass --session flag, got args: %v", args)
+		}
+		if arg == "sess-oc" {
+			t.Errorf("opencode ResumeCmd must not pass session ID as flag, got args: %v", args)
+		}
+	}
+}
+
 func TestLaunchCmd_minimal(t *testing.T) {
 	a := loadTestdata(t, "minimal.yml")
 	cmd := a.LaunchCmd("hello world", "sess-min")
@@ -335,17 +383,45 @@ func TestLoad_missingBinary(t *testing.T) {
 	}
 }
 
-func TestResumeCmd_copilot_resumeIDFallsBackToSession(t *testing.T) {
-	// copilot.yml has session: --session-id but no resume_id,
-	// so ResumeCmd should fall back to using --session-id.
+func TestLaunchCmd_copilot_noSessionFlag(t *testing.T) {
+	// copilot uses session_type: directory — session continuity is implicit in
+	// the worktree, so no --session-id flag should be appended.
+	a, err := adapters.Get("copilot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := a.LaunchCmd("do the thing", "sess-cp")
+	args := cmd.Args
+	assertContains(t, args, "copilot")
+	assertContains(t, args, "do the thing")
+	for _, arg := range args {
+		if arg == "sess-cp" {
+			t.Errorf("copilot LaunchCmd should not pass session ID as flag, got args: %v", args)
+		}
+		if arg == "--session-id" {
+			t.Errorf("copilot LaunchCmd should not include --session-id, got args: %v", args)
+		}
+	}
+}
+
+func TestResumeCmd_copilot_noSessionFlag(t *testing.T) {
+	// copilot uses session_type: directory — session continuity is implicit in
+	// the worktree, so no --session-id flag should be appended on resume either.
 	a, err := adapters.Get("copilot")
 	if err != nil {
 		t.Fatal(err)
 	}
 	cmd := a.ResumeCmd("fix it", "sess-cp")
 	args := cmd.Args
-	assertContains(t, args, "--session-id") // falls back to Session flag
-	assertContains(t, args, "sess-cp")
+	assertContains(t, args, "copilot")
+	for _, arg := range args {
+		if arg == "sess-cp" {
+			t.Errorf("copilot ResumeCmd should not pass session ID, got args: %v", args)
+		}
+		if arg == "--session-id" {
+			t.Errorf("copilot ResumeCmd should not include --session-id, got args: %v", args)
+		}
+	}
 }
 
 // ─── install hints ────────────────────────────────────────────────────────────

@@ -882,7 +882,7 @@ func TestFollowLog_drainsContentAndExits(t *testing.T) {
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
-		followLog(logPath, &buf, done, false)
+		followLog(logPath, &buf, done, false, false)
 	}()
 
 	// Poll until followLog has picked up the initial content.
@@ -944,7 +944,7 @@ func TestFollowLog_heartbeatOnNonTTY(t *testing.T) {
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
-		followLog(logPath, &buf, done, false)
+		followLog(logPath, &buf, done, false, false)
 	}()
 
 	// The first heartbeat is emitted immediately (lastHeartbeat starts 30s in the
@@ -978,7 +978,7 @@ func TestFollowLog_quietSuppressesLogLines(t *testing.T) {
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
-		followLog(logPath, &buf, done, true)
+		followLog(logPath, &buf, done, true, false)
 	}()
 
 	time.Sleep(300 * time.Millisecond)
@@ -1300,10 +1300,10 @@ func TestWorktreeExistsError_runningAgent(t *testing.T) {
 	dir := t.TempDir()
 	alivePID := strconv.Itoa(os.Getpid()) // current process is definitely alive
 	if err := state.Write(dir, state.AgentFile{
-		Agent:    "claude",
+		Agent:     "claude",
 		SessionID: "sess-1",
-		DevPID:   "999",
-		AgentPID: alivePID,
+		DevPID:    "999",
+		AgentPID:  alivePID,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1313,8 +1313,11 @@ func TestWorktreeExistsError_runningAgent(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 	msg := err.Error()
-	if !strings.Contains(msg, "agent is already running for issue 90") {
-		t.Errorf("expected 'agent is already running for issue 90' in error; got: %q", msg)
+	if !strings.Contains(msg, "Worktree already exists for issue 90") {
+		t.Errorf("expected 'Worktree already exists for issue 90' in error; got: %q", msg)
+	}
+	if !strings.Contains(msg, "agent is still running") {
+		t.Errorf("expected 'agent is still running' in error; got: %q", msg)
 	}
 	if !strings.Contains(msg, "agentctl attach 90") {
 		t.Errorf("expected 'agentctl attach 90' hint in error; got: %q", msg)
@@ -1333,10 +1336,10 @@ func TestWorktreeExistsError_finishedAgent(t *testing.T) {
 	dir := t.TempDir()
 	deadPID := "9999999" // very unlikely to be a live process
 	if err := state.Write(dir, state.AgentFile{
-		Agent:    "claude",
+		Agent:     "claude",
 		SessionID: "sess-2",
-		DevPID:   "999",
-		AgentPID: deadPID,
+		DevPID:    "999",
+		AgentPID:  deadPID,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1346,8 +1349,11 @@ func TestWorktreeExistsError_finishedAgent(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 	msg := err.Error()
-	if !strings.Contains(msg, "agent has finished for issue 90") {
-		t.Errorf("expected 'agent has finished for issue 90' in error; got: %q", msg)
+	if !strings.Contains(msg, "Worktree already exists for issue 90") {
+		t.Errorf("expected 'Worktree already exists for issue 90' in error; got: %q", msg)
+	}
+	if !strings.Contains(msg, "agent has finished") {
+		t.Errorf("expected 'agent has finished' in error; got: %q", msg)
 	}
 	if !strings.Contains(msg, "agentctl cleanup 90") {
 		t.Errorf("expected 'agentctl cleanup 90' hint in error; got: %q", msg)
@@ -1371,8 +1377,8 @@ func TestWorktreeExistsError_noAgentFile(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 	msg := err.Error()
-	if !strings.Contains(msg, "worktree already exists for issue 90") {
-		t.Errorf("expected 'worktree already exists for issue 90' in error; got: %q", msg)
+	if !strings.Contains(msg, "Worktree already exists for issue 90") {
+		t.Errorf("expected 'Worktree already exists for issue 90' in error; got: %q", msg)
 	}
 	if !strings.Contains(msg, "agentctl discard 90") {
 		t.Errorf("expected 'agentctl discard 90' hint in error; got: %q", msg)
@@ -1479,6 +1485,176 @@ func TestStartDevServer_noPackageJSON_returnsEmptyPort(t *testing.T) {
 	}
 }
 
+// ─── isStderrNoise ────────────────────────────────────────────────────────────
+
+func TestIsStderrNoise(t *testing.T) {
+	cases := []struct {
+		name string
+		line string
+		want bool
+	}{
+		// JavaScript/Node.js stack frames
+		{
+			name: "stack frame 4 spaces",
+			line: "    at Gaxios._request (file:///opt/homebrew/Cellar/gemini-cli/bundle/chunk.js:8578:19)",
+			want: true,
+		},
+		{
+			name: "stack frame node internals",
+			line: "    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+			want: true,
+		},
+		{
+			name: "stack frame 2 spaces",
+			line: "  at foo (bar.ts:1:2)",
+			want: true,
+		},
+		{
+			name: "stack frame tab-indented",
+			line: "\tat SomeClass.method (file.js:10:5)",
+			want: true,
+		},
+		// Raw JSON blobs
+		{
+			name: "json object blob",
+			line: `{"error":{"code":429,"message":"No capacity"}}`,
+			want: true,
+		},
+		{
+			name: "json array blob",
+			line: `[{"error":"something"}]`,
+			want: true,
+		},
+		{
+			name: "json object with leading whitespace",
+			line: `  {"code": 429}`,
+			want: true,
+		},
+		// Not noise — should pass through
+		{
+			name: "human-readable error summary",
+			line: "Attempt 2 failed with status 429. Retrying with backoff...",
+			want: false,
+		},
+		{
+			name: "normal agent output",
+			line: "Starting agent...",
+			want: false,
+		},
+		{
+			name: "empty line",
+			line: "",
+			want: false,
+		},
+		{
+			name: "incomplete json not a blob",
+			line: `{"type": "assistant"`,
+			want: false,
+		},
+		{
+			name: "plain text that mentions at",
+			line: "looking at the problem",
+			want: false,
+		},
+		{
+			name: "json fragment property line",
+			line: `  "error": {`,
+			want: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isStderrNoise(tc.line)
+			if got != tc.want {
+				t.Errorf("isStderrNoise(%q) = %v, want %v", tc.line, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestFollowLog_filterNoise_suppressesStackTracesAndJsonBlobs verifies that
+// when filterNoise is true, followLog omits stack frames and JSON blobs but
+// still shows normal lines. The raw content remains in the file.
+func TestFollowLog_filterNoise_suppressesStackTracesAndJsonBlobs(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "agent.log")
+
+	content := strings.Join([]string{
+		"Starting agent",
+		`    at Gaxios._request (file:///path/to/bundle.js:8578:19)`,
+		`    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)`,
+		`{"error":{"code":429,"message":"No capacity"}}`,
+		"normal output after error",
+		"",
+	}, "\n")
+	if err := os.WriteFile(logPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan struct{})
+	var buf bytes.Buffer
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		followLog(logPath, &buf, done, false, true)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(buf.String(), "normal output") {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	close(done)
+	<-finished
+
+	out := buf.String()
+	if strings.Contains(out, "at Gaxios._request") {
+		t.Errorf("stack frame should be suppressed; got: %q", out)
+	}
+	if strings.Contains(out, `"code":429`) {
+		t.Errorf("JSON blob should be suppressed; got: %q", out)
+	}
+	if !strings.Contains(out, "Starting agent") {
+		t.Errorf("normal line should pass through; got: %q", out)
+	}
+	if !strings.Contains(out, "normal output after error") {
+		t.Errorf("normal line should pass through; got: %q", out)
+	}
+}
+
+// TestFollowLog_filterNoise_false_passesEverything verifies that when
+// filterNoise is false, followLog streams everything including stack frames.
+func TestFollowLog_filterNoise_false_passesEverything(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "agent.log")
+
+	content := "normal line\n    at Gaxios._request (file:///path.js:1:1)\n"
+	if err := os.WriteFile(logPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan struct{})
+	var buf bytes.Buffer
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		followLog(logPath, &buf, done, false, false)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(buf.String(), "at Gaxios") {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	close(done)
+	<-finished
+
+	out := buf.String()
+	if !strings.Contains(out, "at Gaxios._request") {
+		t.Errorf("without filterNoise, stack frame should be present; got: %q", out)
+	}
+}
+
 func TestStartDevServer_agentctlYml_writesPortBack(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"),
@@ -1516,5 +1692,101 @@ func TestStartDevServer_agentctlYml_writesPortBack(t *testing.T) {
 	}
 	if fmt.Sprintf("%d", cfg.Port) != portStr {
 		t.Errorf("port in .agentctl.yml = %d, want %s", cfg.Port, portStr)
+	}
+}
+
+// ─── writeClaudeSettings ──────────────────────────────────────────────────────
+
+func TestWriteClaudeSettings_createsFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeClaudeSettings(dir); err != nil {
+		t.Fatalf("writeClaudeSettings: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatalf(".claude/settings.json not created: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal settings.json: %v", err)
+	}
+	perms, ok := got["permissions"].(map[string]any)
+	if !ok {
+		t.Fatal("settings.json missing 'permissions' object")
+	}
+	allow, ok := perms["allow"].([]any)
+	if !ok || len(allow) == 0 || allow[0] != "*" {
+		t.Errorf("permissions.allow = %v, want [\"*\"]", allow)
+	}
+}
+
+func TestWriteClaudeSettings_doesNotOverwrite(t *testing.T) {
+	dir := t.TempDir()
+	claudeDir := filepath.Join(dir, ".claude")
+	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte(`{"custom":"value"}`)
+	settingsPath := filepath.Join(claudeDir, "settings.json")
+	if err := os.WriteFile(settingsPath, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeClaudeSettings(dir); err != nil {
+		t.Fatalf("writeClaudeSettings: %v", err)
+	}
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != string(original) {
+		t.Errorf("existing settings.json was overwritten: got %q, want %q", data, original)
+	}
+}
+
+func TestLaunchAgent_claudeHeadlessWritesSettingsJson(t *testing.T) {
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "argv.txt")
+	scriptPath := filepath.Join(dir, "claude-stub")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"" + argsFile + "\"\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeLocalAdapter(t, dir, "claude", "binary: "+scriptPath+"\nsession: --session\n")
+	chdirTemp(t, dir)
+
+	if err := launchAgent("claude", dir, "42", "3010", "sess-abc", "kickoff text", true, false); err != nil {
+		t.Fatalf("launchAgent headless: %v", err)
+	}
+
+	settingsPath := filepath.Join(dir, ".claude", "settings.json")
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf(".claude/settings.json not found after claude launch: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal settings.json: %v", err)
+	}
+	perms, ok := got["permissions"].(map[string]any)
+	if !ok {
+		t.Fatal("settings.json missing 'permissions'")
+	}
+	allow, ok := perms["allow"].([]any)
+	if !ok || len(allow) == 0 || allow[0] != "*" {
+		t.Errorf("permissions.allow = %v, want [\"*\"]", allow)
+	}
+}
+
+func TestLaunchAgent_nonClaudeDoesNotWriteSettingsJson(t *testing.T) {
+	dir := t.TempDir()
+	writeLocalAdapter(t, dir, "echoagent", "binary: echo\nsession: --session\n")
+	chdirTemp(t, dir)
+
+	if err := launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", true, false); err != nil {
+		t.Fatalf("launchAgent headless: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, ".claude", "settings.json")); err == nil {
+		t.Error("non-claude adapter must not write .claude/settings.json")
 	}
 }
