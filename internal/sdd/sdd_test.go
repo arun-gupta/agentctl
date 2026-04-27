@@ -112,6 +112,10 @@ func TestKickoffPrompt_speckit_resumeInstruction(t *testing.T) {
 	if !strings.Contains(prompt, "agentctl resume 55") {
 		t.Errorf("speckit prompt must include `agentctl resume 55` with the issue number, got:\n%s", prompt)
 	}
+	// /speckit.* commands must be marked as internal-only so the agent does not expose them to the user
+	if !strings.Contains(prompt, "internal-only") {
+		t.Errorf("speckit prompt must state that /speckit.* commands are internal-only, got:\n%s", prompt)
+	}
 }
 
 // ─── SkipPrompt ───────────────────────────────────────────────────────────────
