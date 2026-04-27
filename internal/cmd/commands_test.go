@@ -1110,6 +1110,7 @@ func TestExtractStreamText(t *testing.T) {
 	cases := []struct {
 		name  string
 		line  string
+		wtDir string
 		want  string
 	}{
 		{
@@ -1207,10 +1208,40 @@ func TestExtractStreamText(t *testing.T) {
 			line:  `{"type":"assistant","message":{"content":[{"type":"text","text":"   "}]}}`,
 			want:  "",
 		},
+		{
+			name:  "Read path stripped to relative when under wtDir",
+			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/worktree/components/Foo.tsx"}}]}}`,
+			wtDir: "/worktree",
+			want:  "[Read: components/Foo.tsx]",
+		},
+		{
+			name:  "Write path stripped to relative when under wtDir",
+			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Write","input":{"file_path":"/worktree/lib/bar.ts"}}]}}`,
+			wtDir: "/worktree",
+			want:  "[Write: lib/bar.ts]",
+		},
+		{
+			name:  "Edit path stripped to relative when under wtDir",
+			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/worktree/app/page.tsx"}}]}}`,
+			wtDir: "/worktree",
+			want:  "[Edit: app/page.tsx]",
+		},
+		{
+			name:  "Read path outside wtDir shown as-is",
+			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/other/file.go"}}]}}`,
+			wtDir: "/worktree",
+			want:  "[Read: /other/file.go]",
+		},
+		{
+			name:  "Read path with empty wtDir shown as-is",
+			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/some/path.go"}}]}}`,
+			wtDir: "",
+			want:  "[Read: /some/path.go]",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := extractStreamText(tc.line)
+			got := extractStreamText(tc.line, tc.wtDir)
 			if got != tc.want {
 				t.Errorf("extractStreamText(%q) = %q, want %q", tc.line, got, tc.want)
 			}
@@ -1220,7 +1251,7 @@ func TestExtractStreamText(t *testing.T) {
 
 func TestToolLabel_NoToolDetail(t *testing.T) {
 	t.Setenv("AGENTCTL_NO_TOOL_DETAIL", "1")
-	got := toolLabel("Bash", json.RawMessage(`{"command":"ls -la"}`))
+	got := toolLabel("Bash", json.RawMessage(`{"command":"ls -la"}`), "")
 	if got != "Bash" {
 		t.Errorf("expected %q with AGENTCTL_NO_TOOL_DETAIL set, got %q", "Bash", got)
 	}
