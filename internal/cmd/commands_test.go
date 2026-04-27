@@ -1524,3 +1524,99 @@ func TestStartDevServer_agentctlYml_writesPortBack(t *testing.T) {
 		t.Errorf("port in .agentctl.yml = %d, want %s", cfg.Port, portStr)
 	}
 }
+
+// ─── writeClaudeSettings ──────────────────────────────────────────────────────
+
+func TestWriteClaudeSettings_createsFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeClaudeSettings(dir); err != nil {
+		t.Fatalf("writeClaudeSettings: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatalf(".claude/settings.json not created: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal settings.json: %v", err)
+	}
+	perms, ok := got["permissions"].(map[string]any)
+	if !ok {
+		t.Fatal("settings.json missing 'permissions' object")
+	}
+	allow, ok := perms["allow"].([]any)
+	if !ok || len(allow) == 0 || allow[0] != "*" {
+		t.Errorf("permissions.allow = %v, want [\"*\"]", allow)
+	}
+}
+
+func TestWriteClaudeSettings_doesNotOverwrite(t *testing.T) {
+	dir := t.TempDir()
+	claudeDir := filepath.Join(dir, ".claude")
+	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte(`{"custom":"value"}`)
+	settingsPath := filepath.Join(claudeDir, "settings.json")
+	if err := os.WriteFile(settingsPath, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeClaudeSettings(dir); err != nil {
+		t.Fatalf("writeClaudeSettings: %v", err)
+	}
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != string(original) {
+		t.Errorf("existing settings.json was overwritten: got %q, want %q", data, original)
+	}
+}
+
+func TestLaunchAgent_claudeHeadlessWritesSettingsJson(t *testing.T) {
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "argv.txt")
+	scriptPath := filepath.Join(dir, "claude-stub")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"" + argsFile + "\"\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeLocalAdapter(t, dir, "claude", "binary: "+scriptPath+"\nsession: --session\n")
+	chdirTemp(t, dir)
+
+	if err := launchAgent("claude", dir, "42", "3010", "sess-abc", "kickoff text", true, false); err != nil {
+		t.Fatalf("launchAgent headless: %v", err)
+	}
+
+	settingsPath := filepath.Join(dir, ".claude", "settings.json")
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf(".claude/settings.json not found after claude launch: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal settings.json: %v", err)
+	}
+	perms, ok := got["permissions"].(map[string]any)
+	if !ok {
+		t.Fatal("settings.json missing 'permissions'")
+	}
+	allow, ok := perms["allow"].([]any)
+	if !ok || len(allow) == 0 || allow[0] != "*" {
+		t.Errorf("permissions.allow = %v, want [\"*\"]", allow)
+	}
+}
+
+func TestLaunchAgent_nonClaudeDoesNotWriteSettingsJson(t *testing.T) {
+	dir := t.TempDir()
+	writeLocalAdapter(t, dir, "echoagent", "binary: echo\nsession: --session\n")
+	chdirTemp(t, dir)
+
+	if err := launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", true, false); err != nil {
+		t.Fatalf("launchAgent headless: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, ".claude", "settings.json")); err == nil {
+		t.Error("non-claude adapter must not write .claude/settings.json")
+	}
+}
