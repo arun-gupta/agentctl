@@ -1348,3 +1348,43 @@ func TestWorktreeExistsError_noAgentFile(t *testing.T) {
 		t.Errorf("expected worktree path %q in error; got: %q", dir, msg)
 	}
 }
+
+func TestRunNpmInstall_notNodeProject(t *testing.T) {
+	dir := t.TempDir() // no package.json — simulates a Python/Go/Java project
+	err := runNpmInstall(dir)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	msg := err.Error()
+	// Must not leak implementation details to the user.
+	if strings.Contains(msg, "package.json") {
+		t.Errorf("error %q must not mention 'package.json' (implementation detail)", msg)
+	}
+	if strings.Contains(msg, "npm init") {
+		t.Errorf("error %q must not mention 'npm init' (Node.js internals)", msg)
+	}
+	// Must tell the user what kind of project is required.
+	if !strings.Contains(msg, "Node.js") {
+		t.Errorf("error %q should mention 'Node.js' so the user understands the requirement", msg)
+	}
+}
+
+func TestRunNpmInstall_errorIncludesDebugHint(t *testing.T) {
+	dir := t.TempDir()
+	// Write a minimal package.json so we get past the pre-check and into the
+	// actual npm install failure (the dep doesn't exist → non-zero exit).
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"dependencies":{"__nonexistent_pkg_xyz__":"1.0.0"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := runNpmInstall(dir)
+	if err == nil {
+		t.Fatal("expected error from npm install with bad dep, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, dir) {
+		t.Errorf("error %q does not contain worktree path %q", msg, dir)
+	}
+	if !strings.Contains(msg, "cd "+dir) {
+		t.Errorf("error %q does not contain manual repro command", msg)
+	}
+}

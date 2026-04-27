@@ -143,12 +143,8 @@ func runStart(issue, slug, agentName, sddName string, headless, quiet bool) erro
 	}
 
 	// npm install
-	npmInstall := exec.Command("npm", "install", "--silent")
-	npmInstall.Dir = wtPath
-	npmInstall.Stdout = os.Stdout
-	npmInstall.Stderr = os.Stderr
-	if err := npmInstall.Run(); err != nil {
-		return fmt.Errorf("npm install: %w", err)
+	if err := runNpmInstall(wtPath); err != nil {
+		return err
 	}
 
 	// Start dev server.
@@ -1081,6 +1077,25 @@ func titleToSlug(title string) string {
 		s = strings.TrimRight(s[:40], "-")
 	}
 	return s
+}
+
+func runNpmInstall(dir string) error {
+	if _, err := os.Stat(filepath.Join(dir, "package.json")); os.IsNotExist(err) {
+		return fmt.Errorf("this project does not appear to be a Node.js application\nagentctl start currently requires a project with an npm dev server\nSee https://github.com/arun-gupta/agentctl/issues/65 to track support for other project types")
+	}
+
+	if _, err := exec.LookPath("npm"); err != nil {
+		return fmt.Errorf("npm not found in PATH\nInstall Node.js from https://nodejs.org and ensure npm is on your PATH, then re-run agentctl start")
+	}
+
+	cmd := exec.Command("npm", "install", "--loglevel=error")
+	cmd.Dir = dir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("dependency installation failed in %s: %w\n\nPossible causes:\n  • Node version mismatch (check .nvmrc or the project's required Node version)\n  • Network error or private registry credentials required\n\nTo debug: cd %s && npm install", dir, err, dir)
+	}
+	return nil
 }
 
 // findFreePort scans the [lo, hi] range for a port that is not in LISTEN state.
