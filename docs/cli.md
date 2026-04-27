@@ -195,6 +195,14 @@ To suppress log output and show only a spinner/heartbeat:
 agentctl start --quiet 42
 ```
 
+To find the dev-server port at any point (e.g. to review the running app after the agent opens a PR):
+
+```bash
+agentctl status
+```
+
+The `PORT` column shows the reserved port for each worktree. The dev server stays running until you clean up.
+
 After the PR is merged:
 
 ```bash
