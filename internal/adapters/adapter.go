@@ -40,13 +40,13 @@ type Adapter struct {
 	SessionType string `yaml:"session_type"`
 
 	// LaunchTemplate is a full launch command override. Placeholders:
-	// {kickoff}, {session_id}. When set, Binary/Prompt/Session are
+	// {kickoff}, {session_id}, {worktree}. When set, Binary/Prompt/Session are
 	// ignored for launch.
 	LaunchTemplate string `yaml:"launch"`
 
 	// ResumeCmdTemplate is a full resume command override. Placeholders:
-	// {prompt}, {session_id}, {kickoff}. When set, Binary/Prompt/ResumeID are
-	// ignored for resume.
+	// {prompt}, {session_id}, {worktree}. When set,
+	// Binary/Prompt/ResumeID are ignored for resume.
 	ResumeCmdTemplate string `yaml:"resume_cmd"`
 
 	// Install is an optional hint shown when the binary is not found on PATH.
@@ -59,24 +59,29 @@ type Adapter struct {
 
 // LaunchCmd returns an *exec.Cmd that starts the agent in the given worktree.
 // kickoff is the multi-line kickoff prompt; sessionID is the UUID assigned by
-// agentctl.
-func (a *Adapter) LaunchCmd(kickoff, sessionID string) *exec.Cmd {
+// agentctl; wtPath is the absolute path to the worktree (used by {worktree}
+// in template adapters that require an explicit directory permission flag).
+func (a *Adapter) LaunchCmd(kickoff, sessionID, wtPath string) *exec.Cmd {
 	if a.LaunchTemplate != "" {
 		return buildFromTemplate(a.LaunchTemplate, map[string]string{
 			"{kickoff}":    kickoff,
 			"{session_id}": sessionID,
+			"{worktree}":   wtPath,
 		})
 	}
 	return a.buildStructuredCmd(kickoff, a.Session, sessionID)
 }
 
 // ResumeCmd returns an *exec.Cmd that resumes the agent with a new prompt.
-// prompt is the revision/feedback text; sessionID is read from .agent.
-func (a *Adapter) ResumeCmd(prompt, sessionID string) *exec.Cmd {
+// prompt is the revision/feedback text; sessionID is read from .agent;
+// wtPath is the absolute path to the worktree (used by {worktree} in
+// template adapters that require an explicit directory permission flag).
+func (a *Adapter) ResumeCmd(prompt, sessionID, wtPath string) *exec.Cmd {
 	if a.ResumeCmdTemplate != "" {
 		return buildFromTemplate(a.ResumeCmdTemplate, map[string]string{
 			"{prompt}":     prompt,
 			"{session_id}": sessionID,
+			"{worktree}":   wtPath,
 		})
 	}
 	resumeID := a.ResumeID
