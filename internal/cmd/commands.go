@@ -116,19 +116,6 @@ func runStart(issue, slug, agentName, sddName string, headless, quiet bool) erro
 		return err
 	}
 
-	// When a dev server is running, record its port in .env.local.
-	if portStr != "" {
-		f, ferr := os.OpenFile(filepath.Join(wtPath, ".env.local"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-		if ferr != nil {
-			return ferr
-		}
-		_, ferr = f.WriteString("\nPORT=" + portStr + "\n")
-		f.Close()
-		if ferr != nil {
-			return ferr
-		}
-	}
-
 	// Generate session ID.
 	sessionID, err := generateUUID()
 	if err != nil {
