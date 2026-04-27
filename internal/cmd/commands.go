@@ -442,7 +442,7 @@ func cleanupMerged(repoRoot, issue string) error {
 		fmt.Printf("Removed %s\n", wtPath)
 	}
 
-	hint := fmt.Sprintf("Worktree and local branch were removed; delete the remote manually with:\n  git push origin --delete %s\n", branch)
+	hint := fmt.Sprintf("Local branch removed; delete the remote manually with:\n  git push origin --delete %s\n", branch)
 	if err := removeBranchRefs(repoRoot, branch, os.Stdout, os.Stderr, hint); err != nil {
 		return err
 	}
