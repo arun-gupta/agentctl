@@ -260,11 +260,11 @@ func TestParseIssueURL_trailingSlash(t *testing.T) {
 
 func TestParseIssueURL_invalidPaths(t *testing.T) {
 	cases := []string{
-		"https://github.com/myorg/myrepo/pull/42",   // pull request URL
-		"https://github.com/myorg/myrepo/issues/",   // missing number
+		"https://github.com/myorg/myrepo/pull/42",    // pull request URL
+		"https://github.com/myorg/myrepo/issues/",    // missing number
 		"https://github.com/myorg/myrepo/issues/abc", // non-numeric
 		"https://github.com/myorg/myrepo",            // no issues path
-		"https://example.com/owner/repo/issues/1",   // wrong host
+		"https://example.com/owner/repo/issues/1",    // wrong host
 	}
 	for _, c := range cases {
 		_, _, _, ok := parseIssueURL(c)
@@ -461,6 +461,33 @@ func TestRepoRootForIssue_urlCwdMatch(t *testing.T) {
 	}
 }
 
+func TestRemoveBranchRefs_alreadyRemovedIsQuiet(t *testing.T) {
+	repo := initGitRepoWithBareOrigin(t)
+
+	createCommittedFile(t, repo, "tracked.txt", "initial\n")
+	gitRun(t, repo, "checkout", "-b", "main")
+	gitRun(t, repo, "add", ".")
+	gitRun(t, repo, "commit", "-m", "initial")
+	gitRun(t, repo, "push", "-u", "origin", "main")
+
+	const branch = "113-fix-discard-output"
+	gitRun(t, repo, "checkout", "-b", branch)
+	gitRun(t, repo, "push", "-u", "origin", branch)
+	gitRun(t, repo, "checkout", "main")
+	gitRun(t, repo, "branch", "-D", branch)
+	gitRun(t, repo, "push", "origin", "--delete", branch)
+
+	var stdout, stderr bytes.Buffer
+	if err := removeBranchRefs(repo, branch, &stdout, &stderr, "manual cleanup hint"); err != nil {
+		t.Fatalf("removeBranchRefs: %v", err)
+	}
+	if got := stdout.String(); got != "" {
+		t.Errorf("stdout = %q, want empty output when branch is already gone", got)
+	}
+	if got := stderr.String(); got != "" {
+		t.Errorf("stderr = %q, want empty output when branch is already gone", got)
+	}
+}
 
 func contains(s, sub string) bool {
 	return strings.Contains(s, sub)
@@ -546,6 +573,45 @@ func chdirTemp(t *testing.T, dir string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(orig) })
+}
+
+func gitRun(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func initGitRepoWithBareOrigin(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	origin := filepath.Join(root, "origin.git")
+	repo := filepath.Join(root, "repo")
+
+	cmd := exec.Command("git", "init", "--bare", origin)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init --bare: %v\n%s", err, out)
+	}
+
+	cmd = exec.Command("git", "clone", origin, repo)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git clone: %v\n%s", err, out)
+	}
+
+	gitRun(t, repo, "config", "user.email", "test@example.com")
+	gitRun(t, repo, "config", "user.name", "Test")
+	return repo
+}
+
+func createCommittedFile(t *testing.T, dir, name, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // writeLocalAdapter writes content to .agentctl/adapters/<name>.yml under dir.
@@ -1108,10 +1174,10 @@ func TestAttachLog_agentAlreadyDead(t *testing.T) {
 
 	// Write .agent with the dead PID.
 	if err := state.Write(dir, state.AgentFile{
-		Agent:    "claude",
+		Agent:     "claude",
 		SessionID: "s1",
-		DevPID:   "0",
-		AgentPID: strconv.Itoa(pid),
+		DevPID:    "0",
+		AgentPID:  strconv.Itoa(pid),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1147,10 +1213,10 @@ func TestAttachLog_agentRunning(t *testing.T) {
 
 	// Write .agent with the running PID.
 	if err := state.Write(dir, state.AgentFile{
-		Agent:    "claude",
+		Agent:     "claude",
 		SessionID: "s1",
-		DevPID:   "0",
-		AgentPID: strconv.Itoa(pid),
+		DevPID:    "0",
+		AgentPID:  strconv.Itoa(pid),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1183,59 +1249,59 @@ func TestExtractStreamText(t *testing.T) {
 		want  string
 	}{
 		{
-			name:  "assistant text",
-			line:  `{"type":"assistant","message":{"content":[{"type":"text","text":"I'll fix the bug."}]}}`,
-			want:  "I'll fix the bug.",
+			name: "assistant text",
+			line: `{"type":"assistant","message":{"content":[{"type":"text","text":"I'll fix the bug."}]}}`,
+			want: "I'll fix the bug.",
 		},
 		{
-			name:  "assistant tool_use Bash with command",
-			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"ls -la","description":""}}]}}`,
-			want:  "[Bash: ls -la]",
+			name: "assistant tool_use Bash with command",
+			line: `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"ls -la","description":""}}]}}`,
+			want: "[Bash: ls -la]",
 		},
 		{
-			name:  "assistant tool_use Bash prefers description",
-			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"ls -la","description":"List files"}}]}}`,
-			want:  "[Bash: List files]",
+			name: "assistant tool_use Bash prefers description",
+			line: `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"ls -la","description":"List files"}}]}}`,
+			want: "[Bash: List files]",
 		},
 		{
-			name:  "assistant tool_use Read with file_path",
-			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/foo/bar.go"}}]}}`,
-			want:  "[Read: /foo/bar.go]",
+			name: "assistant tool_use Read with file_path",
+			line: `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/foo/bar.go"}}]}}`,
+			want: "[Read: /foo/bar.go]",
 		},
 		{
-			name:  "assistant tool_use Write with file_path",
-			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Write","input":{"file_path":"/foo/bar.go"}}]}}`,
-			want:  "[Write: /foo/bar.go]",
+			name: "assistant tool_use Write with file_path",
+			line: `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Write","input":{"file_path":"/foo/bar.go"}}]}}`,
+			want: "[Write: /foo/bar.go]",
 		},
 		{
-			name:  "assistant tool_use Edit with file_path",
-			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/foo/bar.go"}}]}}`,
-			want:  "[Edit: /foo/bar.go]",
+			name: "assistant tool_use Edit with file_path",
+			line: `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/foo/bar.go"}}]}}`,
+			want: "[Edit: /foo/bar.go]",
 		},
 		{
-			name:  "assistant tool_use WebSearch with query",
-			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"WebSearch","input":{"query":"go cobra optional flag"}}]}}`,
-			want:  "[WebSearch: go cobra optional flag]",
+			name: "assistant tool_use WebSearch with query",
+			line: `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"WebSearch","input":{"query":"go cobra optional flag"}}]}}`,
+			want: "[WebSearch: go cobra optional flag]",
 		},
 		{
-			name:  "assistant tool_use WebFetch with url",
-			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"WebFetch","input":{"url":"https://pkg.go.dev/github.com/spf13/cobra"}}]}}`,
-			want:  "[WebFetch: https://pkg.go.dev/github.com/spf13/cobra]",
+			name: "assistant tool_use WebFetch with url",
+			line: `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"WebFetch","input":{"url":"https://pkg.go.dev/github.com/spf13/cobra"}}]}}`,
+			want: "[WebFetch: https://pkg.go.dev/github.com/spf13/cobra]",
 		},
 		{
-			name:  "assistant tool_use Read missing file_path",
-			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{}}]}}`,
-			want:  "[Read]",
+			name: "assistant tool_use Read missing file_path",
+			line: `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{}}]}}`,
+			want: "[Read]",
 		},
 		{
-			name:  "assistant tool_use lowercase bash",
-			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"bash","input":{"command":"ls -la"}}]}}`,
-			want:  "[bash: ls -la]",
+			name: "assistant tool_use lowercase bash",
+			line: `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"bash","input":{"command":"ls -la"}}]}}`,
+			want: "[bash: ls -la]",
 		},
 		{
-			name:  "assistant tool_use Bash multiline command collapsed",
-			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"ls -la\necho hello"}}]}}`,
-			want:  "[Bash: ls -la echo hello]",
+			name: "assistant tool_use Bash multiline command collapsed",
+			line: `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"ls -la\necho hello"}}]}}`,
+			want: "[Bash: ls -la echo hello]",
 		},
 		{
 			name: "assistant tool_use Bash long command truncated",
@@ -1243,39 +1309,39 @@ func TestExtractStreamText(t *testing.T) {
 			want: "[Bash: " + strings.Repeat("a", 120) + "...]",
 		},
 		{
-			name:  "assistant tool_use unknown no detail",
-			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"SomeTool","input":{}}]}}`,
-			want:  "[SomeTool]",
+			name: "assistant tool_use unknown no detail",
+			line: `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"SomeTool","input":{}}]}}`,
+			want: "[SomeTool]",
 		},
 		{
-			name:  "assistant text + tool_use",
-			line:  `{"type":"assistant","message":{"content":[{"type":"text","text":"Running ls."},{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}`,
-			want:  "Running ls.\n[Bash: ls]",
+			name: "assistant text + tool_use",
+			line: `{"type":"assistant","message":{"content":[{"type":"text","text":"Running ls."},{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}`,
+			want: "Running ls.\n[Bash: ls]",
 		},
 		{
-			name:  "result success",
-			line:  `{"type":"result","subtype":"success","result":"PR opened."}`,
-			want:  "PR opened.",
+			name: "result success",
+			line: `{"type":"result","subtype":"success","result":"PR opened."}`,
+			want: "PR opened.",
 		},
 		{
-			name:  "system event skipped",
-			line:  `{"type":"system","subtype":"init","model":"claude-opus-4-5"}`,
-			want:  "",
+			name: "system event skipped",
+			line: `{"type":"system","subtype":"init","model":"claude-opus-4-5"}`,
+			want: "",
 		},
 		{
-			name:  "user event skipped",
-			line:  `{"type":"user","message":{"role":"user","content":[]}}`,
-			want:  "",
+			name: "user event skipped",
+			line: `{"type":"user","message":{"role":"user","content":[]}}`,
+			want: "",
 		},
 		{
-			name:  "non-JSON passed through",
-			line:  "plain text output",
-			want:  "plain text output",
+			name: "non-JSON passed through",
+			line: "plain text output",
+			want: "plain text output",
 		},
 		{
-			name:  "empty assistant text skipped",
-			line:  `{"type":"assistant","message":{"content":[{"type":"text","text":"   "}]}}`,
-			want:  "",
+			name: "empty assistant text skipped",
+			line: `{"type":"assistant","message":{"content":[{"type":"text","text":"   "}]}}`,
+			want: "",
 		},
 		{
 			name:  "Read path stripped to relative when under wtDir",

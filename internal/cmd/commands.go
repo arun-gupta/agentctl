@@ -302,24 +302,9 @@ func runRemoveWorktree(issue string) error {
 	}
 
 	if branch != "" && branch != "HEAD" {
-		if git.BranchExists(repoRoot, branch) {
-			if err := git.DeleteLocalBranch(repoRoot, branch); err != nil {
-				return fmt.Errorf("delete local branch: %w", err)
-			}
-		} else {
-			fmt.Printf("Local branch %s already removed\n", branch)
-		}
-		msg, err := git.DeleteRemoteBranch(repoRoot, branch)
-		if err != nil {
-			if strings.Contains(msg, "remote ref does not exist") {
-				fmt.Printf("Remote branch %s already removed\n", branch)
-			} else {
-				fmt.Fprintf(os.Stderr, "WARNING: could not delete remote branch %s\n", branch)
-				fmt.Fprintln(os.Stderr, msg)
-				fmt.Fprintf(os.Stderr, "Delete the remote manually with:\n  git push origin --delete %s\n", branch)
-			}
-		} else {
-			fmt.Printf("Deleted remote branch origin/%s\n", branch)
+		hint := fmt.Sprintf("Delete the remote manually with:\n  git push origin --delete %s\n", branch)
+		if err := removeBranchRefs(repoRoot, branch, os.Stdout, os.Stderr, hint); err != nil {
+			return err
 		}
 	}
 
@@ -457,28 +442,36 @@ func cleanupMerged(repoRoot, issue string) error {
 		fmt.Printf("Removed %s\n", wtPath)
 	}
 
+	hint := fmt.Sprintf("Worktree and local branch were removed; delete the remote manually with:\n  git push origin --delete %s\n", branch)
+	if err := removeBranchRefs(repoRoot, branch, os.Stdout, os.Stderr, hint); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func removeBranchRefs(repoRoot, branch string, stdout, stderr io.Writer, remoteDeleteHint string) error {
+	if branch == "" || branch == "HEAD" {
+		return nil
+	}
 	if git.BranchExists(repoRoot, branch) {
 		if err := git.DeleteLocalBranch(repoRoot, branch); err != nil {
-			return err
+			return fmt.Errorf("delete local branch: %w", err)
 		}
-	} else {
-		fmt.Printf("Local branch %s already removed\n", branch)
 	}
 
 	msg, err := git.DeleteRemoteBranch(repoRoot, branch)
 	if err != nil {
 		if strings.Contains(msg, "remote ref does not exist") {
-			fmt.Printf("Remote branch %s already removed\n", branch)
-		} else {
-			fmt.Fprintf(os.Stderr, "WARNING: could not delete remote branch %s\n", branch)
-			fmt.Fprintln(os.Stderr, msg)
-			fmt.Fprintf(os.Stderr, "Worktree and local branch were removed; delete the remote manually with:\n  git push origin --delete %s\n", branch)
-			return fmt.Errorf("remote branch deletion failed")
+			return nil
 		}
-	} else {
-		fmt.Printf("Deleted remote branch origin/%s\n", branch)
+		fmt.Fprintf(stderr, "WARNING: could not delete remote branch %s\n", branch)
+		fmt.Fprintln(stderr, msg)
+		fmt.Fprint(stderr, remoteDeleteHint)
+		return fmt.Errorf("remote branch deletion failed")
 	}
 
+	fmt.Fprintf(stdout, "Deleted remote branch origin/%s\n", branch)
 	return nil
 }
 
@@ -1539,7 +1532,8 @@ func relativePath(path, base string) string {
 }
 
 // stackFrameRe matches JavaScript/Node.js stack-frame lines, e.g.
-//   at Gaxios._request (file:///path/bundle.js:8578:19)
+//
+//	at Gaxios._request (file:///path/bundle.js:8578:19)
 var stackFrameRe = regexp.MustCompile(`^\s+at\s+\S`)
 
 // isStderrNoise reports whether line is verbose agent error noise that should
