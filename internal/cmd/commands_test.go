@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arun-gupta/agentctl/internal/config"
 	"github.com/arun-gupta/agentctl/internal/sdd"
 	"github.com/arun-gupta/agentctl/internal/state"
 )
@@ -1349,6 +1351,44 @@ func TestWorktreeExistsError_noAgentFile(t *testing.T) {
 	}
 }
 
+func TestSeedEnvLocal_missingSource_doesNothing(t *testing.T) {
+	dir := t.TempDir()
+	dst := filepath.Join(dir, ".env.local")
+	if err := seedEnvLocal(filepath.Join(dir, "nonexistent"), dst); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := os.Stat(dst); !os.IsNotExist(err) {
+		t.Errorf("expected dst to not exist, but it does")
+	}
+}
+
+func TestSeedEnvLocal_copiesAndStripsPort(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.env.local")
+	dst := filepath.Join(dir, "dst.env.local")
+	content := "API_KEY=secret\nPORT=3000\nDATABASE_URL=postgres://localhost/db\nPORT=4000\n"
+	if err := os.WriteFile(src, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := seedEnvLocal(src, dst); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatalf("could not read dst: %v", err)
+	}
+	result := string(got)
+	if strings.Contains(result, "PORT=") {
+		t.Errorf("PORT= lines should be stripped, got: %q", result)
+	}
+	if !strings.Contains(result, "API_KEY=secret") {
+		t.Errorf("API_KEY should be preserved, got: %q", result)
+	}
+	if !strings.Contains(result, "DATABASE_URL=postgres://localhost/db") {
+		t.Errorf("DATABASE_URL should be preserved, got: %q", result)
+	}
+}
+
 func TestRunNpmInstall_notNodeProject(t *testing.T) {
 	dir := t.TempDir() // no package.json — simulates a Python/Go/Java project
 	err := runNpmInstall(dir)
@@ -1386,5 +1426,64 @@ func TestRunNpmInstall_errorIncludesDebugHint(t *testing.T) {
 	}
 	if !strings.Contains(msg, "cd "+dir) {
 		t.Errorf("error %q does not contain manual repro command", msg)
+	}
+}
+
+func TestStartDevServer_noPackageJSON_returnsEmptyPort(t *testing.T) {
+	dir := t.TempDir() // no package.json
+	var stderr strings.Builder
+	pid, port, err := startDevServer(dir, &stderr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if pid != "" {
+		t.Errorf("expected empty pid when no dev server started, got %q", pid)
+	}
+	if port != "" {
+		t.Errorf("expected empty port when no dev server started, got %q", port)
+	}
+	hint := stderr.String()
+	if !strings.Contains(hint, ".agentctl.yml") {
+		t.Errorf("expected hint about .agentctl.yml, got: %q", hint)
+	}
+}
+
+func TestStartDevServer_agentctlYml_writesPortBack(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"),
+		[]byte("dev_server: \"echo ok\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stderr strings.Builder
+	pidStr, portStr, err := startDevServer(dir, &stderr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if pidStr != "" {
+		t.Cleanup(func() {
+			pid, parseErr := strconv.Atoi(pidStr)
+			if parseErr != nil {
+				t.Logf("cleanup: could not parse dev server pid %q: %v", pidStr, parseErr)
+				return
+			}
+			proc, findErr := os.FindProcess(pid)
+			if findErr != nil {
+				t.Logf("cleanup: could not find dev server process %d: %v", pid, findErr)
+				return
+			}
+			_ = proc.Kill()
+			_, _ = proc.Wait()
+		})
+	}
+	if portStr == "" {
+		t.Fatal("expected non-empty port when dev_server is set")
+	}
+	// Verify port was written back to .agentctl.yml.
+	cfg, err := config.Read(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprintf("%d", cfg.Port) != portStr {
+		t.Errorf("port in .agentctl.yml = %d, want %s", cfg.Port, portStr)
 	}
 }

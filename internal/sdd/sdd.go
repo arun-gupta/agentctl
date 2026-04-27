@@ -20,7 +20,8 @@ var builtinFS embed.FS
 // It never varies by methodology.
 const genericSkipPrompt = `Work on GitHub issue #{issue}. Read CLAUDE.md for project conventions.
 Skip the SDD lifecycle — make the changes directly, push the branch,
-and open a PR. Do not merge. Dev server is running on port {port}.`
+and open a PR. Do not merge.
+Dev server is running on port {port}.`
 
 // Methodology describes a single SDD lifecycle. The name is derived from the
 // YAML filename stem (e.g. "speckit.yml" → "speckit"). There is no name: field.
@@ -31,19 +32,33 @@ type Methodology struct {
 }
 
 // KickoffPrompt substitutes {issue} and {port} in the methodology's kickoff
-// template and returns the resulting prompt.
+// template and returns the resulting prompt. When port is empty, any line
+// containing {port} is removed so the agent is not told about a dev server.
 func (m *Methodology) KickoffPrompt(issue, port string) string {
 	s := strings.ReplaceAll(m.Kickoff, "{issue}", issue)
-	s = strings.ReplaceAll(s, "{port}", port)
-	return s
+	return substitutePort(s, port)
 }
 
 // SkipPrompt returns the generic skip prompt with {issue} and {port} substituted.
 // This is always the same regardless of which methodology is active.
 func SkipPrompt(issue, port string) string {
 	s := strings.ReplaceAll(genericSkipPrompt, "{issue}", issue)
-	s = strings.ReplaceAll(s, "{port}", port)
-	return s
+	return substitutePort(s, port)
+}
+
+// substitutePort replaces {port} with the given value. When port is empty,
+// every line that contains {port} is dropped entirely.
+func substitutePort(s, port string) string {
+	if port == "" {
+		var lines []string
+		for _, line := range strings.Split(s, "\n") {
+			if !strings.Contains(line, "{port}") {
+				lines = append(lines, line)
+			}
+		}
+		return strings.TrimRight(strings.Join(lines, "\n"), "\n")
+	}
+	return strings.ReplaceAll(s, "{port}", port)
 }
 
 // Get resolves the named methodology using the three-level lookup (first match wins):

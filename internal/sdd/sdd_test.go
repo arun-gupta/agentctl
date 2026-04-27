@@ -308,3 +308,32 @@ func captureStderr(t *testing.T, fn func()) string {
 	r.Close()
 	return buf.String()
 }
+
+// ─── port-free prompts ────────────────────────────────────────────────────────
+
+func assertPromptWithoutPortKeepsGuidance(t *testing.T, promptName, prompt string) {
+	t.Helper()
+	if strings.Contains(prompt, "port") || strings.Contains(prompt, "{port}") {
+		t.Errorf("%s with empty port must not mention port, got:\n%s", promptName, prompt)
+	}
+	if !strings.Contains(prompt, "open a PR") {
+		t.Errorf("%s with empty port must still instruct to open a PR, got:\n%s", promptName, prompt)
+	}
+	if !strings.Contains(prompt, "Do not merge") {
+		t.Errorf("%s with empty port must still instruct not to merge, got:\n%s", promptName, prompt)
+	}
+}
+
+func TestSkipPrompt_noPort_omitsDevServerLine(t *testing.T) {
+	prompt := sdd.SkipPrompt("42", "")
+	assertPromptWithoutPortKeepsGuidance(t, "SkipPrompt", prompt)
+}
+
+func TestKickoffPrompt_noPort_omitsDevServerLine(t *testing.T) {
+	m, err := sdd.Get("speckit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt := m.KickoffPrompt("42", "")
+	assertPromptWithoutPortKeepsGuidance(t, "KickoffPrompt", prompt)
+}

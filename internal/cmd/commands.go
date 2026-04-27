@@ -22,6 +22,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/arun-gupta/agentctl/internal/adapters"
+	"github.com/arun-gupta/agentctl/internal/config"
 	"github.com/arun-gupta/agentctl/internal/git"
 	"github.com/arun-gupta/agentctl/internal/process"
 	"github.com/arun-gupta/agentctl/internal/sdd"
@@ -96,12 +97,6 @@ func runStart(issue, slug, agentName, sddName string, headless, quiet bool) erro
 	branch := issueNum + "-" + slug
 	wtPath := filepath.Join(parentDir, repoName+"-"+issueNum+"-"+slug)
 
-	// Find a free port in the 3010-3100 range.
-	port, err := findFreePort(3010, 3100)
-	if err != nil {
-		return err
-	}
-
 	// Create the worktree.
 	if _, statErr := os.Stat(wtPath); statErr == nil {
 		return worktreeExistsError(wtPath, issueNum)
@@ -110,58 +105,16 @@ func runStart(issue, slug, agentName, sddName string, headless, quiet bool) erro
 		return fmt.Errorf("git worktree add: %w", err)
 	}
 
-	// Seed .env.local from main repo, then append PORT.
-	envLocal := filepath.Join(wtPath, ".env.local")
-	mainEnvLocal := filepath.Join(repoRoot, ".env.local")
-	if data, readErr := os.ReadFile(mainEnvLocal); readErr == nil {
-		// Strip any existing PORT= line.
-		var filtered []string
-		for _, line := range strings.Split(string(data), "\n") {
-			if !strings.HasPrefix(line, "PORT=") {
-				filtered = append(filtered, line)
-			}
-		}
-		if err := os.WriteFile(envLocal, []byte(strings.Join(filtered, "\n")), 0o600); err != nil {
-			return err
-		}
-		fmt.Printf("Copied .env.local from %s\n", repoRoot)
-	} else {
-		if err := os.WriteFile(envLocal, nil, 0o600); err != nil {
-			return err
-		}
-		fmt.Fprintf(os.Stderr, "WARNING: %s/.env.local not found — worktree will start without OAuth creds\n", repoRoot)
-	}
-	portLine := fmt.Sprintf("\nPORT=%d\n", port)
-	f, err := os.OpenFile(envLocal, os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	_, err = f.WriteString(portLine)
-	f.Close()
-	if err != nil {
+	// Seed .env.local from main repo if present (strips any existing PORT= line).
+	if err := seedEnvLocal(filepath.Join(repoRoot, ".env.local"), filepath.Join(wtPath, ".env.local")); err != nil {
 		return err
 	}
 
-	// npm install
-	if err := runNpmInstall(wtPath); err != nil {
-		return err
-	}
-
-	// Start dev server.
-	devLog, err := os.Create(filepath.Join(wtPath, "dev.log"))
+	// Start dev server if the project supports it; returns empty strings when skipped.
+	devPID, portStr, err := startDevServer(wtPath, os.Stderr)
 	if err != nil {
 		return err
 	}
-	devCmd := exec.Command("npm", "run", "dev", "--", "-p", fmt.Sprintf("%d", port))
-	devCmd.Dir = wtPath
-	devCmd.Stdout = devLog
-	devCmd.Stderr = devLog
-	if err := devCmd.Start(); err != nil {
-		devLog.Close()
-		return fmt.Errorf("start dev server: %w", err)
-	}
-	devPID := fmt.Sprintf("%d", devCmd.Process.Pid)
-	fmt.Printf("Dev server: http://localhost:%d (log: %s/dev.log)\n", port, wtPath)
 
 	// Generate session ID.
 	sessionID, err := generateUUID()
@@ -180,7 +133,6 @@ func runStart(issue, slug, agentName, sddName string, headless, quiet bool) erro
 	}
 
 	var kickoff string
-	portStr := fmt.Sprintf("%d", port)
 	if sddName == "" {
 		kickoff = sdd.SkipPrompt(issueNum, portStr)
 	} else {
@@ -1077,6 +1029,124 @@ func titleToSlug(title string) string {
 		s = strings.TrimRight(s[:40], "-")
 	}
 	return s
+}
+
+// seedEnvLocal copies src to dst, stripping any PORT= lines. If src does not
+// exist, dst is left untouched.
+func seedEnvLocal(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var filtered []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.HasPrefix(line, "PORT=") {
+			filtered = append(filtered, line)
+		}
+	}
+	return os.WriteFile(dst, []byte(strings.Join(filtered, "\n")), 0o600)
+}
+
+// startDevServer starts a dev server for the project in dir. Detection order:
+//  1. .agentctl.yml with dev_server field  → run that command with {port} substituted
+//  2. package.json present                 → npm install + npm run dev
+//  3. neither                              → print hint, return ("","",nil)
+//
+// On success the allocated port is written back to .agentctl.yml so it serves
+// as the single source of truth for all agentctl repo config. w receives the
+// informational message when no dev server is configured.
+func startDevServer(dir string, w io.Writer) (devPID, portStr string, err error) {
+	cfg, err := config.Read(dir)
+	if err != nil {
+		return "", "", fmt.Errorf("reading .agentctl.yml: %w", err)
+	}
+
+	// Case 1: explicit dev_server in .agentctl.yml
+	if cfg.DevServer != "" {
+		return startCustomDevServer(dir, cfg)
+	}
+
+	// Case 2: Node.js project
+	if _, statErr := os.Stat(filepath.Join(dir, "package.json")); statErr == nil {
+		return startNodeDevServer(dir, cfg)
+	}
+
+	// Case 3: no dev server configured
+	fmt.Fprintf(w, "No dev server configured for this project. Add a dev_server command to .agentctl.yml to start one automatically.\n")
+	return "", "", nil
+}
+
+func startCustomDevServer(dir string, cfg *config.AgentctlConfig) (devPID, portStr string, err error) {
+	port, err := findFreePort(3010, 3100)
+	if err != nil {
+		return "", "", err
+	}
+	portStr = fmt.Sprintf("%d", port)
+
+	cmdStr := strings.TrimSpace(strings.ReplaceAll(cfg.DevServer, "{port}", portStr))
+	if cmdStr == "" {
+		return "", "", fmt.Errorf("dev_server in .agentctl.yml is empty")
+	}
+	devLog, err := os.Create(filepath.Join(dir, "dev.log"))
+	if err != nil {
+		return "", "", err
+	}
+	devCmd := exec.Command("sh", "-c", cmdStr) //nolint:gosec
+	devCmd.Dir = dir
+	devCmd.Stdout = devLog
+	devCmd.Stderr = devLog
+	if err := devCmd.Start(); err != nil {
+		devLog.Close()
+		return "", "", fmt.Errorf("start dev server: %w", err)
+	}
+	if err := devLog.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: close dev log: %v\n", err)
+	}
+	fmt.Printf("Dev server: http://localhost:%s (log: %s/dev.log)\n", portStr, dir)
+
+	cfg.Port = port
+	if err := config.Write(dir, cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not persist port to .agentctl.yml: %v\n", err)
+	}
+	return fmt.Sprintf("%d", devCmd.Process.Pid), portStr, nil
+}
+
+func startNodeDevServer(dir string, cfg *config.AgentctlConfig) (devPID, portStr string, err error) {
+	if err := runNpmInstall(dir); err != nil {
+		return "", "", err
+	}
+
+	port, err := findFreePort(3010, 3100)
+	if err != nil {
+		return "", "", err
+	}
+	portStr = fmt.Sprintf("%d", port)
+
+	devLog, err := os.Create(filepath.Join(dir, "dev.log"))
+	if err != nil {
+		return "", "", err
+	}
+	devCmd := exec.Command("npm", "run", "dev", "--", "-p", portStr)
+	devCmd.Dir = dir
+	devCmd.Stdout = devLog
+	devCmd.Stderr = devLog
+	if err := devCmd.Start(); err != nil {
+		devLog.Close()
+		return "", "", fmt.Errorf("start dev server: %w", err)
+	}
+	if err := devLog.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: close dev log: %v\n", err)
+	}
+	fmt.Printf("Dev server: http://localhost:%s (log: %s/dev.log)\n", portStr, dir)
+
+	cfg.Port = port
+	if err := config.Write(dir, cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not persist port to .agentctl.yml: %v\n", err)
+	}
+	return fmt.Sprintf("%d", devCmd.Process.Pid), portStr, nil
 }
 
 func runNpmInstall(dir string) error {
