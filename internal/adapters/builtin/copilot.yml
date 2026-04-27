@@ -1,5 +1,5 @@
 binary: copilot
-launch: copilot --add-dir {worktree} -p {kickoff}
-resume_cmd: copilot --add-dir {worktree} -p {prompt} --continue
+launch: copilot --add-dir {worktree} --allow-exec -p {kickoff}
+resume_cmd: copilot --add-dir {worktree} --allow-exec -p {prompt} --continue
 session_type: directory
 install: npm install -g @github/copilot
