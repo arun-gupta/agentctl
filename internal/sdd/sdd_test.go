@@ -96,6 +96,27 @@ func TestKickoffPrompt_speckit_content(t *testing.T) {
 	}
 }
 
+func TestKickoffPrompt_speckit_stages_2_4_no_pause(t *testing.T) {
+	m, err := sdd.Get("speckit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt := m.KickoffPrompt("139", "3030")
+
+	// Stage 1 must pause for human approval and tell the user how to resume.
+	if !strings.Contains(prompt, "Do not proceed until resumed") {
+		t.Errorf("stage 1 must instruct agent to wait; prompt: %s", prompt)
+	}
+	if !strings.Contains(prompt, "agentctl resume") {
+		t.Errorf("stage 1 must tell user to run agentctl resume; prompt: %s", prompt)
+	}
+
+	// Stages 2–4 must proceed without pausing.
+	if !strings.Contains(prompt, "Proceed immediately") {
+		t.Errorf("stages 2–4 must say 'Proceed immediately'; prompt: %s", prompt)
+	}
+}
+
 func TestKickoffPrompt_speckit_resumeInstruction(t *testing.T) {
 	m, err := sdd.Get("speckit")
 	if err != nil {
