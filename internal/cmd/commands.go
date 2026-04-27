@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -1366,7 +1367,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		followLog(logPath, os.Stdout, logDone, quiet)
+		followLog(logPath, os.Stdout, logDone, quiet, true)
 	}()
 
 	sigCh := make(chan os.Signal, 1)
@@ -1525,6 +1526,24 @@ func relativePath(path, base string) string {
 	return filepath.ToSlash(rel)
 }
 
+// stackFrameRe matches JavaScript/Node.js stack-frame lines, e.g.
+//   at Gaxios._request (file:///path/bundle.js:8578:19)
+var stackFrameRe = regexp.MustCompile(`^\s+at\s+\S`)
+
+// isStderrNoise reports whether line is verbose agent error noise that should
+// be suppressed from the terminal stream. It matches JavaScript/Node.js stack
+// frames and standalone JSON blobs. The raw line is still written to agent.log.
+func isStderrNoise(line string) bool {
+	if stackFrameRe.MatchString(line) {
+		return true
+	}
+	trimmed := strings.TrimSpace(line)
+	if len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') && json.Valid([]byte(trimmed)) {
+		return true
+	}
+	return false
+}
+
 // spinnerFrames are the braille Unicode characters used for the spinner animation.
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
@@ -1541,7 +1560,7 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 // is shown. After done is closed, any remaining content is flushed (unless quiet).
 // Note: agent-process hang-on-exit (issue #78) is a separate concern and is
 // not addressed here; that fix belongs in the process-monitoring loop.
-func followLog(logPath string, out io.Writer, done <-chan struct{}, quiet bool) {
+func followLog(logPath string, out io.Writer, done <-chan struct{}, quiet bool, filterNoise bool) {
 	f, err := os.Open(logPath)
 	if err != nil {
 		fmt.Fprintf(out, "warning: unable to follow log: %v\n", err)
@@ -1570,8 +1589,10 @@ func followLog(logPath string, out io.Writer, done <-chan struct{}, quiet bool) 
 		for {
 			line, err := reader.ReadString('\n')
 			if line != "" && !quiet {
-				clearSpinner()
-				fmt.Fprint(out, line)
+				if !filterNoise || !isStderrNoise(strings.TrimRight(line, "\r\n")) {
+					clearSpinner()
+					fmt.Fprint(out, line)
+				}
 			}
 			if errors.Is(err, io.EOF) {
 				// ReadString may return a partial line (no trailing '\n') together
