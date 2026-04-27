@@ -2021,3 +2021,65 @@ func TestLinkPRToIssue_editError(t *testing.T) {
 		t.Errorf("expected 'gh pr edit' in error, got: %v", err)
 	}
 }
+
+// ─── discard --stale ─────────────────────────────────────────────────────────
+
+func TestDiscardCmd_staleFlagRegistered(t *testing.T) {
+	c := NewDiscardCmd()
+	if f := c.Flags().Lookup("stale"); f == nil {
+		t.Fatal("--stale flag must be registered on the discard command")
+	}
+}
+
+func TestDiscardCmd_staleMutuallyExclusiveWithIssue(t *testing.T) {
+	c := NewDiscardCmd()
+	var errBuf bytes.Buffer
+	c.SetErr(&errBuf)
+	c.SilenceUsage = true
+	c.SetArgs([]string{"--stale", "42"})
+	err := c.Execute()
+	if err == nil {
+		t.Fatal("expected error when --stale and issue number are both provided")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("error should mention mutually exclusive, got: %v", err)
+	}
+}
+
+func TestIsAgentRunning_noAgentFile(t *testing.T) {
+	dir := t.TempDir()
+	if isAgentRunning(dir) {
+		t.Error("expected isAgentRunning=false when no .agent file exists")
+	}
+}
+
+func TestIsAgentRunning_emptyPID(t *testing.T) {
+	dir := t.TempDir()
+	if err := state.Write(dir, state.AgentFile{Agent: "claude", SessionID: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	if isAgentRunning(dir) {
+		t.Error("expected isAgentRunning=false when AgentPID is empty")
+	}
+}
+
+func TestIsAgentRunning_deadPID(t *testing.T) {
+	dir := t.TempDir()
+	if err := state.Write(dir, state.AgentFile{Agent: "claude", AgentPID: "9999999"}); err != nil {
+		t.Fatal(err)
+	}
+	if isAgentRunning(dir) {
+		t.Error("expected isAgentRunning=false for a dead PID")
+	}
+}
+
+func TestIsAgentRunning_livePID(t *testing.T) {
+	dir := t.TempDir()
+	pid := strconv.Itoa(os.Getpid())
+	if err := state.Write(dir, state.AgentFile{Agent: "claude", AgentPID: pid}); err != nil {
+		t.Fatal(err)
+	}
+	if !isAgentRunning(dir) {
+		t.Error("expected isAgentRunning=true when AgentPID is the current process")
+	}
+}
