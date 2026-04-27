@@ -40,7 +40,7 @@ func NewStartCmd() *cobra.Command {
 	)
 	c := &cobra.Command{
 		Use:   "start <issue-number-or-url> [slug]",
-		Short: "Provision a worktree for an issue and launch a coding agent",
+		Short: "Start work on a GitHub issue in an isolated worktree",
 		Long: `Provision an isolated git worktree for a GitHub issue and launch a
 coding agent inside it. By default the agent works directly toward a PR
 with no spec-review pause.
@@ -271,7 +271,7 @@ func specExists(wtPath string) bool {
 func NewDiscardCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "discard [issue]",
-		Short: "Discard worktree + delete local/remote branch (unrecoverable)",
+		Short: "Permanently delete a worktree and its local/remote branches",
 		Long: `Discard the worktree for an issue and delete the local and remote branches.
 This action is NOT recoverable. You will be prompted to type YES to confirm.
 
@@ -712,7 +712,7 @@ func NewLogsCmd() *cobra.Command {
 	)
 	c := &cobra.Command{
 		Use:   "logs <issue>",
-		Short: "Stream the agent log for a headless run",
+		Short: "Stream agent.log; follows new output by default",
 		Long: `Stream agent.log for the given issue to stdout.
 
 By default the last 50 lines are printed and new output is followed until
@@ -778,7 +778,7 @@ func streamLog(wtPath string, lines int, noFollow bool, w io.Writer, logWait tim
 func NewAttachCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "attach <issue>",
-		Short: "Stream the agent log and exit automatically when the agent finishes",
+		Short: "Follow a running headless agent and exit when it finishes",
 		Long: `Attach to a running headless agent: stream agent.log to stdout and exit
 automatically when the agent process ends.
 
