@@ -1031,25 +1031,6 @@ func titleToSlug(title string) string {
 	return s
 }
 
-// projectConfig mirrors config.AgentctlConfig but is local to this package so
-// startDevServer helpers don't need to import internal/config directly.
-type projectConfig struct {
-	DevServer string
-	Port      int
-}
-
-func agentctlConfig(dir string) (*projectConfig, error) {
-	cfg, err := config.Read(dir)
-	if err != nil {
-		return nil, fmt.Errorf("reading .agentctl.yml: %w", err)
-	}
-	return &projectConfig{DevServer: cfg.DevServer, Port: cfg.Port}, nil
-}
-
-func writeAgentctlConfig(dir string, cfg *projectConfig) error {
-	return config.Write(dir, &config.AgentctlConfig{DevServer: cfg.DevServer, Port: cfg.Port})
-}
-
 // seedEnvLocal copies src to dst, stripping any PORT= lines. If src does not
 // exist, dst is left untouched.
 func seedEnvLocal(src, dst string) error {
@@ -1078,9 +1059,9 @@ func seedEnvLocal(src, dst string) error {
 // as the single source of truth for all agentctl repo config. w receives the
 // informational message when no dev server is configured.
 func startDevServer(dir string, w io.Writer) (devPID, portStr string, err error) {
-	cfg, err := agentctlConfig(dir)
+	cfg, err := config.Read(dir)
 	if err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("reading .agentctl.yml: %w", err)
 	}
 
 	// Case 1: explicit dev_server in .agentctl.yml
@@ -1098,7 +1079,7 @@ func startDevServer(dir string, w io.Writer) (devPID, portStr string, err error)
 	return "", "", nil
 }
 
-func startCustomDevServer(dir string, cfg *projectConfig) (devPID, portStr string, err error) {
+func startCustomDevServer(dir string, cfg *config.AgentctlConfig) (devPID, portStr string, err error) {
 	port, err := findFreePort(3010, 3100)
 	if err != nil {
 		return "", "", err
@@ -1122,31 +1103,20 @@ func startCustomDevServer(dir string, cfg *projectConfig) (devPID, portStr strin
 		return "", "", fmt.Errorf("start dev server: %w", err)
 	}
 	if err := devLog.Close(); err != nil {
-		return "", "", fmt.Errorf("close dev log: %w", err)
+		fmt.Fprintf(os.Stderr, "warning: close dev log: %v\n", err)
 	}
 	fmt.Printf("Dev server: http://localhost:%s (log: %s/dev.log)\n", portStr, dir)
 
 	cfg.Port = port
-	if err := writeAgentctlConfig(dir, cfg); err != nil {
-		if killErr := devCmd.Process.Kill(); killErr != nil {
-			return "", "", fmt.Errorf("persist .agentctl.yml after starting dev server: %w (also failed to stop dev server pid %d: %v)", err, devCmd.Process.Pid, killErr)
-		}
-		return "", "", fmt.Errorf("persist .agentctl.yml after starting dev server: %w", err)
+	if err := config.Write(dir, cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not persist port to .agentctl.yml: %v\n", err)
 	}
 	return fmt.Sprintf("%d", devCmd.Process.Pid), portStr, nil
 }
 
-func startNodeDevServer(dir string, cfg *projectConfig) (devPID, portStr string, err error) {
-	if _, err := exec.LookPath("npm"); err != nil {
-		return "", "", fmt.Errorf("npm not found in PATH\nInstall Node.js from https://nodejs.org and ensure npm is on your PATH, then re-run agentctl start")
-	}
-
-	install := exec.Command("npm", "install", "--loglevel=error")
-	install.Dir = dir
-	install.Stdout = os.Stdout
-	install.Stderr = os.Stderr
-	if err := install.Run(); err != nil {
-		return "", "", fmt.Errorf("dependency installation failed in %s: %w\n\nPossible causes:\n  • Node version mismatch (check .nvmrc or the project's required Node version)\n  • Network error or private registry credentials required\n\nTo debug: cd %s && npm install", dir, err, dir)
+func startNodeDevServer(dir string, cfg *config.AgentctlConfig) (devPID, portStr string, err error) {
+	if err := runNpmInstall(dir); err != nil {
+		return "", "", err
 	}
 
 	port, err := findFreePort(3010, 3100)
@@ -1168,16 +1138,13 @@ func startNodeDevServer(dir string, cfg *projectConfig) (devPID, portStr string,
 		return "", "", fmt.Errorf("start dev server: %w", err)
 	}
 	if err := devLog.Close(); err != nil {
-		return "", "", fmt.Errorf("close dev log: %w", err)
+		fmt.Fprintf(os.Stderr, "warning: close dev log: %v\n", err)
 	}
 	fmt.Printf("Dev server: http://localhost:%s (log: %s/dev.log)\n", portStr, dir)
 
 	cfg.Port = port
-	if err := writeAgentctlConfig(dir, cfg); err != nil {
-		if killErr := devCmd.Process.Kill(); killErr != nil {
-			return "", "", fmt.Errorf("persist .agentctl.yml after starting dev server: %w (also failed to stop dev server pid %d: %v)", err, devCmd.Process.Pid, killErr)
-		}
-		return "", "", fmt.Errorf("persist .agentctl.yml after starting dev server: %w", err)
+	if err := config.Write(dir, cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not persist port to .agentctl.yml: %v\n", err)
 	}
 	return fmt.Sprintf("%d", devCmd.Process.Pid), portStr, nil
 }

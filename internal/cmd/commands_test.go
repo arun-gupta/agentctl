@@ -1413,7 +1413,7 @@ func TestStartDevServer_noPackageJSON_returnsEmptyPort(t *testing.T) {
 func TestStartDevServer_agentctlYml_writesPortBack(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"),
-		[]byte("dev_server: \"sh -c 'sleep 100'\"\n"), 0o644); err != nil {
+		[]byte("dev_server: \"echo ok\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var stderr strings.Builder
