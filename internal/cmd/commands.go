@@ -902,17 +902,20 @@ func computeSpecState(wtPath, issue string) string {
 func ghPRInfo(repoRoot, branch string) (state string, number int, err error) {
 	cmd := exec.Command("gh", "pr", "view", branch, "--json", "state,number", "-q", ".state+\" \"+(.number|tostring)")
 	cmd.Dir = repoRoot
-	var out bytes.Buffer
+	var out, errBuf bytes.Buffer
 	cmd.Stdout = &out
-	cmd.Stderr = &bytes.Buffer{}
+	cmd.Stderr = &errBuf
 	if err = cmd.Run(); err != nil {
-		return "", 0, err
+		return "", 0, fmt.Errorf("%w: %s", err, strings.TrimSpace(errBuf.String()))
 	}
 	parts := strings.Fields(strings.TrimSpace(out.String()))
 	if len(parts) != 2 {
 		return "", 0, fmt.Errorf("unexpected gh output: %q", out.String())
 	}
-	n, _ := strconv.Atoi(parts[1])
+	n, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return "", 0, fmt.Errorf("unexpected gh PR number %q in output %q: %w", parts[1], out.String(), err)
+	}
 	return parts[0], n, nil
 }
 
@@ -1263,7 +1266,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 	if headless {
 		fmt.Printf("Agent PID %d — log: %s\n", pid, logPath)
 		fmt.Printf("Session ID: %s\n", sessionID)
-		fmt.Printf("Release the pause with: agentctl approve-spec %s\n", issue)
+		fmt.Printf("Use \"agentctl resume %s [feedback]\" to continue the session.\nWithout feedback, it sends approval (\"proceed\") and the agent begins implementation.\nWith feedback, it sends the revision text and the agent rewrites the spec.\n", issue)
 		return nil
 	}
 
