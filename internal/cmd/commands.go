@@ -672,8 +672,12 @@ func runStatus(verbose bool) error {
 
 		prState := "none"
 		if branch != "?" && branch != "HEAD" {
-			if ps, err := ghPRState(repoRoot, branch); err == nil && ps != "" {
-				prState = ps
+			if ps, n, err := ghPRInfo(repoRoot, branch); err == nil && ps != "" {
+				if n > 0 {
+					prState = fmt.Sprintf("#%d %s", n, ps)
+				} else {
+					prState = ps
+				}
 			}
 		}
 
@@ -893,17 +897,32 @@ func computeSpecState(wtPath, issue string) string {
 	return "paused"
 }
 
-// ghPRState calls `gh pr view <branch> --json state -q .state` in repoRoot.
-func ghPRState(repoRoot, branch string) (string, error) {
-	cmd := exec.Command("gh", "pr", "view", branch, "--json", "state", "-q", ".state")
+// ghPRInfo calls `gh pr view <branch>` in repoRoot and returns the PR state
+// (e.g. "MERGED") and number (e.g. 42). Both are zero-values on error.
+func ghPRInfo(repoRoot, branch string) (state string, number int, err error) {
+	cmd := exec.Command("gh", "pr", "view", branch, "--json", "state,number", "-q", ".state+\" \"+(.number|tostring)")
 	cmd.Dir = repoRoot
-	var out bytes.Buffer
+	var out, errBuf bytes.Buffer
 	cmd.Stdout = &out
-	cmd.Stderr = &bytes.Buffer{}
-	if err := cmd.Run(); err != nil {
-		return "", err
+	cmd.Stderr = &errBuf
+	if err = cmd.Run(); err != nil {
+		return "", 0, fmt.Errorf("%w: %s", err, strings.TrimSpace(errBuf.String()))
 	}
-	return strings.TrimSpace(out.String()), nil
+	parts := strings.Fields(strings.TrimSpace(out.String()))
+	if len(parts) != 2 {
+		return "", 0, fmt.Errorf("unexpected gh output: %q", out.String())
+	}
+	n, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return "", 0, fmt.Errorf("unexpected gh PR number %q in output %q: %w", parts[1], out.String(), err)
+	}
+	return parts[0], n, nil
+}
+
+// ghPRState is a convenience wrapper that returns only the state string.
+func ghPRState(repoRoot, branch string) (string, error) {
+	state, _, err := ghPRInfo(repoRoot, branch)
+	return state, err
 }
 
 // parseIssueURL checks whether arg is a full GitHub issue URL of the form
@@ -1247,7 +1266,9 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 	if headless {
 		fmt.Printf("Agent PID %d — log: %s\n", pid, logPath)
 		fmt.Printf("Session ID: %s\n", sessionID)
-		fmt.Printf("Release the pause with: agentctl resume %s [feedback]\n", issue)
+		fmt.Printf("Use \"agentctl resume %s [feedback]\" to continue the session.\n", issue)
+		fmt.Println("Without feedback, it sends approval (\"proceed\") and the agent begins implementation.")
+		fmt.Println("With feedback, it sends the revision text and the agent rewrites the spec.")
 		return nil
 	}
 

@@ -78,7 +78,7 @@ Spec states:
 - `in-progress`: `plan.md` exists, but no `tasks.md`.
 - `done`: `tasks.md` exists.
 
-PR states come from `gh pr view <branch>` and are usually `none`, `OPEN`, `MERGED`, or `CLOSED`.
+PR column shows the PR number and state from `gh pr view <branch>`, e.g. `#42 OPEN`, `#42 MERGED`. Shows `none` when no PR exists for the branch.
 
 ### `agentctl cleanup`
 
