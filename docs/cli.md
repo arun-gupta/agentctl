@@ -31,29 +31,23 @@ Side effects:
 - Runs `npm install --silent` and starts `npm run dev -- -p <port>`.
 - Launches the selected adapter.
 
-### `agentctl approve-spec`
+### `agentctl resume`
 
 ```bash
-agentctl approve-spec <issue-number>
+agentctl resume <issue-number>
+agentctl resume <issue-number> [feedback]
 ```
 
-Resumes a paused headless run after you approve the generated spec. This sends the approval prompt (`proceed`) to the adapter's `agent_resume` function.
+Resumes a paused headless agent after the spec-review checkpoint.
+
+- Without feedback: approves the spec and the agent begins implementation.
+- With feedback: sends the revision text and the agent rewrites the spec.
 
 The command requires:
 
 - A linked worktree for the issue.
 - A `.agent` metadata file with the selected agent and session ID.
 - A generated spec at `specs/*/spec.md`.
-
-### `agentctl revise-spec`
-
-```bash
-agentctl revise-spec <issue-number> <feedback>
-```
-
-Resumes a paused headless run with revision feedback instead of approval. Feedback must be non-empty.
-
-Use this when the generated spec needs changes before implementation begins.
 
 ### `agentctl status`
 
@@ -223,10 +217,10 @@ agentctl logs 42
 agentctl attach 42
 
 # Approve the spec after review
-agentctl approve-spec 42
+agentctl resume 42
 
 # Or request revisions instead
-agentctl revise-spec 42 "Narrow scope to the API layer; avoid UI changes."
+agentctl resume 42 "Narrow scope to the API layer; avoid UI changes."
 
 # Clean up after merge
 agentctl cleanup 42
@@ -242,7 +236,7 @@ done
 
 # Review generated specs, then approve each one
 for i in 210 211 212; do
-  agentctl approve-spec "$i"
+  agentctl resume "$i"
 done
 
 # Monitor all worktrees

@@ -6,7 +6,7 @@ By default, **agentctl** has no spec step — the agent works directly toward a 
 
 Use `--sdd <name>` to opt into a spec-driven development (SDD) methodology. The selected methodology defines a kickoff prompt that instructs the agent to follow a spec lifecycle with a human-in-the-loop pause:
 
-1. **Stage 1** — The agent writes a spec, then stops for your approval or revision. In headless mode use `agentctl approve-spec` and `agentctl revise-spec`.
+1. **Stage 1** — The agent writes a spec, then stops for your approval or revision. In headless mode use `agentctl resume`.
 2. **Stage 2** — After approval, the agent implements the changes, pushes the branch, and opens a PR.
 
 ```bash

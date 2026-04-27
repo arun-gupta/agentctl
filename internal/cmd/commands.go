@@ -198,33 +198,27 @@ func runStart(issue, slug, agentName, sddName string, headless, quiet bool) erro
 	return launchAgent(agentName, wtPath, issueNum, portStr, sessionID, kickoff, headless, quiet)
 }
 
-// ─── approve-spec ─────────────────────────────────────────────────────────────
+// ─── resume ───────────────────────────────────────────────────────────────────
 
-// NewApproveSpecCmd creates the `approve-spec` subcommand.
-func NewApproveSpecCmd() *cobra.Command {
+// NewResumeCmd creates the `resume` subcommand.
+func NewResumeCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "approve-spec <issue>",
-		Short: "Release the spec-review pause for a paused headless start",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runReleasePausedSession(args[0], "proceed")
-		},
-	}
-}
+		Use:   "resume <issue> [feedback]",
+		Short: "Resume a paused spec review: approve or revise",
+		Long: `Resume a paused headless agent after the spec-review checkpoint.
 
-// ─── revise-spec ──────────────────────────────────────────────────────────────
-
-// NewReviseSpecCmd creates the `revise-spec` subcommand.
-func NewReviseSpecCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "revise-spec <issue> <feedback>",
-		Short: "Send non-empty revision feedback to a paused start",
-		Args:  cobra.ExactArgs(2),
+Without feedback, sends approval ("proceed") and the agent begins implementation.
+With feedback, sends the revision text and the agent rewrites the spec.`,
+		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if strings.TrimSpace(args[1]) == "" {
-				return fmt.Errorf("revise-spec requires non-empty feedback")
+			prompt := "proceed"
+			if len(args) == 2 {
+				if strings.TrimSpace(args[1]) == "" {
+					return fmt.Errorf("feedback must be non-empty; omit it entirely to approve")
+				}
+				prompt = args[1]
 			}
-			return runReleasePausedSession(args[0], args[1])
+			return runReleasePausedSession(args[0], prompt)
 		},
 	}
 }
@@ -1253,7 +1247,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 	if headless {
 		fmt.Printf("Agent PID %d — log: %s\n", pid, logPath)
 		fmt.Printf("Session ID: %s\n", sessionID)
-		fmt.Printf("Release the pause with: agentctl approve-spec %s\n", issue)
+		fmt.Printf("Release the pause with: agentctl resume %s [feedback]\n", issue)
 		return nil
 	}
 
