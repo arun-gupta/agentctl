@@ -1247,7 +1247,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 	if headless {
 		fmt.Printf("Agent PID %d — log: %s\n", pid, logPath)
 		fmt.Printf("Session ID: %s\n", sessionID)
-		fmt.Printf("Release the pause with: agentctl approve-spec %s\n", issue)
+		fmt.Printf("Release the pause with: agentctl resume %s [feedback]\n", issue)
 		return nil
 	}
 
