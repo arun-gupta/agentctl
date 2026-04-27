@@ -975,12 +975,12 @@ func repoRootForIssue(arg string) (repoRoot, issueNum, ghIssueArg string, err er
 func worktreeExistsError(wtPath, issueNum string) error {
 	af, readErr := state.Read(wtPath)
 	if readErr == nil && af.AgentPID != "" && process.IsAlive(af.AgentPID) {
-		return fmt.Errorf("Worktree already exists for issue %s — agent is still running.\n\n  agentctl attach %s   to follow its output\n  agentctl discard %s   to delete the worktree and start over", issueNum, issueNum, issueNum)
+		return fmt.Errorf("Worktree already exists for issue %s — agent is still running.\nWorktree: %s\n\n  agentctl attach %s   to follow its output\n  agentctl discard %s   to delete the worktree and start over", issueNum, wtPath, issueNum, issueNum)
 	}
 	if readErr == nil && af.AgentPID != "" {
-		return fmt.Errorf("Worktree already exists for issue %s — agent has finished.\n\n  agentctl cleanup %s   if the PR is merged\n  agentctl discard %s   to delete the worktree and start over", issueNum, issueNum, issueNum)
+		return fmt.Errorf("Worktree already exists for issue %s — agent has finished.\nWorktree: %s\n\n  agentctl cleanup %s   if the PR is merged\n  agentctl discard %s   to delete the worktree and start over", issueNum, wtPath, issueNum, issueNum)
 	}
-	return fmt.Errorf("Worktree already exists for issue %s.\n\n  agentctl discard %s   to delete the worktree and start over", issueNum, issueNum)
+	return fmt.Errorf("Worktree already exists for issue %s.\nWorktree: %s\n\n  agentctl discard %s   to delete the worktree and start over", issueNum, wtPath, issueNum)
 }
 
 // slugFromIssue fetches the GitHub issue title and converts it to a slug.
