@@ -1,5 +1,5 @@
 binary: codex
-prompt: -q
-session: --session
-resume_id: --resume
+launch: codex exec --dangerously-bypass-approvals-and-sandbox -C {worktree} {kickoff}
+resume_cmd: codex exec resume --last --dangerously-bypass-approvals-and-sandbox {prompt}
+session_type: directory
 install: npm install -g @openai/codex
