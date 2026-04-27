@@ -1245,7 +1245,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 		return err
 	}
 
-	if adapterName == "claude" {
+	if headless && adapterName == "claude" {
 		if err := writeClaudeSettings(wtPath); err != nil {
 			return err
 		}
@@ -1633,12 +1633,18 @@ func isWriterTerminal(w io.Writer) bool {
 // exists (e.g. committed in the repo) it is left untouched.
 func writeClaudeSettings(wtPath string) error {
 	dir := filepath.Join(wtPath, ".claude")
+	// Reject symlinks to prevent writing outside the worktree.
+	if fi, err := os.Lstat(dir); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf(".claude is a symlink; refusing to write settings to an unverified location")
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create .claude dir: %w", err)
 	}
 	dst := filepath.Join(dir, "settings.json")
 	if _, err := os.Stat(dst); err == nil {
 		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat claude settings: %w", err)
 	}
 	data, err := json.Marshal(map[string]any{
 		"permissions": map[string]any{
@@ -1648,7 +1654,10 @@ func writeClaudeSettings(wtPath string) error {
 	if err != nil {
 		return fmt.Errorf("marshal claude settings: %w", err)
 	}
-	return os.WriteFile(dst, data, 0o644)
+	if err := os.WriteFile(dst, data, 0o644); err != nil {
+		return fmt.Errorf("write .claude/settings.json: %w", err)
+	}
+	return nil
 }
 
 // agentResume starts the coding agent in resume mode using the named adapter.
