@@ -1403,9 +1403,9 @@ func waitForFile(path string, timeout time.Duration) error {
 
 // extractStreamText converts a single claude --output-format stream-json line
 // into human-readable text. wtDir is the worktree directory; file paths inside
-// it are shown as relative paths to reduce noise in terminal output.
-// into human-readable text. It extracts assistant text/tool-use blocks and the
-// final result. Non-JSON lines are returned as-is (plain-text fallback).
+// it are shown as relative paths to reduce noise in terminal output. It
+// extracts assistant text, tool-use blocks, and the final result. Non-JSON
+// lines are returned as-is (plain-text fallback).
 func extractStreamText(line, wtDir string) string {
 	var ev struct {
 		Type    string `json:"type"`
@@ -1522,7 +1522,7 @@ func relativePath(path, base string) string {
 	if err != nil || strings.HasPrefix(rel, "..") {
 		return path
 	}
-	return rel
+	return filepath.ToSlash(rel)
 }
 
 // spinnerFrames are the braille Unicode characters used for the spinner animation.
