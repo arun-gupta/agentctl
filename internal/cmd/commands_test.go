@@ -1325,8 +1325,8 @@ func TestWorktreeExistsError_runningAgent(t *testing.T) {
 	if !strings.Contains(msg, "agentctl discard 90") {
 		t.Errorf("expected 'agentctl discard 90' hint in error; got: %q", msg)
 	}
-	if strings.Contains(msg, "cd ") {
-		t.Errorf("error must not contain 'cd ' (commands work from any directory); got: %q", msg)
+	if !strings.Contains(msg, dir) {
+		t.Errorf("expected worktree path %q in error; got: %q", dir, msg)
 	}
 }
 
@@ -1361,8 +1361,8 @@ func TestWorktreeExistsError_finishedAgent(t *testing.T) {
 	if !strings.Contains(msg, "agentctl discard 90") {
 		t.Errorf("expected 'agentctl discard 90' hint in error; got: %q", msg)
 	}
-	if strings.Contains(msg, "cd ") {
-		t.Errorf("error must not contain 'cd ' (commands work from any directory); got: %q", msg)
+	if !strings.Contains(msg, dir) {
+		t.Errorf("expected worktree path %q in error; got: %q", dir, msg)
 	}
 }
 
@@ -1383,8 +1383,8 @@ func TestWorktreeExistsError_noAgentFile(t *testing.T) {
 	if !strings.Contains(msg, "agentctl discard 90") {
 		t.Errorf("expected 'agentctl discard 90' hint in error; got: %q", msg)
 	}
-	if strings.Contains(msg, "cd ") {
-		t.Errorf("error must not contain 'cd ' (commands work from any directory); got: %q", msg)
+	if !strings.Contains(msg, dir) {
+		t.Errorf("expected worktree path %q in error; got: %q", dir, msg)
 	}
 }
 
