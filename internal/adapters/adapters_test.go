@@ -160,6 +160,54 @@ func TestLaunchCmd_opencode_multiTokenBinary(t *testing.T) {
 	assertContains(t, args, "build it")
 }
 
+func TestLaunchCmd_opencode_noPromptFlag(t *testing.T) {
+	// opencode uses -p for --password, not for the message; kickoff must be
+	// passed as a positional argument via the launch template, never via -p.
+	a, err := adapters.Get("opencode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := a.LaunchCmd("do the work", "sess-oc")
+	args := cmd.Args
+	assertContains(t, args, "run")
+	assertContains(t, args, "do the work")
+	for _, arg := range args {
+		if arg == "-p" {
+			t.Errorf("opencode LaunchCmd must not pass -p (--password flag), got args: %v", args)
+		}
+		if arg == "--session" {
+			t.Errorf("opencode LaunchCmd must not pass --session flag, got args: %v", args)
+		}
+		if arg == "sess-oc" {
+			t.Errorf("opencode LaunchCmd must not pass session ID as flag, got args: %v", args)
+		}
+	}
+}
+
+func TestResumeCmd_opencode(t *testing.T) {
+	// opencode resume must use --continue and must not pass a session flag.
+	a, err := adapters.Get("opencode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := a.ResumeCmd("fix the bug", "sess-oc")
+	args := cmd.Args
+	assertContains(t, args, "run")
+	assertContains(t, args, "fix the bug")
+	assertContains(t, args, "--continue")
+	for _, arg := range args {
+		if arg == "-p" {
+			t.Errorf("opencode ResumeCmd must not pass -p, got args: %v", args)
+		}
+		if arg == "--session" {
+			t.Errorf("opencode ResumeCmd must not pass --session flag, got args: %v", args)
+		}
+		if arg == "sess-oc" {
+			t.Errorf("opencode ResumeCmd must not pass session ID as flag, got args: %v", args)
+		}
+	}
+}
+
 func TestLaunchCmd_minimal(t *testing.T) {
 	a := loadTestdata(t, "minimal.yml")
 	cmd := a.LaunchCmd("hello world", "sess-min")
