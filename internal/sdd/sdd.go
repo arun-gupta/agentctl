@@ -20,7 +20,8 @@ var builtinFS embed.FS
 // It never varies by methodology.
 const genericSkipPrompt = `Work on GitHub issue #{issue}. Read CLAUDE.md for project conventions.
 Skip the SDD lifecycle — make the changes directly, push the branch,
-and open a PR. Do not merge. Dev server is running on port {port}.`
+and open a PR. Do not merge.
+Dev server is running on port {port}.`
 
 // Methodology describes a single SDD lifecycle. The name is derived from the
 // YAML filename stem (e.g. "speckit.yml" → "speckit"). There is no name: field.

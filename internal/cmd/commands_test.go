@@ -1412,23 +1412,30 @@ func TestStartDevServer_noPackageJSON_returnsEmptyPort(t *testing.T) {
 
 func TestStartDevServer_agentctlYml_writesPortBack(t *testing.T) {
 	dir := t.TempDir()
-	// Write a .agentctl.yml with a dev_server that will fail immediately
-	// (we only care that the port is written back before the process check).
-	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"),
-		[]byte("dev_server: \"false\"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// Expect an error (false exits non-zero), but the port write happens before start.
-	// Instead just verify Read after a successful-ish scenario.
-	// Use a no-op command that exits 0 to avoid blocking in test.
 	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"),
 		[]byte("dev_server: \"sh -c 'sleep 100'\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var stderr strings.Builder
-	_, portStr, err := startDevServer(dir, &stderr)
+	pidStr, portStr, err := startDevServer(dir, &stderr)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if pidStr != "" {
+		t.Cleanup(func() {
+			pid, parseErr := strconv.Atoi(pidStr)
+			if parseErr != nil {
+				t.Logf("cleanup: could not parse dev server pid %q: %v", pidStr, parseErr)
+				return
+			}
+			proc, findErr := os.FindProcess(pid)
+			if findErr != nil {
+				t.Logf("cleanup: could not find dev server process %d: %v", pid, findErr)
+				return
+			}
+			_ = proc.Kill()
+			_, _ = proc.Wait()
+		})
 	}
 	if portStr == "" {
 		t.Fatal("expected non-empty port when dev_server is set")

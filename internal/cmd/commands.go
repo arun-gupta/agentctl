@@ -1105,13 +1105,15 @@ func startCustomDevServer(dir string, cfg *projectConfig) (devPID, portStr strin
 	}
 	portStr = fmt.Sprintf("%d", port)
 
-	cmdStr := strings.ReplaceAll(cfg.DevServer, "{port}", portStr)
-	parts := strings.Fields(cmdStr)
+	cmdStr := strings.TrimSpace(strings.ReplaceAll(cfg.DevServer, "{port}", portStr))
+	if cmdStr == "" {
+		return "", "", fmt.Errorf("dev_server in .agentctl.yml is empty")
+	}
 	devLog, err := os.Create(filepath.Join(dir, "dev.log"))
 	if err != nil {
 		return "", "", err
 	}
-	devCmd := exec.Command(parts[0], parts[1:]...) //nolint:gosec
+	devCmd := exec.Command("sh", "-c", cmdStr) //nolint:gosec
 	devCmd.Dir = dir
 	devCmd.Stdout = devLog
 	devCmd.Stderr = devLog
@@ -1119,10 +1121,18 @@ func startCustomDevServer(dir string, cfg *projectConfig) (devPID, portStr strin
 		devLog.Close()
 		return "", "", fmt.Errorf("start dev server: %w", err)
 	}
+	if err := devLog.Close(); err != nil {
+		return "", "", fmt.Errorf("close dev log: %w", err)
+	}
 	fmt.Printf("Dev server: http://localhost:%s (log: %s/dev.log)\n", portStr, dir)
 
 	cfg.Port = port
-	_ = writeAgentctlConfig(dir, cfg)
+	if err := writeAgentctlConfig(dir, cfg); err != nil {
+		if killErr := devCmd.Process.Kill(); killErr != nil {
+			return "", "", fmt.Errorf("persist .agentctl.yml after starting dev server: %w (also failed to stop dev server pid %d: %v)", err, devCmd.Process.Pid, killErr)
+		}
+		return "", "", fmt.Errorf("persist .agentctl.yml after starting dev server: %w", err)
+	}
 	return fmt.Sprintf("%d", devCmd.Process.Pid), portStr, nil
 }
 
@@ -1157,10 +1167,18 @@ func startNodeDevServer(dir string, cfg *projectConfig) (devPID, portStr string,
 		devLog.Close()
 		return "", "", fmt.Errorf("start dev server: %w", err)
 	}
+	if err := devLog.Close(); err != nil {
+		return "", "", fmt.Errorf("close dev log: %w", err)
+	}
 	fmt.Printf("Dev server: http://localhost:%s (log: %s/dev.log)\n", portStr, dir)
 
 	cfg.Port = port
-	_ = writeAgentctlConfig(dir, cfg)
+	if err := writeAgentctlConfig(dir, cfg); err != nil {
+		if killErr := devCmd.Process.Kill(); killErr != nil {
+			return "", "", fmt.Errorf("persist .agentctl.yml after starting dev server: %w (also failed to stop dev server pid %d: %v)", err, devCmd.Process.Pid, killErr)
+		}
+		return "", "", fmt.Errorf("persist .agentctl.yml after starting dev server: %w", err)
+	}
 	return fmt.Sprintf("%d", devCmd.Process.Pid), portStr, nil
 }
 
