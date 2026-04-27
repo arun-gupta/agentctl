@@ -1388,3 +1388,22 @@ func TestRunNpmInstall_errorIncludesDebugHint(t *testing.T) {
 		t.Errorf("error %q does not contain manual repro command", msg)
 	}
 }
+
+func TestStartDevServer_noPackageJSON_returnsEmptyPort(t *testing.T) {
+	dir := t.TempDir() // no package.json
+	var stderr strings.Builder
+	pid, port, err := startDevServer(dir, &stderr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if pid != "" {
+		t.Errorf("expected empty pid when no dev server started, got %q", pid)
+	}
+	if port != "" {
+		t.Errorf("expected empty port when no dev server started, got %q", port)
+	}
+	hint := stderr.String()
+	if !strings.Contains(hint, ".agentctl.yml") {
+		t.Errorf("expected hint about .agentctl.yml, got: %q", hint)
+	}
+}

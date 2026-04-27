@@ -308,3 +308,23 @@ func captureStderr(t *testing.T, fn func()) string {
 	r.Close()
 	return buf.String()
 }
+
+// ─── port-free prompts ────────────────────────────────────────────────────────
+
+func TestSkipPrompt_noPort_omitsDevServerLine(t *testing.T) {
+	prompt := sdd.SkipPrompt("42", "")
+	if strings.Contains(prompt, "port") || strings.Contains(prompt, "{port}") {
+		t.Errorf("SkipPrompt with empty port must not mention port, got:\n%s", prompt)
+	}
+}
+
+func TestKickoffPrompt_noPort_omitsDevServerLine(t *testing.T) {
+	m, err := sdd.Get("speckit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt := m.KickoffPrompt("42", "")
+	if strings.Contains(prompt, "port") || strings.Contains(prompt, "{port}") {
+		t.Errorf("KickoffPrompt with empty port must not mention port, got:\n%s", prompt)
+	}
+}

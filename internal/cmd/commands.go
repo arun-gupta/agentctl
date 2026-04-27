@@ -96,12 +96,6 @@ func runStart(issue, slug, agentName, sddName string, headless, quiet bool) erro
 	branch := issueNum + "-" + slug
 	wtPath := filepath.Join(parentDir, repoName+"-"+issueNum+"-"+slug)
 
-	// Find a free port in the 3010-3100 range.
-	port, err := findFreePort(3010, 3100)
-	if err != nil {
-		return err
-	}
-
 	// Create the worktree.
 	if _, statErr := os.Stat(wtPath); statErr == nil {
 		return worktreeExistsError(wtPath, issueNum)
@@ -110,58 +104,29 @@ func runStart(issue, slug, agentName, sddName string, headless, quiet bool) erro
 		return fmt.Errorf("git worktree add: %w", err)
 	}
 
-	// Seed .env.local from main repo, then append PORT.
-	envLocal := filepath.Join(wtPath, ".env.local")
-	mainEnvLocal := filepath.Join(repoRoot, ".env.local")
-	if data, readErr := os.ReadFile(mainEnvLocal); readErr == nil {
-		// Strip any existing PORT= line.
-		var filtered []string
-		for _, line := range strings.Split(string(data), "\n") {
-			if !strings.HasPrefix(line, "PORT=") {
-				filtered = append(filtered, line)
-			}
-		}
-		if err := os.WriteFile(envLocal, []byte(strings.Join(filtered, "\n")), 0o600); err != nil {
-			return err
-		}
-		fmt.Printf("Copied .env.local from %s\n", repoRoot)
-	} else {
-		if err := os.WriteFile(envLocal, nil, 0o600); err != nil {
-			return err
-		}
-		fmt.Fprintf(os.Stderr, "WARNING: %s/.env.local not found — worktree will start without OAuth creds\n", repoRoot)
-	}
-	portLine := fmt.Sprintf("\nPORT=%d\n", port)
-	f, err := os.OpenFile(envLocal, os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
+	// Seed .env.local from main repo if present (strips any existing PORT= line).
+	if err := seedEnvLocal(filepath.Join(repoRoot, ".env.local"), filepath.Join(wtPath, ".env.local")); err != nil {
 		return err
 	}
-	_, err = f.WriteString(portLine)
-	f.Close()
+
+	// Start dev server if the project supports it; returns empty strings when skipped.
+	devPID, portStr, err := startDevServer(wtPath, os.Stderr)
 	if err != nil {
 		return err
 	}
 
-	// npm install
-	if err := runNpmInstall(wtPath); err != nil {
-		return err
+	// When a dev server is running, record its port in .env.local.
+	if portStr != "" {
+		f, ferr := os.OpenFile(filepath.Join(wtPath, ".env.local"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+		if ferr != nil {
+			return ferr
+		}
+		_, ferr = f.WriteString("\nPORT=" + portStr + "\n")
+		f.Close()
+		if ferr != nil {
+			return ferr
+		}
 	}
-
-	// Start dev server.
-	devLog, err := os.Create(filepath.Join(wtPath, "dev.log"))
-	if err != nil {
-		return err
-	}
-	devCmd := exec.Command("npm", "run", "dev", "--", "-p", fmt.Sprintf("%d", port))
-	devCmd.Dir = wtPath
-	devCmd.Stdout = devLog
-	devCmd.Stderr = devLog
-	if err := devCmd.Start(); err != nil {
-		devLog.Close()
-		return fmt.Errorf("start dev server: %w", err)
-	}
-	devPID := fmt.Sprintf("%d", devCmd.Process.Pid)
-	fmt.Printf("Dev server: http://localhost:%d (log: %s/dev.log)\n", port, wtPath)
 
 	// Generate session ID.
 	sessionID, err := generateUUID()
@@ -180,7 +145,6 @@ func runStart(issue, slug, agentName, sddName string, headless, quiet bool) erro
 	}
 
 	var kickoff string
-	portStr := fmt.Sprintf("%d", port)
 	if sddName == "" {
 		kickoff = sdd.SkipPrompt(issueNum, portStr)
 	} else {
@@ -1077,6 +1041,71 @@ func titleToSlug(title string) string {
 		s = strings.TrimRight(s[:40], "-")
 	}
 	return s
+}
+
+// seedEnvLocal copies src to dst, stripping any PORT= lines. If src does not
+// exist, dst is left untouched.
+func seedEnvLocal(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var filtered []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.HasPrefix(line, "PORT=") {
+			filtered = append(filtered, line)
+		}
+	}
+	return os.WriteFile(dst, []byte(strings.Join(filtered, "\n")), 0o600)
+}
+
+// startDevServer detects whether the project in dir has a Node.js dev server
+// (package.json present) and, if so, runs npm install and starts npm run dev
+// on a free port. Returns (devPID, portStr, nil) on success, or ("", "", nil)
+// when no dev server is detected. w receives the informational message printed
+// when no dev server config is found.
+func startDevServer(dir string, w io.Writer) (devPID, portStr string, err error) {
+	if _, statErr := os.Stat(filepath.Join(dir, "package.json")); os.IsNotExist(statErr) {
+		fmt.Fprintf(w, "No dev server configured for this project. Add a dev_server command to .agentctl.yml to start one automatically.\n")
+		return "", "", nil
+	}
+
+	if _, err := exec.LookPath("npm"); err != nil {
+		return "", "", fmt.Errorf("npm not found in PATH\nInstall Node.js from https://nodejs.org and ensure npm is on your PATH, then re-run agentctl start")
+	}
+
+	// npm install
+	install := exec.Command("npm", "install", "--loglevel=error")
+	install.Dir = dir
+	install.Stdout = os.Stdout
+	install.Stderr = os.Stderr
+	if err := install.Run(); err != nil {
+		return "", "", fmt.Errorf("dependency installation failed in %s: %w\n\nPossible causes:\n  • Node version mismatch (check .nvmrc or the project's required Node version)\n  • Network error or private registry credentials required\n\nTo debug: cd %s && npm install", dir, err, dir)
+	}
+
+	port, err := findFreePort(3010, 3100)
+	if err != nil {
+		return "", "", err
+	}
+	portStr = fmt.Sprintf("%d", port)
+
+	devLog, err := os.Create(filepath.Join(dir, "dev.log"))
+	if err != nil {
+		return "", "", err
+	}
+	devCmd := exec.Command("npm", "run", "dev", "--", "-p", portStr)
+	devCmd.Dir = dir
+	devCmd.Stdout = devLog
+	devCmd.Stderr = devLog
+	if err := devCmd.Start(); err != nil {
+		devLog.Close()
+		return "", "", fmt.Errorf("start dev server: %w", err)
+	}
+	fmt.Printf("Dev server: http://localhost:%s (log: %s/dev.log)\n", portStr, dir)
+	return fmt.Sprintf("%d", devCmd.Process.Pid), portStr, nil
 }
 
 func runNpmInstall(dir string) error {
