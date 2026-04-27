@@ -1,16 +1,15 @@
 // agentctl – Go CLI for provisioning isolated git worktrees per GitHub issue
 // and launching coding agents inside each one.
 //
-// Command surface (start, approve-spec, …):
+// Command surface:
 //
-//	agentctl start [--agent name] [--headless] [--no-sdd] <issue> [slug]
-//	agentctl approve-spec  <issue>
-//	agentctl revise-spec   <issue> <feedback>
-//	agentctl discard       [issue]
-//	agentctl cleanup       [issue | --all]
-//	agentctl status [--verbose]
-//	agentctl logs   [--lines N] [--no-follow] <issue>
-//	agentctl attach <issue>
+//	agentctl start   [--agent name] [--headless] [--sdd=name] <issue> [slug]
+//	agentctl resume  <issue> [feedback]
+//	agentctl discard [issue]
+//	agentctl cleanup [issue | --all]
+//	agentctl status  [--verbose]
+//	agentctl logs    [--lines N] [--no-follow] <issue>
+//	agentctl attach  <issue>
 package main
 
 import (
@@ -43,8 +42,7 @@ func main() {
 
 	root.AddCommand(
 		cmd.NewStartCmd(),
-		cmd.NewApproveSpecCmd(),
-		cmd.NewReviseSpecCmd(),
+		cmd.NewResumeCmd(),
 		cmd.NewDiscardCmd(),
 		cmd.NewCleanupCmd(),
 		cmd.NewStatusCmd(),
