@@ -712,7 +712,7 @@ func NewLogsCmd() *cobra.Command {
 	)
 	c := &cobra.Command{
 		Use:   "logs <issue>",
-		Short: "Tail the agent log (stays open; use --no-follow to print and exit)",
+		Short: "Stream agent.log; follows new output by default",
 		Long: `Stream agent.log for the given issue to stdout.
 
 By default the last 50 lines are printed and new output is followed until
