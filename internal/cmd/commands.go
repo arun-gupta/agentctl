@@ -971,19 +971,16 @@ func repoRootForIssue(arg string) (repoRoot, issueNum, ghIssueArg string, err er
 // worktreeExistsError returns a descriptive, actionable error for the case
 // where the target worktree directory already exists. It reads the .agent
 // metadata to distinguish between a still-running agent, a finished agent,
-// and a bare worktree with no .agent file, and includes a cd hint so the
-// suggested follow-up commands work regardless of the caller's current
-// directory (e.g. when start was invoked with a full GitHub issue URL from
-// outside the repo).
+// and a bare worktree with no .agent file.
 func worktreeExistsError(wtPath, issueNum string) error {
 	af, readErr := state.Read(wtPath)
 	if readErr == nil && af.AgentPID != "" && process.IsAlive(af.AgentPID) {
-		return fmt.Errorf("agent is already running for issue %s — use 'cd %q && agentctl attach %s' to follow its output, or 'cd %q && agentctl discard %s' to start over", issueNum, wtPath, issueNum, wtPath, issueNum)
+		return fmt.Errorf("Worktree already exists for issue %s — agent is still running.\n\n  agentctl attach %s   to follow its output\n  agentctl discard %s   to delete the worktree and start over", issueNum, issueNum, issueNum)
 	}
 	if readErr == nil && af.AgentPID != "" {
-		return fmt.Errorf("agent has finished for issue %s — use 'cd %q && agentctl cleanup %s' if the PR is merged, or 'cd %q && agentctl discard %s' to start over", issueNum, wtPath, issueNum, wtPath, issueNum)
+		return fmt.Errorf("Worktree already exists for issue %s — agent has finished.\n\n  agentctl cleanup %s   if the PR is merged\n  agentctl discard %s   to delete the worktree and start over", issueNum, issueNum, issueNum)
 	}
-	return fmt.Errorf("worktree already exists for issue %s — use 'cd %q && agentctl discard %s' to remove it and start over", issueNum, wtPath, issueNum)
+	return fmt.Errorf("Worktree already exists for issue %s.\n\n  agentctl discard %s   to delete the worktree and start over", issueNum, issueNum)
 }
 
 // slugFromIssue fetches the GitHub issue title and converts it to a slug.
