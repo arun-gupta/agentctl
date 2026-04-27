@@ -461,6 +461,27 @@ func TestRepoRootForIssue_urlCwdMatch(t *testing.T) {
 	}
 }
 
+func TestRemoveBranchRefs_alreadyRemovedIsQuiet(t *testing.T) {
+	repo := initGitRepoWithBareOrigin(t)
+
+	createCommittedFile(t, repo, "tracked.txt", "initial\n")
+	gitRun(t, repo, "checkout", "-b", "main")
+	gitRun(t, repo, "add", ".")
+	gitRun(t, repo, "commit", "-m", "initial")
+	gitRun(t, repo, "push", "-u", "origin", "main")
+
+	const branch = "113-fix-discard-output"
+	gitRun(t, repo, "checkout", "-b", branch)
+	gitRun(t, repo, "push", "-u", "origin", branch)
+	gitRun(t, repo, "checkout", "main")
+	gitRun(t, repo, "branch", "-D", branch)
+	gitRun(t, repo, "push", "origin", "--delete", branch)
+
+	if err := removeBranchRefs(repo, branch); err != nil {
+		t.Fatalf("removeBranchRefs: want nil when branches already gone, got %v", err)
+	}
+}
+
 func contains(s, sub string) bool {
 	return strings.Contains(s, sub)
 }
@@ -545,6 +566,45 @@ func chdirTemp(t *testing.T, dir string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(orig) })
+}
+
+func gitRun(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func initGitRepoWithBareOrigin(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	origin := filepath.Join(root, "origin.git")
+	repo := filepath.Join(root, "repo")
+
+	cmd := exec.Command("git", "init", "--bare", origin)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init --bare: %v\n%s", err, out)
+	}
+
+	cmd = exec.Command("git", "clone", origin, repo)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git clone: %v\n%s", err, out)
+	}
+
+	gitRun(t, repo, "config", "user.email", "test@example.com")
+	gitRun(t, repo, "config", "user.name", "Test")
+	return repo
+}
+
+func createCommittedFile(t *testing.T, dir, name, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // writeLocalAdapter writes content to .agentctl/adapters/<name>.yml under dir.
