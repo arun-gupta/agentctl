@@ -104,7 +104,7 @@ func runStart(issue, slug, agentName, sddName string, headless, quiet bool) erro
 
 	// Create the worktree.
 	if _, statErr := os.Stat(wtPath); statErr == nil {
-		return fmt.Errorf("worktree already exists: %s", wtPath)
+		return worktreeExistsError(wtPath, issueNum)
 	}
 	if err := git.AddWorktree(repoRoot, wtPath, branch); err != nil {
 		return fmt.Errorf("git worktree add: %w", err)
@@ -1005,6 +1005,24 @@ func repoRootForIssue(arg string) (repoRoot, issueNum, ghIssueArg string, err er
 	// Pass the original URL to gh so it resolves without requiring a
 	// matching git remote in the working directory.
 	return root, issueNum, arg, nil
+}
+
+// worktreeExistsError returns a descriptive, actionable error for the case
+// where the target worktree directory already exists. It reads the .agent
+// metadata to distinguish between a still-running agent, a finished agent,
+// and a bare worktree with no .agent file, and includes a cd hint so the
+// suggested follow-up commands work regardless of the caller's current
+// directory (e.g. when start was invoked with a full GitHub issue URL from
+// outside the repo).
+func worktreeExistsError(wtPath, issueNum string) error {
+	af, readErr := state.Read(wtPath)
+	if readErr == nil && af.AgentPID != "" && process.IsAlive(af.AgentPID) {
+		return fmt.Errorf("agent is already running for issue %s — use 'cd %q && agentctl attach %s' to follow its output, or 'cd %q && agentctl discard %s' to start over", issueNum, wtPath, issueNum, wtPath, issueNum)
+	}
+	if readErr == nil && af.AgentPID != "" {
+		return fmt.Errorf("agent has finished for issue %s — use 'cd %q && agentctl cleanup %s' if the PR is merged, or 'cd %q && agentctl discard %s' to start over", issueNum, wtPath, issueNum, wtPath, issueNum)
+	}
+	return fmt.Errorf("worktree already exists for issue %s — use 'cd %q && agentctl discard %s' to remove it and start over", issueNum, wtPath, issueNum)
 }
 
 // slugFromIssue fetches the GitHub issue title and converts it to a slug.

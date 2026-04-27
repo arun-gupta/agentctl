@@ -1170,3 +1170,93 @@ func TestStartCmd_sddFlagRequiresExplicitValue(t *testing.T) {
 		t.Errorf("--sdd should require an explicit value (NoOptDefVal must be empty), got %q", f.NoOptDefVal)
 	}
 }
+
+// ─── worktreeExistsError ──────────────────────────────────────────────────────
+
+// TestWorktreeExistsError_runningAgent verifies the error message when the
+// worktree already exists and the agent process is still alive.
+func TestWorktreeExistsError_runningAgent(t *testing.T) {
+	dir := t.TempDir()
+	alivePID := strconv.Itoa(os.Getpid()) // current process is definitely alive
+	if err := state.Write(dir, state.AgentFile{
+		Agent:    "claude",
+		SessionID: "sess-1",
+		DevPID:   "999",
+		AgentPID: alivePID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	err := worktreeExistsError(dir, "90")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "agent is already running for issue 90") {
+		t.Errorf("expected 'agent is already running for issue 90' in error; got: %q", msg)
+	}
+	if !strings.Contains(msg, "agentctl attach 90") {
+		t.Errorf("expected 'agentctl attach 90' hint in error; got: %q", msg)
+	}
+	if !strings.Contains(msg, "agentctl discard 90") {
+		t.Errorf("expected 'agentctl discard 90' hint in error; got: %q", msg)
+	}
+	if !strings.Contains(msg, dir) {
+		t.Errorf("expected worktree path %q in error; got: %q", dir, msg)
+	}
+}
+
+// TestWorktreeExistsError_finishedAgent verifies the error message when the
+// worktree already exists and the agent process is no longer running.
+func TestWorktreeExistsError_finishedAgent(t *testing.T) {
+	dir := t.TempDir()
+	deadPID := "9999999" // very unlikely to be a live process
+	if err := state.Write(dir, state.AgentFile{
+		Agent:    "claude",
+		SessionID: "sess-2",
+		DevPID:   "999",
+		AgentPID: deadPID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	err := worktreeExistsError(dir, "90")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "agent has finished for issue 90") {
+		t.Errorf("expected 'agent has finished for issue 90' in error; got: %q", msg)
+	}
+	if !strings.Contains(msg, "agentctl cleanup 90") {
+		t.Errorf("expected 'agentctl cleanup 90' hint in error; got: %q", msg)
+	}
+	if !strings.Contains(msg, "agentctl discard 90") {
+		t.Errorf("expected 'agentctl discard 90' hint in error; got: %q", msg)
+	}
+	if !strings.Contains(msg, dir) {
+		t.Errorf("expected worktree path %q in error; got: %q", dir, msg)
+	}
+}
+
+// TestWorktreeExistsError_noAgentFile verifies the error message when the
+// worktree already exists but there is no .agent metadata file.
+func TestWorktreeExistsError_noAgentFile(t *testing.T) {
+	dir := t.TempDir()
+	// No .agent file written — directory exists but is otherwise empty.
+
+	err := worktreeExistsError(dir, "90")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "worktree already exists for issue 90") {
+		t.Errorf("expected 'worktree already exists for issue 90' in error; got: %q", msg)
+	}
+	if !strings.Contains(msg, "agentctl discard 90") {
+		t.Errorf("expected 'agentctl discard 90' hint in error; got: %q", msg)
+	}
+	if !strings.Contains(msg, dir) {
+		t.Errorf("expected worktree path %q in error; got: %q", dir, msg)
+	}
+}
