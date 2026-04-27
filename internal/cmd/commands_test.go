@@ -1348,3 +1348,17 @@ func TestWorktreeExistsError_noAgentFile(t *testing.T) {
 		t.Errorf("expected worktree path %q in error; got: %q", dir, msg)
 	}
 }
+
+func TestRunNpmInstall_errorIncludesDir(t *testing.T) {
+	dir := t.TempDir() // no package.json → npm install will fail
+	err := runNpmInstall(dir)
+	if err == nil {
+		t.Fatal("expected error from npm install in empty dir, got nil")
+	}
+	if !strings.Contains(err.Error(), dir) {
+		t.Errorf("error %q does not contain worktree path %q", err.Error(), dir)
+	}
+	if !strings.Contains(err.Error(), "npm install") {
+		t.Errorf("error %q does not mention 'npm install'", err.Error())
+	}
+}

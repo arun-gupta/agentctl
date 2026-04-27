@@ -143,12 +143,8 @@ func runStart(issue, slug, agentName, sddName string, headless, quiet bool) erro
 	}
 
 	// npm install
-	npmInstall := exec.Command("npm", "install", "--silent")
-	npmInstall.Dir = wtPath
-	npmInstall.Stdout = os.Stdout
-	npmInstall.Stderr = os.Stderr
-	if err := npmInstall.Run(); err != nil {
-		return fmt.Errorf("npm install: %w", err)
+	if err := runNpmInstall(wtPath); err != nil {
+		return err
 	}
 
 	// Start dev server.
@@ -1081,6 +1077,17 @@ func titleToSlug(title string) string {
 		s = strings.TrimRight(s[:40], "-")
 	}
 	return s
+}
+
+func runNpmInstall(dir string) error {
+	cmd := exec.Command("npm", "install", "--loglevel=error")
+	cmd.Dir = dir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("npm install failed in %s: %w\nRe-run manually to diagnose: cd %s && npm install", dir, err, dir)
+	}
+	return nil
 }
 
 // findFreePort scans the [lo, hi] range for a port that is not in LISTEN state.
