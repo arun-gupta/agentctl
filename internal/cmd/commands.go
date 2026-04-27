@@ -1325,9 +1325,10 @@ func extractStreamText(line string) string {
 		Subtype string `json:"subtype"`
 		Message struct {
 			Content []struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-				Name string `json:"name"`
+				Type  string          `json:"type"`
+				Text  string          `json:"text"`
+				Name  string          `json:"name"`
+				Input json.RawMessage `json:"input"`
 			} `json:"content"`
 		} `json:"message"`
 		Result string `json:"result"`
@@ -1346,7 +1347,7 @@ func extractStreamText(line string) string {
 					sb.WriteByte('\n')
 				}
 			case "tool_use":
-				fmt.Fprintf(&sb, "[%s]\n", c.Name)
+				fmt.Fprintf(&sb, "[%s]\n", toolLabel(c.Name, c.Input))
 			}
 		}
 		return strings.TrimRight(sb.String(), "\n")
@@ -1354,6 +1355,73 @@ func extractStreamText(line string) string {
 		return strings.TrimSpace(ev.Result)
 	}
 	return ""
+}
+
+// toolDetailMaxLen is the maximum number of runes shown for a tool input detail
+// before it is truncated with an ellipsis.
+const toolDetailMaxLen = 120
+
+// sanitizeDetail normalises a raw tool-input string for terminal display:
+// leading/trailing whitespace is stripped, internal whitespace runs (including
+// newlines) are collapsed to a single space, and the result is truncated to
+// toolDetailMaxLen runes.
+func sanitizeDetail(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	r := []rune(s)
+	if len(r) > toolDetailMaxLen {
+		return string(r[:toolDetailMaxLen]) + "..."
+	}
+	return s
+}
+
+// toolLabel returns a display string for a tool_use block, including the most
+// useful input field for the given tool so the terminal output is actionable.
+// Set AGENTCTL_NO_TOOL_DETAIL=1 to suppress input details (e.g. to avoid
+// echoing sensitive data to the terminal).
+func toolLabel(name string, input json.RawMessage) string {
+	if os.Getenv("AGENTCTL_NO_TOOL_DETAIL") != "" {
+		return name
+	}
+	var detail string
+	switch strings.ToLower(name) {
+	case "bash":
+		var v struct {
+			Command     string `json:"command"`
+			Description string `json:"description"`
+		}
+		if json.Unmarshal(input, &v) == nil {
+			if v.Description != "" {
+				detail = v.Description
+			} else if v.Command != "" {
+				detail = v.Command
+			}
+		}
+	case "read", "write", "edit":
+		var v struct {
+			FilePath string `json:"file_path"`
+		}
+		if json.Unmarshal(input, &v) == nil && v.FilePath != "" {
+			detail = v.FilePath
+		}
+	case "websearch":
+		var v struct {
+			Query string `json:"query"`
+		}
+		if json.Unmarshal(input, &v) == nil && v.Query != "" {
+			detail = v.Query
+		}
+	case "webfetch":
+		var v struct {
+			URL string `json:"url"`
+		}
+		if json.Unmarshal(input, &v) == nil && v.URL != "" {
+			detail = v.URL
+		}
+	}
+	if detail == "" {
+		return name
+	}
+	return name + ": " + sanitizeDetail(detail)
 }
 
 // spinnerFrames are the braille Unicode characters used for the spinner animation.
