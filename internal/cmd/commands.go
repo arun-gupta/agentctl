@@ -22,6 +22,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/arun-gupta/agentctl/internal/adapters"
+	"github.com/arun-gupta/agentctl/internal/config"
 	"github.com/arun-gupta/agentctl/internal/git"
 	"github.com/arun-gupta/agentctl/internal/process"
 	"github.com/arun-gupta/agentctl/internal/sdd"
@@ -1043,6 +1044,25 @@ func titleToSlug(title string) string {
 	return s
 }
 
+// projectConfig mirrors config.AgentctlConfig but is local to this package so
+// startDevServer helpers don't need to import internal/config directly.
+type projectConfig struct {
+	DevServer string
+	Port      int
+}
+
+func agentctlConfig(dir string) (*projectConfig, error) {
+	cfg, err := config.Read(dir)
+	if err != nil {
+		return nil, fmt.Errorf("reading .agentctl.yml: %w", err)
+	}
+	return &projectConfig{DevServer: cfg.DevServer, Port: cfg.Port}, nil
+}
+
+func writeAgentctlConfig(dir string, cfg *projectConfig) error {
+	return config.Write(dir, &config.AgentctlConfig{DevServer: cfg.DevServer, Port: cfg.Port})
+}
+
 // seedEnvLocal copies src to dst, stripping any PORT= lines. If src does not
 // exist, dst is left untouched.
 func seedEnvLocal(src, dst string) error {
@@ -1062,22 +1082,68 @@ func seedEnvLocal(src, dst string) error {
 	return os.WriteFile(dst, []byte(strings.Join(filtered, "\n")), 0o600)
 }
 
-// startDevServer detects whether the project in dir has a Node.js dev server
-// (package.json present) and, if so, runs npm install and starts npm run dev
-// on a free port. Returns (devPID, portStr, nil) on success, or ("", "", nil)
-// when no dev server is detected. w receives the informational message printed
-// when no dev server config is found.
+// startDevServer starts a dev server for the project in dir. Detection order:
+//  1. .agentctl.yml with dev_server field  → run that command with {port} substituted
+//  2. package.json present                 → npm install + npm run dev
+//  3. neither                              → print hint, return ("","",nil)
+//
+// On success the allocated port is written back to .agentctl.yml so it serves
+// as the single source of truth for all agentctl repo config. w receives the
+// informational message when no dev server is configured.
 func startDevServer(dir string, w io.Writer) (devPID, portStr string, err error) {
-	if _, statErr := os.Stat(filepath.Join(dir, "package.json")); os.IsNotExist(statErr) {
-		fmt.Fprintf(w, "No dev server configured for this project. Add a dev_server command to .agentctl.yml to start one automatically.\n")
-		return "", "", nil
+	cfg, err := agentctlConfig(dir)
+	if err != nil {
+		return "", "", err
 	}
 
+	// Case 1: explicit dev_server in .agentctl.yml
+	if cfg.DevServer != "" {
+		return startCustomDevServer(dir, cfg)
+	}
+
+	// Case 2: Node.js project
+	if _, statErr := os.Stat(filepath.Join(dir, "package.json")); statErr == nil {
+		return startNodeDevServer(dir, cfg)
+	}
+
+	// Case 3: no dev server configured
+	fmt.Fprintf(w, "No dev server configured for this project. Add a dev_server command to .agentctl.yml to start one automatically.\n")
+	return "", "", nil
+}
+
+func startCustomDevServer(dir string, cfg *projectConfig) (devPID, portStr string, err error) {
+	port, err := findFreePort(3010, 3100)
+	if err != nil {
+		return "", "", err
+	}
+	portStr = fmt.Sprintf("%d", port)
+
+	cmdStr := strings.ReplaceAll(cfg.DevServer, "{port}", portStr)
+	parts := strings.Fields(cmdStr)
+	devLog, err := os.Create(filepath.Join(dir, "dev.log"))
+	if err != nil {
+		return "", "", err
+	}
+	devCmd := exec.Command(parts[0], parts[1:]...) //nolint:gosec
+	devCmd.Dir = dir
+	devCmd.Stdout = devLog
+	devCmd.Stderr = devLog
+	if err := devCmd.Start(); err != nil {
+		devLog.Close()
+		return "", "", fmt.Errorf("start dev server: %w", err)
+	}
+	fmt.Printf("Dev server: http://localhost:%s (log: %s/dev.log)\n", portStr, dir)
+
+	cfg.Port = port
+	_ = writeAgentctlConfig(dir, cfg)
+	return fmt.Sprintf("%d", devCmd.Process.Pid), portStr, nil
+}
+
+func startNodeDevServer(dir string, cfg *projectConfig) (devPID, portStr string, err error) {
 	if _, err := exec.LookPath("npm"); err != nil {
 		return "", "", fmt.Errorf("npm not found in PATH\nInstall Node.js from https://nodejs.org and ensure npm is on your PATH, then re-run agentctl start")
 	}
 
-	// npm install
 	install := exec.Command("npm", "install", "--loglevel=error")
 	install.Dir = dir
 	install.Stdout = os.Stdout
@@ -1105,6 +1171,9 @@ func startDevServer(dir string, w io.Writer) (devPID, portStr string, err error)
 		return "", "", fmt.Errorf("start dev server: %w", err)
 	}
 	fmt.Printf("Dev server: http://localhost:%s (log: %s/dev.log)\n", portStr, dir)
+
+	cfg.Port = port
+	_ = writeAgentctlConfig(dir, cfg)
 	return fmt.Sprintf("%d", devCmd.Process.Pid), portStr, nil
 }
 

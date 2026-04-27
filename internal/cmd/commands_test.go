@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arun-gupta/agentctl/internal/config"
 	"github.com/arun-gupta/agentctl/internal/sdd"
 	"github.com/arun-gupta/agentctl/internal/state"
 )
@@ -1405,5 +1407,38 @@ func TestStartDevServer_noPackageJSON_returnsEmptyPort(t *testing.T) {
 	hint := stderr.String()
 	if !strings.Contains(hint, ".agentctl.yml") {
 		t.Errorf("expected hint about .agentctl.yml, got: %q", hint)
+	}
+}
+
+func TestStartDevServer_agentctlYml_writesPortBack(t *testing.T) {
+	dir := t.TempDir()
+	// Write a .agentctl.yml with a dev_server that will fail immediately
+	// (we only care that the port is written back before the process check).
+	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"),
+		[]byte("dev_server: \"false\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Expect an error (false exits non-zero), but the port write happens before start.
+	// Instead just verify Read after a successful-ish scenario.
+	// Use a no-op command that exits 0 to avoid blocking in test.
+	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"),
+		[]byte("dev_server: \"sh -c 'sleep 100'\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stderr strings.Builder
+	_, portStr, err := startDevServer(dir, &stderr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if portStr == "" {
+		t.Fatal("expected non-empty port when dev_server is set")
+	}
+	// Verify port was written back to .agentctl.yml.
+	cfg, err := config.Read(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprintf("%d", cfg.Port) != portStr {
+		t.Errorf("port in .agentctl.yml = %d, want %s", cfg.Port, portStr)
 	}
 }
