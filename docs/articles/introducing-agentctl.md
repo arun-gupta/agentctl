@@ -144,3 +144,9 @@ The `--sdd=plain` methodology requires no external tooling — it works in any r
 - **[install.md](../install.md)** — full prerequisites, Homebrew, prebuilt binaries, and source builds.
 - **[cli.md](../cli.md)** — complete command reference: every flag, every workflow, state files, and recovery operations.
 - **[sdd.md](../sdd.md)** — SDD overview, built-in methodologies (`plain`, `speckit`), the YAML schema for custom methodologies, and drop-in locations.
+
+## This is evolving work — we'd love your help
+
+agentctl is actively evolving. The patterns it encodes — parallel worktrees, reserved ports, spec-driven checkpoints — have emerged from real workflows, but every project is different.
+
+If you try agentctl on your own codebase and run into something that doesn't fit, we want to hear about it. [Open an issue](https://github.com/arun-gupta/agentctl/issues) describing your use case: the kind of repo, the agents you're running, and where agentctl falls short. That feedback directly shapes what gets built next.
