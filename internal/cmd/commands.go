@@ -1249,7 +1249,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 		}
 	}
 
-	agentCmd := ad.LaunchCmd(kickoff, sessionID)
+	agentCmd := ad.LaunchCmd(kickoff, sessionID, wtPath)
 	agentCmd.Dir = wtPath
 
 	logPath := filepath.Join(wtPath, "agent.log")
@@ -1685,7 +1685,7 @@ func agentResume(adapterName, wtPath, sessionID, prompt string) error {
 		return err
 	}
 
-	resumeCmd := ad.ResumeCmd(prompt, sessionID)
+	resumeCmd := ad.ResumeCmd(prompt, sessionID, wtPath)
 	resumeCmd.Dir = wtPath
 
 	logFile, err := os.OpenFile(filepath.Join(wtPath, "agent.log"),

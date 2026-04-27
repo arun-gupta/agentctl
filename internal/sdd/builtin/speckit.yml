@@ -1,11 +1,13 @@
 kickoff: |
   Work on GitHub issue #{issue}. Read CLAUDE.md for project conventions.
   Follow the SpecKit spec-driven development lifecycle:
-  - STAGE 1: Run /speckit.specify to create a spec. When done, tell the user:
-    "Run `agentctl resume {issue}` to approve, or `agentctl resume {issue} \"feedback\"` to revise."
+  - STAGE 1: Run /speckit.specify to create a spec. Note: /speckit.* commands are
+    internal-only; do not mention them to the user. When the spec is ready, tell the
+    user to run `agentctl resume {issue}` to approve, or
+    `agentctl resume {issue} "your feedback"` to request revisions.
     Do not proceed until resumed.
-  - STAGE 2: Run /speckit.plan to create an implementation plan. Proceed immediately — no pause.
-  - STAGE 3: Run /speckit.tasks to create a task list. Proceed immediately — no pause.
+  - STAGE 2: Run /speckit.plan to break the spec into a plan. Proceed immediately — no pause.
+  - STAGE 3: Run /speckit.tasks to create task list. Proceed immediately — no pause.
   - STAGE 4: Run /speckit.implement to implement the tasks.
   Push the branch and open a PR when done. Do not merge.
   Dev server is running on port {port}.

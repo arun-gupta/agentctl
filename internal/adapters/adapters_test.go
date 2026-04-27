@@ -61,7 +61,7 @@ func TestLaunchCmd_claude(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := a.LaunchCmd("do the thing", "sess-123")
+	cmd := a.LaunchCmd("do the thing", "sess-123", "/tmp/wt")
 	args := cmd.Args
 	assertContains(t, args, "claude")
 	assertContains(t, args, "do the thing")
@@ -75,7 +75,7 @@ func TestResumeCmd_claude(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := a.ResumeCmd("my feedback", "sess-123")
+	cmd := a.ResumeCmd("my feedback", "sess-123", "/tmp/wt")
 	args := cmd.Args
 	assertContains(t, args, "claude")
 	assertContains(t, args, "my feedback")
@@ -88,7 +88,7 @@ func TestLaunchCmd_gemini_noSessionFlag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := a.LaunchCmd("do gemini stuff", "sess-abc")
+	cmd := a.LaunchCmd("do gemini stuff", "sess-abc", "/tmp/wt")
 	args := cmd.Args
 	assertContains(t, args, "gemini")
 	assertContains(t, args, "do gemini stuff")
@@ -105,7 +105,7 @@ func TestResumeCmd_gemini_noSessionFlag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := a.ResumeCmd("revise this", "sess-abc")
+	cmd := a.ResumeCmd("revise this", "sess-abc", "/tmp/wt")
 	args := cmd.Args
 	assertContains(t, args, "gemini")
 	for _, arg := range args {
@@ -120,7 +120,7 @@ func TestLaunchCmd_codex_structuredFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := a.LaunchCmd("write tests", "sess-xyz")
+	cmd := a.LaunchCmd("write tests", "sess-xyz", "/tmp/wt")
 	args := cmd.Args
 	assertContains(t, args, "codex")
 	assertContains(t, args, "-q")
@@ -134,7 +134,7 @@ func TestResumeCmd_codex_usesResumeID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := a.ResumeCmd("fix the bug", "sess-xyz")
+	cmd := a.ResumeCmd("fix the bug", "sess-xyz", "/tmp/wt")
 	args := cmd.Args
 	assertContains(t, args, "--resume")
 	assertContains(t, args, "sess-xyz")
@@ -150,7 +150,7 @@ func TestLaunchCmd_opencode_multiTokenBinary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := a.LaunchCmd("build it", "sess-oc")
+	cmd := a.LaunchCmd("build it", "sess-oc", "/tmp/wt")
 	// Path should point to "opencode" binary, "run" should be first arg
 	if !strings.HasSuffix(cmd.Path, "opencode") {
 		t.Errorf("opencode LaunchCmd Path should be opencode, got %q", cmd.Path)
@@ -167,7 +167,7 @@ func TestLaunchCmd_opencode_noPromptFlag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := a.LaunchCmd("do the work", "sess-oc")
+	cmd := a.LaunchCmd("do the work", "sess-oc", "/tmp/wt")
 	args := cmd.Args
 	assertContains(t, args, "run")
 	assertContains(t, args, "do the work")
@@ -190,7 +190,7 @@ func TestResumeCmd_opencode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := a.ResumeCmd("fix the bug", "sess-oc")
+	cmd := a.ResumeCmd("fix the bug", "sess-oc", "/tmp/wt")
 	args := cmd.Args
 	assertContains(t, args, "run")
 	assertContains(t, args, "fix the bug")
@@ -210,7 +210,7 @@ func TestResumeCmd_opencode(t *testing.T) {
 
 func TestLaunchCmd_minimal(t *testing.T) {
 	a := loadTestdata(t, "minimal.yml")
-	cmd := a.LaunchCmd("hello world", "sess-min")
+	cmd := a.LaunchCmd("hello world", "sess-min", "/tmp/wt")
 	args := cmd.Args
 	assertContains(t, args, "minbot")
 	assertContains(t, args, "-p")
@@ -220,7 +220,7 @@ func TestLaunchCmd_minimal(t *testing.T) {
 
 func TestLaunchCmd_fullOverride(t *testing.T) {
 	a := loadTestdata(t, "full-override.yml")
-	cmd := a.LaunchCmd("my kickoff", "sess-99")
+	cmd := a.LaunchCmd("my kickoff", "sess-99", "/tmp/wt")
 	args := cmd.Args
 	assertContains(t, args, "mybot")
 	assertContains(t, args, "--init")
@@ -231,7 +231,7 @@ func TestLaunchCmd_fullOverride(t *testing.T) {
 
 func TestResumeCmd_fullOverride(t *testing.T) {
 	a := loadTestdata(t, "full-override.yml")
-	cmd := a.ResumeCmd("please fix", "sess-99")
+	cmd := a.ResumeCmd("please fix", "sess-99", "/tmp/wt")
 	args := cmd.Args
 	assertContains(t, args, "mybot")
 	assertContains(t, args, "--continue")
@@ -242,7 +242,7 @@ func TestResumeCmd_fullOverride(t *testing.T) {
 
 func TestLaunchCmd_structured(t *testing.T) {
 	a := loadTestdata(t, "structured.yml")
-	cmd := a.LaunchCmd("do work", "sess-st")
+	cmd := a.LaunchCmd("do work", "sess-st", "/tmp/wt")
 	args := cmd.Args
 	assertContains(t, args, "structbot")
 	assertContains(t, args, "-q")
@@ -253,7 +253,7 @@ func TestLaunchCmd_structured(t *testing.T) {
 
 func TestResumeCmd_structured_usesResumeID(t *testing.T) {
 	a := loadTestdata(t, "structured.yml")
-	cmd := a.ResumeCmd("feedback", "sess-st")
+	cmd := a.ResumeCmd("feedback", "sess-st", "/tmp/wt")
 	args := cmd.Args
 	assertContains(t, args, "--resume")
 	assertContains(t, args, "sess-st")
@@ -390,7 +390,7 @@ func TestLaunchCmd_copilot_noSessionFlag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := a.LaunchCmd("do the thing", "sess-cp")
+	cmd := a.LaunchCmd("do the thing", "sess-cp", "/tmp/wt")
 	args := cmd.Args
 	assertContains(t, args, "copilot")
 	assertContains(t, args, "do the thing")
@@ -404,6 +404,16 @@ func TestLaunchCmd_copilot_noSessionFlag(t *testing.T) {
 	}
 }
 
+func TestLaunchCmd_copilot_addsWorktreeDir(t *testing.T) {
+	a, err := adapters.Get("copilot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := a.LaunchCmd("do the thing", "sess-cp", "/tmp/wt")
+	args := cmd.Args
+	assertAdjacentArgs(t, args, "--add-dir", "/tmp/wt")
+}
+
 func TestResumeCmd_copilot_noSessionFlag(t *testing.T) {
 	// copilot uses session_type: directory — session continuity is implicit in
 	// the worktree, so no --session-id flag should be appended on resume either.
@@ -411,7 +421,7 @@ func TestResumeCmd_copilot_noSessionFlag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := a.ResumeCmd("fix it", "sess-cp")
+	cmd := a.ResumeCmd("fix it", "sess-cp", "/tmp/wt")
 	args := cmd.Args
 	assertContains(t, args, "copilot")
 	for _, arg := range args {
@@ -422,6 +432,16 @@ func TestResumeCmd_copilot_noSessionFlag(t *testing.T) {
 			t.Errorf("copilot ResumeCmd should not include --session-id, got args: %v", args)
 		}
 	}
+}
+
+func TestResumeCmd_copilot_addsWorktreeDir(t *testing.T) {
+	a, err := adapters.Get("copilot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := a.ResumeCmd("fix it", "sess-cp", "/tmp/wt")
+	args := cmd.Args
+	assertAdjacentArgs(t, args, "--add-dir", "/tmp/wt")
 }
 
 // ─── install hints ────────────────────────────────────────────────────────────
@@ -540,6 +560,20 @@ func assertContains(t *testing.T, args []string, want string) {
 		}
 	}
 	t.Errorf("args %v does not contain %q", args, want)
+}
+
+func assertAdjacentArgs(t *testing.T, args []string, flag, value string) {
+	t.Helper()
+	for i, a := range args {
+		if a == flag {
+			if i+1 < len(args) && args[i+1] == value {
+				return
+			}
+			t.Errorf("args %v: %q not immediately followed by %q", args, flag, value)
+			return
+		}
+	}
+	t.Errorf("args %v does not contain %q", args, flag)
 }
 
 func loadTestdata(t *testing.T, filename string) *adapters.Adapter {
