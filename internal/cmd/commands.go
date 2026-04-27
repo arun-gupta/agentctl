@@ -1312,7 +1312,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 			for {
 				line, err := r.ReadString('\n')
 				if line != "" {
-					if text := extractStreamText(strings.TrimSuffix(line, "\n")); text != "" {
+					if text := extractStreamText(strings.TrimSuffix(line, "\n"), wtPath); text != "" {
 						fmt.Fprintln(logFile, text)
 					}
 				}
@@ -1402,9 +1402,11 @@ func waitForFile(path string, timeout time.Duration) error {
 }
 
 // extractStreamText converts a single claude --output-format stream-json line
-// into human-readable text. It extracts assistant text/tool-use blocks and the
-// final result. Non-JSON lines are returned as-is (plain-text fallback).
-func extractStreamText(line string) string {
+// into human-readable text. wtDir is the worktree directory; file paths inside
+// it are shown as relative paths to reduce noise in terminal output. It
+// extracts assistant text, tool-use blocks, and the final result. Non-JSON
+// lines are returned as-is (plain-text fallback).
+func extractStreamText(line, wtDir string) string {
 	var ev struct {
 		Type    string `json:"type"`
 		Subtype string `json:"subtype"`
@@ -1432,7 +1434,7 @@ func extractStreamText(line string) string {
 					sb.WriteByte('\n')
 				}
 			case "tool_use":
-				fmt.Fprintf(&sb, "[%s]\n", toolLabel(c.Name, c.Input))
+				fmt.Fprintf(&sb, "[%s]\n", toolLabel(c.Name, c.Input, wtDir))
 			}
 		}
 		return strings.TrimRight(sb.String(), "\n")
@@ -1461,9 +1463,10 @@ func sanitizeDetail(s string) string {
 
 // toolLabel returns a display string for a tool_use block, including the most
 // useful input field for the given tool so the terminal output is actionable.
+// File paths are shown relative to wtDir when they fall inside it.
 // Set AGENTCTL_NO_TOOL_DETAIL=1 to suppress input details (e.g. to avoid
 // echoing sensitive data to the terminal).
-func toolLabel(name string, input json.RawMessage) string {
+func toolLabel(name string, input json.RawMessage, wtDir string) string {
 	if os.Getenv("AGENTCTL_NO_TOOL_DETAIL") != "" {
 		return name
 	}
@@ -1486,7 +1489,7 @@ func toolLabel(name string, input json.RawMessage) string {
 			FilePath string `json:"file_path"`
 		}
 		if json.Unmarshal(input, &v) == nil && v.FilePath != "" {
-			detail = v.FilePath
+			detail = relativePath(v.FilePath, wtDir)
 		}
 	case "websearch":
 		var v struct {
@@ -1507,6 +1510,19 @@ func toolLabel(name string, input json.RawMessage) string {
 		return name
 	}
 	return name + ": " + sanitizeDetail(detail)
+}
+
+// relativePath returns path relative to base when path is inside base,
+// otherwise returns path unchanged.
+func relativePath(path, base string) string {
+	if base == "" {
+		return path
+	}
+	rel, err := filepath.Rel(base, path)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return path
+	}
+	return filepath.ToSlash(rel)
 }
 
 // spinnerFrames are the braille Unicode characters used for the spinner animation.
