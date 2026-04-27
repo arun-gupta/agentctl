@@ -672,8 +672,12 @@ func runStatus(verbose bool) error {
 
 		prState := "none"
 		if branch != "?" && branch != "HEAD" {
-			if ps, err := ghPRState(repoRoot, branch); err == nil && ps != "" {
-				prState = ps
+			if ps, n, err := ghPRInfo(repoRoot, branch); err == nil && ps != "" {
+				if n > 0 {
+					prState = fmt.Sprintf("#%d %s", n, ps)
+				} else {
+					prState = ps
+				}
 			}
 		}
 
@@ -893,17 +897,29 @@ func computeSpecState(wtPath, issue string) string {
 	return "paused"
 }
 
-// ghPRState calls `gh pr view <branch> --json state -q .state` in repoRoot.
-func ghPRState(repoRoot, branch string) (string, error) {
-	cmd := exec.Command("gh", "pr", "view", branch, "--json", "state", "-q", ".state")
+// ghPRInfo calls `gh pr view <branch>` in repoRoot and returns the PR state
+// (e.g. "MERGED") and number (e.g. 42). Both are zero-values on error.
+func ghPRInfo(repoRoot, branch string) (state string, number int, err error) {
+	cmd := exec.Command("gh", "pr", "view", branch, "--json", "state,number", "-q", ".state+\" \"+(.number|tostring)")
 	cmd.Dir = repoRoot
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &bytes.Buffer{}
-	if err := cmd.Run(); err != nil {
-		return "", err
+	if err = cmd.Run(); err != nil {
+		return "", 0, err
 	}
-	return strings.TrimSpace(out.String()), nil
+	parts := strings.Fields(strings.TrimSpace(out.String()))
+	if len(parts) != 2 {
+		return "", 0, fmt.Errorf("unexpected gh output: %q", out.String())
+	}
+	n, _ := strconv.Atoi(parts[1])
+	return parts[0], n, nil
+}
+
+// ghPRState is a convenience wrapper that returns only the state string.
+func ghPRState(repoRoot, branch string) (string, error) {
+	state, _, err := ghPRInfo(repoRoot, branch)
+	return state, err
 }
 
 // parseIssueURL checks whether arg is a full GitHub issue URL of the form
