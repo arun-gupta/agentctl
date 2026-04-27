@@ -770,6 +770,11 @@ func attachLog(wtPath, issue string, w io.Writer, logWait time.Duration) error {
 		tail.Stderr = os.Stderr
 		_ = tail.Run()
 		fmt.Fprintln(w, "agent has already finished")
+		if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
+			if linkErr := linkPRToIssue(wtPath, branch, issue); linkErr != nil {
+				fmt.Fprintf(w, "note: could not link PR to issue: %v\n", linkErr)
+			}
+		}
 		return nil
 	}
 
@@ -801,6 +806,11 @@ func attachLog(wtPath, issue string, w io.Writer, logWait time.Duration) error {
 	time.Sleep(200 * time.Millisecond)
 	_ = tail.Process.Kill()
 	_ = tail.Wait()
+	if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
+		if linkErr := linkPRToIssue(wtPath, branch, issue); linkErr != nil {
+			fmt.Fprintf(w, "note: could not link PR to issue: %v\n", linkErr)
+		}
+	}
 	return nil
 }
 
@@ -872,6 +882,43 @@ func ghPRInfo(repoRoot, branch string) (state string, number int, err error) {
 func ghPRState(repoRoot, branch string) (string, error) {
 	state, _, err := ghPRInfo(repoRoot, branch)
 	return state, err
+}
+
+// linkPRToIssue appends "Closes #<issueNum>" to the open PR for branch,
+// unless the body already contains a closing keyword (closes/fixes).
+// Silently returns nil when no PR exists.
+func linkPRToIssue(dir, branch, issueNum string) error {
+	cmd := exec.Command("gh", "pr", "view", branch, "--json", "number,body")
+	cmd.Dir = dir
+	var out, errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		return nil // no PR — silently skip
+	}
+
+	var pr struct {
+		Number int    `json:"number"`
+		Body   string `json:"body"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &pr); err != nil {
+		return nil
+	}
+
+	lower := strings.ToLower(pr.Body)
+	if strings.Contains(lower, "closes #"+issueNum) || strings.Contains(lower, "fixes #"+issueNum) {
+		return nil
+	}
+
+	newBody := strings.TrimRight(pr.Body, "\n") + "\n\nCloses #" + issueNum
+	editCmd := exec.Command("gh", "pr", "edit", strconv.Itoa(pr.Number), "--body", newBody)
+	editCmd.Dir = dir
+	var editErr bytes.Buffer
+	editCmd.Stderr = &editErr
+	if err := editCmd.Run(); err != nil {
+		return fmt.Errorf("gh pr edit: %w: %s", err, strings.TrimSpace(editErr.String()))
+	}
+	return nil
 }
 
 // parseIssueURL checks whether arg is a full GitHub issue URL of the form
@@ -1380,6 +1427,11 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 			convWg.Wait() // drain remaining pipe → log before the final read
 			close(logDone)
 			wg.Wait()
+			if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
+				if linkErr := linkPRToIssue(wtPath, branch, issue); linkErr != nil {
+					fmt.Fprintf(os.Stderr, "note: could not link PR to issue: %v\n", linkErr)
+				}
+			}
 			return nil
 		case <-sigCh:
 			signal.Stop(sigCh)

@@ -1799,3 +1799,157 @@ func TestLaunchAgent_nonClaudeDoesNotWriteSettingsJson(t *testing.T) {
 		t.Error("non-claude adapter must not write .claude/settings.json")
 	}
 }
+
+// ─── linkPRToIssue ────────────────────────────────────────────────────────────
+
+// makeGHStub writes a stub gh script to stubDir and returns the path to the
+// calls log file where the stub records each invocation (one arg per line).
+// viewJSON is written as the stdout for "gh pr view"; pass "" to simulate a
+// missing PR (gh exits 1).  For "gh pr edit" the stub always exits 0 unless
+// editFail is true.
+func makeGHStub(t *testing.T, stubDir, viewJSON string, editFail bool) string {
+	t.Helper()
+	callsFile := filepath.Join(stubDir, "gh-calls.txt")
+	responseFile := filepath.Join(stubDir, "gh-response.json")
+	if viewJSON != "" {
+		if err := os.WriteFile(responseFile, []byte(viewJSON), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	prViewExit := 0
+	if viewJSON == "" {
+		prViewExit = 1
+	}
+	prEditExit := 0
+	if editFail {
+		prEditExit = 1
+	}
+
+	script := fmt.Sprintf(`#!/bin/sh
+printf '%%s\n' "$@" >> %s
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  if [ -f %s ]; then cat %s; fi
+  exit %d
+fi
+if [ "$1" = "pr" ] && [ "$2" = "edit" ]; then
+  exit %d
+fi
+exit 0`,
+		callsFile,
+		responseFile, responseFile,
+		prViewExit,
+		prEditExit,
+	)
+	ghPath := filepath.Join(stubDir, "gh")
+	if err := os.WriteFile(ghPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return callsFile
+}
+
+// prependPath prepends dir to the PATH for the duration of the test.
+func prependPath(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestLinkPRToIssue_noPR(t *testing.T) {
+	stubDir := t.TempDir()
+	callsFile := makeGHStub(t, stubDir, "", false)
+	prependPath(t, stubDir)
+
+	if err := linkPRToIssue(t.TempDir(), "42-my-feature", "42"); err != nil {
+		t.Errorf("expected nil for no-PR case, got: %v", err)
+	}
+
+	calls, _ := os.ReadFile(callsFile)
+	callsStr := string(calls)
+	if !strings.Contains(callsStr, "pr") {
+		t.Error("expected gh pr view to be called")
+	}
+	if strings.Contains(callsStr, "edit") {
+		t.Error("expected gh pr edit NOT to be called when no PR exists")
+	}
+}
+
+func TestLinkPRToIssue_alreadyLinked(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"closes_lower", "some work\n\ncloses #42"},
+		{"Closes_title", "some work\n\nCloses #42"},
+		{"CLOSES_upper", "some work\n\nCLOSES #42"},
+		{"fixes_lower", "some work\n\nfixes #42"},
+		{"Fixes_title", "some work\n\nFixes #42"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stubDir := t.TempDir()
+			viewJSON := fmt.Sprintf(`{"number":7,"body":%q}`, tc.body)
+			callsFile := makeGHStub(t, stubDir, viewJSON, false)
+			prependPath(t, stubDir)
+
+			if err := linkPRToIssue(t.TempDir(), "42-feature", "42"); err != nil {
+				t.Errorf("expected nil, got: %v", err)
+			}
+			calls, _ := os.ReadFile(callsFile)
+			if strings.Contains(string(calls), "edit") {
+				t.Errorf("should not call gh pr edit when closing keyword already present; calls: %q", string(calls))
+			}
+		})
+	}
+}
+
+func TestLinkPRToIssue_addsLink(t *testing.T) {
+	stubDir := t.TempDir()
+	viewJSON := `{"number":7,"body":"some PR work"}`
+	callsFile := makeGHStub(t, stubDir, viewJSON, false)
+	prependPath(t, stubDir)
+
+	if err := linkPRToIssue(t.TempDir(), "42-feature", "42"); err != nil {
+		t.Fatalf("linkPRToIssue: %v", err)
+	}
+
+	calls, _ := os.ReadFile(callsFile)
+	callsStr := string(calls)
+	if !strings.Contains(callsStr, "edit") {
+		t.Error("expected gh pr edit to be called")
+	}
+	if !strings.Contains(callsStr, "Closes #42") {
+		t.Errorf("expected 'Closes #42' in gh pr edit args, got: %q", callsStr)
+	}
+}
+
+func TestLinkPRToIssue_addsLink_emptyBody(t *testing.T) {
+	stubDir := t.TempDir()
+	viewJSON := `{"number":3,"body":""}`
+	callsFile := makeGHStub(t, stubDir, viewJSON, false)
+	prependPath(t, stubDir)
+
+	if err := linkPRToIssue(t.TempDir(), "42-feature", "42"); err != nil {
+		t.Fatalf("linkPRToIssue: %v", err)
+	}
+
+	calls, _ := os.ReadFile(callsFile)
+	callsStr := string(calls)
+	if !strings.Contains(callsStr, "Closes #42") {
+		t.Errorf("expected 'Closes #42' in edit args, got: %q", callsStr)
+	}
+}
+
+func TestLinkPRToIssue_editError(t *testing.T) {
+	stubDir := t.TempDir()
+	viewJSON := `{"number":7,"body":"some work"}`
+	makeGHStub(t, stubDir, viewJSON, true) // editFail=true
+	prependPath(t, stubDir)
+
+	err := linkPRToIssue(t.TempDir(), "42-feature", "42")
+	if err == nil {
+		t.Error("expected error when gh pr edit fails")
+	}
+	if !strings.Contains(err.Error(), "gh pr edit") {
+		t.Errorf("expected 'gh pr edit' in error, got: %v", err)
+	}
+}
