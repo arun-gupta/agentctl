@@ -1299,9 +1299,10 @@ func extractStreamText(line string) string {
 		Subtype string `json:"subtype"`
 		Message struct {
 			Content []struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-				Name string `json:"name"`
+				Type  string          `json:"type"`
+				Text  string          `json:"text"`
+				Name  string          `json:"name"`
+				Input json.RawMessage `json:"input"`
 			} `json:"content"`
 		} `json:"message"`
 		Result string `json:"result"`
@@ -1320,7 +1321,7 @@ func extractStreamText(line string) string {
 					sb.WriteByte('\n')
 				}
 			case "tool_use":
-				fmt.Fprintf(&sb, "[%s]\n", c.Name)
+				fmt.Fprintf(&sb, "[%s]\n", toolLabel(c.Name, c.Input))
 			}
 		}
 		return strings.TrimRight(sb.String(), "\n")
@@ -1328,6 +1329,51 @@ func extractStreamText(line string) string {
 		return strings.TrimSpace(ev.Result)
 	}
 	return ""
+}
+
+// toolLabel returns a display string for a tool_use block, including the most
+// useful input field for the given tool so the terminal output is actionable.
+func toolLabel(name string, input json.RawMessage) string {
+	var detail string
+	switch name {
+	case "Bash":
+		var v struct {
+			Command     string `json:"command"`
+			Description string `json:"description"`
+		}
+		if json.Unmarshal(input, &v) == nil {
+			if v.Description != "" {
+				detail = v.Description
+			} else if v.Command != "" {
+				detail = v.Command
+			}
+		}
+	case "Read", "Write", "Edit":
+		var v struct {
+			FilePath string `json:"file_path"`
+		}
+		if json.Unmarshal(input, &v) == nil && v.FilePath != "" {
+			detail = v.FilePath
+		}
+	case "WebSearch":
+		var v struct {
+			Query string `json:"query"`
+		}
+		if json.Unmarshal(input, &v) == nil && v.Query != "" {
+			detail = v.Query
+		}
+	case "WebFetch":
+		var v struct {
+			URL string `json:"url"`
+		}
+		if json.Unmarshal(input, &v) == nil && v.URL != "" {
+			detail = v.URL
+		}
+	}
+	if detail == "" {
+		return name
+	}
+	return name + ": " + detail
 }
 
 // spinnerFrames are the braille Unicode characters used for the spinner animation.

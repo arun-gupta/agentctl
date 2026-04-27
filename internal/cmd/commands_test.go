@@ -1115,14 +1115,29 @@ func TestExtractStreamText(t *testing.T) {
 			want:  "I'll fix the bug.",
 		},
 		{
-			name:  "assistant tool_use",
-			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"bash","input":{"command":"ls"}}]}}`,
-			want:  "[bash]",
+			name:  "assistant tool_use Bash with command",
+			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"ls -la","description":""}}]}}`,
+			want:  "[Bash: ls -la]",
+		},
+		{
+			name:  "assistant tool_use Bash prefers description",
+			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"ls -la","description":"List files"}}]}}`,
+			want:  "[Bash: List files]",
+		},
+		{
+			name:  "assistant tool_use Read with file_path",
+			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/foo/bar.go"}}]}}`,
+			want:  "[Read: /foo/bar.go]",
+		},
+		{
+			name:  "assistant tool_use unknown no detail",
+			line:  `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"SomeTool","input":{}}]}}`,
+			want:  "[SomeTool]",
 		},
 		{
 			name:  "assistant text + tool_use",
-			line:  `{"type":"assistant","message":{"content":[{"type":"text","text":"Running ls."},{"type":"tool_use","name":"bash","input":{}}]}}`,
-			want:  "Running ls.\n[bash]",
+			line:  `{"type":"assistant","message":{"content":[{"type":"text","text":"Running ls."},{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}`,
+			want:  "Running ls.\n[Bash: ls]",
 		},
 		{
 			name:  "result success",
