@@ -1530,8 +1530,7 @@ func relativePath(path, base string) string {
 }
 
 // stackFrameRe matches JavaScript/Node.js stack-frame lines, e.g.
-//
-//	at Gaxios._request (file:///path/bundle.js:8578:19)
+//   at Gaxios._request (file:///path/bundle.js:8578:19)
 var stackFrameRe = regexp.MustCompile(`^\s+at\s+\S`)
 
 // isStderrNoise reports whether line is verbose agent error noise that should
