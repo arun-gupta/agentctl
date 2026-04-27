@@ -115,7 +115,7 @@ func TestResumeCmd_gemini_noSessionFlag(t *testing.T) {
 	}
 }
 
-func TestLaunchCmd_codex_structuredFields(t *testing.T) {
+func TestLaunchCmd_codex_usesExecTemplate(t *testing.T) {
 	a, err := adapters.Get("codex")
 	if err != nil {
 		t.Fatal(err)
@@ -123,24 +123,45 @@ func TestLaunchCmd_codex_structuredFields(t *testing.T) {
 	cmd := a.LaunchCmd("write tests", "sess-xyz", "/tmp/wt")
 	args := cmd.Args
 	assertContains(t, args, "codex")
-	assertContains(t, args, "-q")
+	assertContains(t, args, "exec")
+	assertContains(t, args, "--dangerously-bypass-approvals-and-sandbox")
+	assertAdjacentArgs(t, args, "-C", "/tmp/wt")
 	assertContains(t, args, "write tests")
-	assertContains(t, args, "--session")
-	assertContains(t, args, "sess-xyz")
+	for _, arg := range args {
+		if arg == "-q" {
+			t.Errorf("codex LaunchCmd must not pass -q flag, got args: %v", args)
+		}
+		if arg == "--session" {
+			t.Errorf("codex LaunchCmd must not pass --session flag, got args: %v", args)
+		}
+		if arg == "sess-xyz" {
+			t.Errorf("codex LaunchCmd must not pass session ID, got args: %v", args)
+		}
+	}
 }
 
-func TestResumeCmd_codex_usesResumeID(t *testing.T) {
+func TestResumeCmd_codex_usesExecResumeTemplate(t *testing.T) {
 	a, err := adapters.Get("codex")
 	if err != nil {
 		t.Fatal(err)
 	}
 	cmd := a.ResumeCmd("fix the bug", "sess-xyz", "/tmp/wt")
 	args := cmd.Args
-	assertContains(t, args, "--resume")
-	assertContains(t, args, "sess-xyz")
+	assertContains(t, args, "codex")
+	assertContains(t, args, "exec")
+	assertContains(t, args, "resume")
+	assertContains(t, args, "--last")
+	assertContains(t, args, "--dangerously-bypass-approvals-and-sandbox")
+	assertContains(t, args, "fix the bug")
 	for _, arg := range args {
+		if arg == "--resume" {
+			t.Errorf("codex ResumeCmd must not pass --resume flag, got args: %v", args)
+		}
 		if arg == "--session" {
-			t.Errorf("codex ResumeCmd should use --resume, not --session; got args: %v", args)
+			t.Errorf("codex ResumeCmd must not pass --session flag, got args: %v", args)
+		}
+		if arg == "sess-xyz" {
+			t.Errorf("codex ResumeCmd must not pass session ID, got args: %v", args)
 		}
 	}
 }
