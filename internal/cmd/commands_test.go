@@ -489,6 +489,7 @@ func TestRemoveBranchRefs_alreadyRemovedIsQuiet(t *testing.T) {
 	}
 }
 
+
 func contains(s, sub string) bool {
 	return strings.Contains(s, sub)
 }
@@ -1319,9 +1320,9 @@ func TestExtractStreamText(t *testing.T) {
 			want: "Running ls.\n[Bash: ls]",
 		},
 		{
-			name: "result success",
+			name: "result event suppressed to avoid duplication",
 			line: `{"type":"result","subtype":"success","result":"PR opened."}`,
-			want: "PR opened.",
+			want: "",
 		},
 		{
 			name: "system event skipped",
