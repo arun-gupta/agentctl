@@ -1159,3 +1159,14 @@ func TestExtractStreamText(t *testing.T) {
 		})
 	}
 }
+
+func TestStartCmd_sddFlagRequiresExplicitValue(t *testing.T) {
+	c := NewStartCmd()
+	f := c.Flags().Lookup("sdd")
+	if f == nil {
+		t.Fatal("--sdd flag not found")
+	}
+	if f.NoOptDefVal != "" {
+		t.Errorf("--sdd should require an explicit value (NoOptDefVal must be empty), got %q", f.NoOptDefVal)
+	}
+}

@@ -51,6 +51,9 @@ func TestGet_unknown(t *testing.T) {
 	if !strings.Contains(err.Error(), ".agentctl/sdd/") {
 		t.Errorf("error should mention drop-in path hint, got: %v", err)
 	}
+	if !strings.Contains(err.Error(), "available:") {
+		t.Errorf("error should list available methodologies, got: %v", err)
+	}
 }
 
 // ─── KickoffPrompt substitution ───────────────────────────────────────────────

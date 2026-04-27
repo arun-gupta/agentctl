@@ -191,9 +191,10 @@ func listDir(dir string) []string {
 func loadBuiltin(name string) (*Methodology, error) {
 	data, err := builtinFS.ReadFile("builtin/" + name + ".yml")
 	if err != nil {
+		available := List()
 		return nil, fmt.Errorf(
-			"unknown SDD methodology %q — drop %s.yml in .agentctl/sdd/ or ~/.config/agentctl/sdd/",
-			name, name,
+			"unknown SDD methodology %q (available: %s) — or drop %s.yml in .agentctl/sdd/ or ~/.config/agentctl/sdd/",
+			name, strings.Join(available, ", "), name,
 		)
 	}
 	return load(data, "builtin/"+name+".yml")

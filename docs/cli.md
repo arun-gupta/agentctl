@@ -9,7 +9,7 @@ Run `agentctl --help` or `agentctl <command> --help` for generated help from the
 ### `agentctl start`
 
 ```bash
-agentctl start [--agent <name>] [--headless] [--quiet] [--sdd <name>] <issue-number-or-url> [slug]
+agentctl start [--agent <name>] [--headless] [--quiet] <issue-number-or-url> [slug] [--sdd=<name>]
 ```
 
 Creates a linked worktree for a GitHub issue and launches the selected coding agent inside it.
@@ -17,7 +17,7 @@ Creates a linked worktree for a GitHub issue and launches the selected coding ag
 - `--agent <name>`: adapter name; default is `claude`. See [adapters.md](adapters.md) for available adapters.
 - `--headless`: run the agent in the background and write agent output to `agent.log`.
 - `--quiet`: suppress agent log output in the terminal; show only the spinner (TTY) or heartbeat lines (non-TTY/CI). Has no effect with `--headless`.
-- `--sdd <name>`: opt into an SDD methodology (e.g. `plain`, `speckit`, or a custom methodology). Omit to skip SDD and work directly toward a PR. See [sdd.md](sdd.md).
+- `--sdd=<name>`: opt into an SDD methodology (e.g. `--sdd=plain`, `--sdd=speckit`). Omit to skip SDD and work directly toward a PR. See [sdd.md](sdd.md).
 - `<issue-number-or-url>`: a bare GitHub issue number (e.g. `42`) **or** a full GitHub issue URL (e.g. `https://github.com/owner/repo/issues/42`). When a URL is supplied, `agentctl` locates or clones the target repository automatically so you do not need to `cd` into it first.
 - `[slug]`: optional branch/worktree slug. If omitted, `agentctl` uses `gh issue view` to fetch the issue title and derive a slug.
 
@@ -187,7 +187,7 @@ agentctl start 42
 agentctl start https://github.com/owner/repo/issues/42
 ```
 
-The agent runs in your terminal with its log streamed live so you can follow along. Without `--sdd`, the agent works directly toward a PR. Use `--sdd plain` or `--sdd speckit` to add a spec-review checkpoint.
+The agent runs in your terminal with its log streamed live so you can follow along. Without `--sdd`, the agent works directly toward a PR. Use `--sdd=plain` or `--sdd=speckit` after the issue number to add a spec-review checkpoint.
 
 To suppress log output and show only a spinner/heartbeat:
 
@@ -249,16 +249,16 @@ agentctl cleanup --all
 
 `agentctl start 42` works out of the box for any repo — by default there is no spec step and the agent opens a PR directly.
 
-Use `--sdd plain` to add a lightweight spec-review checkpoint (no external tooling required):
+Use `--sdd=plain` to add a lightweight spec-review checkpoint (no external tooling required):
 
 ```bash
-agentctl start --sdd plain 42
+agentctl start 42 --sdd=plain
 ```
 
-Use `--sdd speckit` to opt into the Spec Kit workflow if your repo is set up for it:
+Use `--sdd=speckit` to opt into the Spec Kit workflow if your repo is set up for it:
 
 ```bash
-agentctl start --sdd speckit 42
+agentctl start 42 --sdd=speckit
 ```
 
 See [sdd.md](sdd.md) for the SDD methodology schema and drop-in locations.
