@@ -1349,21 +1349,23 @@ func TestWorktreeExistsError_noAgentFile(t *testing.T) {
 	}
 }
 
-func TestRunNpmInstall_missingPackageJSON(t *testing.T) {
-	dir := t.TempDir() // no package.json
+func TestRunNpmInstall_notNodeProject(t *testing.T) {
+	dir := t.TempDir() // no package.json — simulates a Python/Go/Java project
 	err := runNpmInstall(dir)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
 	msg := err.Error()
-	if !strings.Contains(msg, "no package.json") {
-		t.Errorf("error %q does not mention 'no package.json'", msg)
+	// Must not leak implementation details to the user.
+	if strings.Contains(msg, "package.json") {
+		t.Errorf("error %q must not mention 'package.json' (implementation detail)", msg)
 	}
-	if !strings.Contains(msg, dir) {
-		t.Errorf("error %q does not contain worktree path %q", msg, dir)
+	if strings.Contains(msg, "npm init") {
+		t.Errorf("error %q must not mention 'npm init' (Node.js internals)", msg)
 	}
-	if !strings.Contains(msg, "npm init") {
-		t.Errorf("error %q does not contain 'npm init' hint", msg)
+	// Must tell the user what kind of project is required.
+	if !strings.Contains(msg, "Node.js") {
+		t.Errorf("error %q should mention 'Node.js' so the user understands the requirement", msg)
 	}
 }
 
