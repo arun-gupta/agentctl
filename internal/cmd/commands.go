@@ -302,9 +302,9 @@ func runRemoveWorktree(issue string) error {
 	}
 
 	if branch != "" && branch != "HEAD" {
-		hint := fmt.Sprintf("Delete the remote manually with:\n  git push origin --delete %s\n", branch)
-		if err := removeBranchRefs(repoRoot, branch, os.Stdout, os.Stderr, hint); err != nil {
-			return err
+		if err := removeBranchRefs(repoRoot, branch); err != nil {
+			fmt.Fprintf(os.Stderr, "WARNING: could not delete remote branch %s\n", branch)
+			fmt.Fprintf(os.Stderr, "Delete the remote manually with:\n  git push origin --delete %s\n", branch)
 		}
 	}
 
@@ -442,15 +442,15 @@ func cleanupMerged(repoRoot, issue string) error {
 		fmt.Printf("Removed %s\n", wtPath)
 	}
 
-	hint := fmt.Sprintf("Local branch removed; delete the remote manually with:\n  git push origin --delete %s\n", branch)
-	if err := removeBranchRefs(repoRoot, branch, os.Stdout, os.Stderr, hint); err != nil {
-		return err
+	if err := removeBranchRefs(repoRoot, branch); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: could not delete remote branch %s\n", branch)
+		fmt.Fprintf(os.Stderr, "Delete the remote manually with:\n  git push origin --delete %s\n", branch)
 	}
 
 	return nil
 }
 
-func removeBranchRefs(repoRoot, branch string, stdout, stderr io.Writer, remoteDeleteHint string) error {
+func removeBranchRefs(repoRoot, branch string) error {
 	if branch == "" || branch == "HEAD" {
 		return nil
 	}
@@ -465,13 +465,10 @@ func removeBranchRefs(repoRoot, branch string, stdout, stderr io.Writer, remoteD
 		if strings.Contains(msg, "remote ref does not exist") {
 			return nil
 		}
-		fmt.Fprintf(stderr, "WARNING: could not delete remote branch %s\n", branch)
-		fmt.Fprintln(stderr, msg)
-		fmt.Fprint(stderr, remoteDeleteHint)
-		return fmt.Errorf("remote branch deletion failed")
+		return fmt.Errorf("remote branch deletion failed: %s", strings.TrimSpace(msg))
 	}
 
-	fmt.Fprintf(stdout, "Deleted remote branch origin/%s\n", branch)
+	fmt.Printf("Deleted remote branch origin/%s\n", branch)
 	return nil
 }
 

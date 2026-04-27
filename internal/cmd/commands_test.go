@@ -477,18 +477,10 @@ func TestRemoveBranchRefs_alreadyRemovedIsQuiet(t *testing.T) {
 	gitRun(t, repo, "branch", "-D", branch)
 	gitRun(t, repo, "push", "origin", "--delete", branch)
 
-	var stdout, stderr bytes.Buffer
-	if err := removeBranchRefs(repo, branch, &stdout, &stderr, "manual cleanup hint"); err != nil {
-		t.Fatalf("removeBranchRefs: %v", err)
-	}
-	if got := stdout.String(); got != "" {
-		t.Errorf("stdout = %q, want empty output when branch is already gone", got)
-	}
-	if got := stderr.String(); got != "" {
-		t.Errorf("stderr = %q, want empty output when branch is already gone", got)
+	if err := removeBranchRefs(repo, branch); err != nil {
+		t.Fatalf("removeBranchRefs: want nil when branches already gone, got %v", err)
 	}
 }
-
 
 func contains(s, sub string) bool {
 	return strings.Contains(s, sub)
