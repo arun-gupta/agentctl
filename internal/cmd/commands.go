@@ -1408,8 +1408,11 @@ func waitForFile(path string, timeout time.Duration) error {
 // extractStreamText converts a single claude --output-format stream-json line
 // into human-readable text. wtDir is the worktree directory; file paths inside
 // it are shown as relative paths to reduce noise in terminal output. It
-// extracts assistant text, tool-use blocks, and the final result. Non-JSON
-// lines are returned as-is (plain-text fallback).
+// extracts assistant text and tool-use blocks. "result" events are
+// intentionally ignored because their text duplicates the final "assistant"
+// content block, which would otherwise cause the PR link and closing summary
+// to appear twice in terminal output. Non-JSON lines are returned as-is
+// (plain-text fallback).
 func extractStreamText(line, wtDir string) string {
 	var ev struct {
 		Type    string `json:"type"`
