@@ -23,7 +23,7 @@ import (
 
 var version = "dev"
 
-func main() {
+func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:     "agentctl",
 		Version: version,
@@ -37,7 +37,8 @@ func main() {
 
   # Clean up after the PR for issue #42 is merged
   agentctl cleanup 42`,
-		SilenceUsage: true,
+		SilenceUsage:  true,
+		SilenceErrors: true,
 	}
 
 	root.AddCommand(
@@ -49,8 +50,11 @@ func main() {
 		cmd.NewLogsCmd(),
 		cmd.NewAttachCmd(),
 	)
+	return root
+}
 
-	if err := root.Execute(); err != nil {
+func main() {
+	if err := newRootCmd().Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
