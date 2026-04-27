@@ -882,7 +882,7 @@ func TestFollowLog_drainsContentAndExits(t *testing.T) {
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
-		followLog(logPath, &buf, done, false)
+		followLog(logPath, &buf, done, false, false)
 	}()
 
 	// Poll until followLog has picked up the initial content.
@@ -944,7 +944,7 @@ func TestFollowLog_heartbeatOnNonTTY(t *testing.T) {
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
-		followLog(logPath, &buf, done, false)
+		followLog(logPath, &buf, done, false, false)
 	}()
 
 	// The first heartbeat is emitted immediately (lastHeartbeat starts 30s in the
@@ -978,7 +978,7 @@ func TestFollowLog_quietSuppressesLogLines(t *testing.T) {
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
-		followLog(logPath, &buf, done, true)
+		followLog(logPath, &buf, done, true, false)
 	}()
 
 	time.Sleep(300 * time.Millisecond)
@@ -1482,6 +1482,176 @@ func TestStartDevServer_noPackageJSON_returnsEmptyPort(t *testing.T) {
 	hint := stderr.String()
 	if !strings.Contains(hint, ".agentctl.yml") {
 		t.Errorf("expected hint about .agentctl.yml, got: %q", hint)
+	}
+}
+
+// ─── isStderrNoise ────────────────────────────────────────────────────────────
+
+func TestIsStderrNoise(t *testing.T) {
+	cases := []struct {
+		name string
+		line string
+		want bool
+	}{
+		// JavaScript/Node.js stack frames
+		{
+			name: "stack frame 4 spaces",
+			line: "    at Gaxios._request (file:///opt/homebrew/Cellar/gemini-cli/bundle/chunk.js:8578:19)",
+			want: true,
+		},
+		{
+			name: "stack frame node internals",
+			line: "    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+			want: true,
+		},
+		{
+			name: "stack frame 2 spaces",
+			line: "  at foo (bar.ts:1:2)",
+			want: true,
+		},
+		{
+			name: "stack frame tab-indented",
+			line: "\tat SomeClass.method (file.js:10:5)",
+			want: true,
+		},
+		// Raw JSON blobs
+		{
+			name: "json object blob",
+			line: `{"error":{"code":429,"message":"No capacity"}}`,
+			want: true,
+		},
+		{
+			name: "json array blob",
+			line: `[{"error":"something"}]`,
+			want: true,
+		},
+		{
+			name: "json object with leading whitespace",
+			line: `  {"code": 429}`,
+			want: true,
+		},
+		// Not noise — should pass through
+		{
+			name: "human-readable error summary",
+			line: "Attempt 2 failed with status 429. Retrying with backoff...",
+			want: false,
+		},
+		{
+			name: "normal agent output",
+			line: "Starting agent...",
+			want: false,
+		},
+		{
+			name: "empty line",
+			line: "",
+			want: false,
+		},
+		{
+			name: "incomplete json not a blob",
+			line: `{"type": "assistant"`,
+			want: false,
+		},
+		{
+			name: "plain text that mentions at",
+			line: "looking at the problem",
+			want: false,
+		},
+		{
+			name: "json fragment property line",
+			line: `  "error": {`,
+			want: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isStderrNoise(tc.line)
+			if got != tc.want {
+				t.Errorf("isStderrNoise(%q) = %v, want %v", tc.line, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestFollowLog_filterNoise_suppressesStackTracesAndJsonBlobs verifies that
+// when filterNoise is true, followLog omits stack frames and JSON blobs but
+// still shows normal lines. The raw content remains in the file.
+func TestFollowLog_filterNoise_suppressesStackTracesAndJsonBlobs(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "agent.log")
+
+	content := strings.Join([]string{
+		"Starting agent",
+		`    at Gaxios._request (file:///path/to/bundle.js:8578:19)`,
+		`    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)`,
+		`{"error":{"code":429,"message":"No capacity"}}`,
+		"normal output after error",
+		"",
+	}, "\n")
+	if err := os.WriteFile(logPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan struct{})
+	var buf bytes.Buffer
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		followLog(logPath, &buf, done, false, true)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(buf.String(), "normal output") {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	close(done)
+	<-finished
+
+	out := buf.String()
+	if strings.Contains(out, "at Gaxios._request") {
+		t.Errorf("stack frame should be suppressed; got: %q", out)
+	}
+	if strings.Contains(out, `"code":429`) {
+		t.Errorf("JSON blob should be suppressed; got: %q", out)
+	}
+	if !strings.Contains(out, "Starting agent") {
+		t.Errorf("normal line should pass through; got: %q", out)
+	}
+	if !strings.Contains(out, "normal output after error") {
+		t.Errorf("normal line should pass through; got: %q", out)
+	}
+}
+
+// TestFollowLog_filterNoise_false_passesEverything verifies that when
+// filterNoise is false, followLog streams everything including stack frames.
+func TestFollowLog_filterNoise_false_passesEverything(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "agent.log")
+
+	content := "normal line\n    at Gaxios._request (file:///path.js:1:1)\n"
+	if err := os.WriteFile(logPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan struct{})
+	var buf bytes.Buffer
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		followLog(logPath, &buf, done, false, false)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(buf.String(), "at Gaxios") {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	close(done)
+	<-finished
+
+	out := buf.String()
+	if !strings.Contains(out, "at Gaxios._request") {
+		t.Errorf("without filterNoise, stack frame should be present; got: %q", out)
 	}
 }
 
