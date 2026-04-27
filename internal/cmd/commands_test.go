@@ -1479,6 +1479,63 @@ func TestStartDevServer_noPackageJSON_returnsEmptyPort(t *testing.T) {
 	}
 }
 
+func TestCheckDevServerConfig_noAgentctlYml_noPackageJSON(t *testing.T) {
+	dir := t.TempDir()
+	err := checkDevServerConfig(dir)
+	if err == nil {
+		t.Fatal("expected error for project with neither .agentctl.yml nor package.json, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, ".agentctl.yml") {
+		t.Errorf("error %q should mention .agentctl.yml", msg)
+	}
+	if !strings.Contains(msg, "dev_server") {
+		t.Errorf("error %q should mention dev_server", msg)
+	}
+}
+
+func TestCheckDevServerConfig_agentctlYmlNoDevServer(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"), []byte("port: 3010\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := checkDevServerConfig(dir)
+	if err == nil {
+		t.Fatal("expected error for .agentctl.yml without dev_server field, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, ".agentctl.yml") {
+		t.Errorf("error %q should mention .agentctl.yml", msg)
+	}
+	if !strings.Contains(msg, "dev_server") {
+		t.Errorf("error %q should mention dev_server", msg)
+	}
+	if !strings.Contains(msg, "missing") {
+		t.Errorf("error %q should mention the field is missing", msg)
+	}
+}
+
+func TestCheckDevServerConfig_agentctlYmlWithDevServer(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"),
+		[]byte("dev_server: \"uvicorn main:app --port {port}\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkDevServerConfig(dir); err != nil {
+		t.Errorf("expected no error for .agentctl.yml with dev_server set, got %v", err)
+	}
+}
+
+func TestCheckDevServerConfig_packageJSON_noAgentctlYml(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"test"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkDevServerConfig(dir); err != nil {
+		t.Errorf("expected no error for Node project without .agentctl.yml, got %v", err)
+	}
+}
+
 func TestStartDevServer_agentctlYml_writesPortBack(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"),

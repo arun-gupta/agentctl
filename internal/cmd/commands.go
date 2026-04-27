@@ -97,6 +97,12 @@ func runStart(issue, slug, agentName, sddName string, headless, quiet bool) erro
 	branch := issueNum + "-" + slug
 	wtPath := filepath.Join(parentDir, repoName+"-"+issueNum+"-"+slug)
 
+	// Fail fast if the project has no viable dev-server config — before touching
+	// any worktree state.
+	if err := checkDevServerConfig(repoRoot); err != nil {
+		return err
+	}
+
 	// Create the worktree.
 	if _, statErr := os.Stat(wtPath); statErr == nil {
 		return worktreeExistsError(wtPath, issueNum)
@@ -1048,6 +1054,29 @@ func seedEnvLocal(src, dst string) error {
 		}
 	}
 	return os.WriteFile(dst, []byte(strings.Join(filtered, "\n")), 0o600)
+}
+
+// checkDevServerConfig validates that dir has a viable dev-server configuration
+// before any worktree is created.  Decision tree:
+//  1. .agentctl.yml present and dev_server non-empty → nil (custom server)
+//  2. .agentctl.yml present but dev_server empty     → error (config error)
+//  3. package.json present, no .agentctl.yml         → nil (Node path)
+//  4. neither                                         → error (not configured)
+func checkDevServerConfig(dir string) error {
+	if _, err := os.Stat(filepath.Join(dir, config.Filename)); err == nil {
+		cfg, readErr := config.Read(dir)
+		if readErr != nil {
+			return fmt.Errorf("reading .agentctl.yml: %w", readErr)
+		}
+		if cfg.DevServer == "" {
+			return fmt.Errorf(".agentctl.yml found but dev_server field is missing. Add it:\n\n  dev_server: \"uvicorn main:app --port {port}\"")
+		}
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(dir, "package.json")); err == nil {
+		return nil
+	}
+	return fmt.Errorf("No dev server configured. Create .agentctl.yml with a dev_server field first:\n\n  echo 'dev_server: \"uvicorn main:app --port {port}\"' > .agentctl.yml\n\nThen re-run agentctl start.")
 }
 
 // startDevServer starts a dev server for the project in dir. Detection order:
