@@ -112,7 +112,7 @@ func runStart(issue, slug, agentName, sddName string, headless, quiet bool) erro
 	}
 
 	// Start dev server if the project supports it; returns empty strings when skipped.
-	devPID, portStr, err := startDevServer(wtPath, os.Stderr)
+	devPID, portStr, err := startDevServer(wtPath)
 	if err != nil {
 		return err
 	}
@@ -1051,12 +1051,11 @@ func seedEnvLocal(src, dst string) error {
 // startDevServer starts a dev server for the project in dir. Detection order:
 //  1. .agentctl.yml with dev_server field  → run that command with {port} substituted
 //  2. package.json present                 → npm install + npm run dev
-//  3. neither                              → print hint, return ("","",nil)
+//  3. neither                              → silent skip, return ("","",nil)
 //
 // On success the allocated port is written back to .agentctl.yml so it serves
-// as the single source of truth for all agentctl repo config. w receives the
-// informational message when no dev server is configured.
-func startDevServer(dir string, w io.Writer) (devPID, portStr string, err error) {
+// as the single source of truth for all agentctl repo config.
+func startDevServer(dir string) (devPID, portStr string, err error) {
 	cfg, err := config.Read(dir)
 	if err != nil {
 		return "", "", fmt.Errorf("reading .agentctl.yml: %w", err)
@@ -1072,8 +1071,7 @@ func startDevServer(dir string, w io.Writer) (devPID, portStr string, err error)
 		return startNodeDevServer(dir, cfg)
 	}
 
-	// Case 3: no dev server configured
-	fmt.Fprintf(w, "No dev server configured for this project. Add a dev_server command to .agentctl.yml to start one automatically.\n")
+	// Case 3: no dev server configured — silently skip
 	return "", "", nil
 }
 

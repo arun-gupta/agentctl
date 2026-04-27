@@ -1483,8 +1483,7 @@ func TestRunNpmInstall_errorIncludesDebugHint(t *testing.T) {
 
 func TestStartDevServer_noPackageJSON_returnsEmptyPort(t *testing.T) {
 	dir := t.TempDir() // no package.json
-	var stderr strings.Builder
-	pid, port, err := startDevServer(dir, &stderr)
+	pid, port, err := startDevServer(dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1493,10 +1492,6 @@ func TestStartDevServer_noPackageJSON_returnsEmptyPort(t *testing.T) {
 	}
 	if port != "" {
 		t.Errorf("expected empty port when no dev server started, got %q", port)
-	}
-	hint := stderr.String()
-	if !strings.Contains(hint, ".agentctl.yml") {
-		t.Errorf("expected hint about .agentctl.yml, got: %q", hint)
 	}
 }
 
@@ -1676,8 +1671,7 @@ func TestStartDevServer_agentctlYml_writesPortBack(t *testing.T) {
 		[]byte("dev_server: \"echo ok\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	var stderr strings.Builder
-	pidStr, portStr, err := startDevServer(dir, &stderr)
+	pidStr, portStr, err := startDevServer(dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
