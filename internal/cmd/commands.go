@@ -1388,6 +1388,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 			fmt.Fprintf(os.Stdout, "agent still running in background\n")
 			fmt.Fprintf(os.Stdout, "  agentctl logs %s     # follow log\n", issue)
 			fmt.Fprintf(os.Stdout, "  agentctl attach %s   # stream live output\n", issue)
+			fmt.Fprintf(os.Stdout, "  agentctl discard %s  # stop and remove worktree\n", issue)
 			return nil
 		}
 	}
