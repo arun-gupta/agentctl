@@ -1238,6 +1238,21 @@ func TestExtractStreamText(t *testing.T) {
 			wtDir: "",
 			want:  "[Read: /some/path.go]",
 		},
+		{
+			name: "assistant text PR URL gets visual separation",
+			line: `{"type":"assistant","message":{"content":[{"type":"text","text":"https://github.com/arun-gupta/agentctl/pull/135"}]}}`,
+			want: "\n>>> https://github.com/arun-gupta/agentctl/pull/135\n",
+		},
+		{
+			name: "assistant text PR URL embedded in sentence",
+			line: `{"type":"assistant","message":{"content":[{"type":"text","text":"PR opened at https://github.com/arun-gupta/agentctl/pull/135 please review"}]}}`,
+			want: "PR opened at \n>>> https://github.com/arun-gupta/agentctl/pull/135\n please review",
+		},
+		{
+			name: "assistant text non-PR GitHub URL unchanged",
+			line: `{"type":"assistant","message":{"content":[{"type":"text","text":"See https://github.com/arun-gupta/agentctl/issues/137"}]}}`,
+			want: "See https://github.com/arun-gupta/agentctl/issues/137",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

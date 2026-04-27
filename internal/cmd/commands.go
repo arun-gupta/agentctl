@@ -1434,18 +1434,26 @@ func extractStreamText(line, wtDir string) string {
 			switch c.Type {
 			case "text":
 				if t := strings.TrimSpace(c.Text); t != "" {
-					sb.WriteString(t)
+					sb.WriteString(highlightPRURLs(t))
 					sb.WriteByte('\n')
 				}
 			case "tool_use":
 				fmt.Fprintf(&sb, "[%s]\n", toolLabel(c.Name, c.Input, wtDir))
 			}
 		}
-		return strings.TrimRight(sb.String(), "\n")
+		return strings.TrimSuffix(sb.String(), "\n")
 	case "result":
 		return strings.TrimSpace(ev.Result)
 	}
 	return ""
+}
+
+var githubPRURL = regexp.MustCompile(`https://github\.com/[^/]+/[^/]+/pull/\d+`)
+
+func highlightPRURLs(text string) string {
+	return githubPRURL.ReplaceAllStringFunc(text, func(url string) string {
+		return "\n>>> " + url + "\n"
+	})
 }
 
 // toolDetailMaxLen is the maximum number of runes shown for a tool input detail
