@@ -1512,6 +1512,9 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 		}
 		agentCmd.Stdout = pw
 		agentCmd.Stderr = pw
+		// Redirect stdin to /dev/null so the agent sees no TTY and does not
+		// render an interactive UI that would overlap agentctl's log output.
+		agentCmd.Stdin = nil
 	} else {
 		if adapterName == "claude" {
 			// Use stream-json so intermediate tool steps are captured progressively.
@@ -1519,6 +1522,14 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			// __stream-log subprocess converts the pipe to human-readable text in
 			// agent.log.
 			agentCmd.Args = append(agentCmd.Args, "--output-format", "stream-json", "--verbose")
+			pr, pw, err = os.Pipe()
+			if err != nil {
+				logFile.Close()
+				return fmt.Errorf("os.Pipe: %w", err)
+			}
+			agentCmd.Stdout = pw
+			agentCmd.Stderr = pw
+		} else if adapterName == "openhands" {
 			pr, pw, err = os.Pipe()
 			if err != nil {
 				logFile.Close()
@@ -1548,10 +1559,14 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 	var convWg sync.WaitGroup
 	if headless {
 		if pw != nil {
-			// Claude headless: spawn a detached __stream-log process. Its stdout
-			// is the already-open logFile fd so it never opens files by path
-			// (avoids race with test cleanup removing the temp dir).
-			convCmd := exec.Command(os.Args[0], "__stream-log", wtPath)
+			// Spawn a detached converter process. Its stdout is the already-open
+			// logFile fd so it never opens files by path (avoids race with test
+			// cleanup removing the temp dir).
+			streamLogCmd := "__stream-log"
+			if adapterName == "openhands" {
+				streamLogCmd = "__stream-log-openhands"
+			}
+			convCmd := exec.Command(os.Args[0], streamLogCmd, wtPath)
 			convCmd.Stdin = pr
 			convCmd.Stdout = logFile
 			convCmd.Stderr = logFile
@@ -1574,13 +1589,17 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 	} else {
 		// Close the write end in the parent; the child has its own copy.
 		pw.Close()
-		// Convert JSON stream events to readable text written to logFile.
+		// Convert output events to readable text written to logFile.
 		convWg.Add(1)
 		go func() {
 			defer convWg.Done()
 			defer pr.Close()
 			defer logFile.Close()
 
+			if adapterName == "openhands" {
+				convertOpenHandsStream(pr, logFile)
+				return
+			}
 			r := bufio.NewReader(pr)
 			for {
 				line, err := r.ReadString('\n')
@@ -1752,14 +1771,173 @@ func NewStreamLogCmd() *cobra.Command {
 	}
 }
 
+// convertOpenHandsStream reads from r, which carries openhands --json output,
+// and writes human-readable text to w. The format alternates between plain-text
+// lines and multi-line JSON blocks delimited by "--JSON Event--" markers.
+// Brace depth tracking detects the end of each JSON object so that plain-text
+// lines between events (e.g. "Agent is working") are printed, not swallowed.
+func convertOpenHandsStream(r io.Reader, w io.Writer) {
+	const sep = "--JSON Event--"
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 512*1024), 512*1024)
+
+	var buf strings.Builder
+	inEvent := false
+	depth := 0
+	started := false // true once the opening '{' of the JSON object is seen
+
+	flush := func() {
+		if buf.Len() > 0 {
+			if text := extractOpenHandsBlock(buf.String()); text != "" {
+				fmt.Fprintln(w, text)
+			}
+			buf.Reset()
+		}
+		inEvent = false
+		depth = 0
+		started = false
+	}
+
+	for sc.Scan() {
+		line := sc.Text()
+		if line == sep {
+			flush()
+			inEvent = true
+			continue
+		}
+		if inEvent {
+			for _, ch := range line {
+				switch ch {
+				case '{':
+					depth++
+					started = true
+				case '}':
+					depth--
+				}
+			}
+			buf.WriteString(line)
+			buf.WriteByte('\n')
+			// Once the top-level object closes, flush and revert to plain-text mode.
+			if started && depth == 0 {
+				flush()
+			}
+		} else if !isOpenHandsNoise(line) && line != "" {
+			fmt.Fprintln(w, line)
+		}
+	}
+	flush()
+}
+
+// isOpenHandsNoise returns true for lines that are Rich terminal UI artefacts
+// and should be suppressed from the human-readable log.
+func isOpenHandsNoise(line string) bool {
+	return strings.Contains(line, "Rich detected a non-interactive") ||
+		strings.Contains(line, "To override Rich's detection") ||
+		strings.HasPrefix(line, "────") ||
+		strings.HasPrefix(line, "╭") ||
+		strings.HasPrefix(line, "│") ||
+		strings.HasPrefix(line, "╰") ||
+		strings.Contains(line, "CONVERSATION SUMMARY")
+}
+
+// extractOpenHandsBlock parses a complete openhands --json event JSON block
+// and returns human-readable text, or "" to skip the event.
+func extractOpenHandsBlock(jsonBlock string) string {
+	var ev struct {
+		Kind   string `json:"kind"`
+		Source string `json:"source"`
+		LLMMessage *struct {
+			Content []struct {
+				Text string `json:"text"`
+				Type string `json:"type"`
+			} `json:"content"`
+		} `json:"llm_message"`
+		ToolName    string `json:"tool_name"`
+		Summary     string `json:"summary"`
+		Observation *struct {
+			Content []struct {
+				Text string `json:"text"`
+				Type string `json:"type"`
+			} `json:"content"`
+			IsError bool `json:"is_error"`
+		} `json:"observation"`
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(jsonBlock), &ev); err != nil {
+		return ""
+	}
+	switch ev.Kind {
+	case "MessageEvent":
+		if ev.Source != "agent" || ev.LLMMessage == nil {
+			return ""
+		}
+		var parts []string
+		for _, c := range ev.LLMMessage.Content {
+			if c.Type == "text" && strings.TrimSpace(c.Text) != "" {
+				parts = append(parts, strings.TrimSpace(c.Text))
+			}
+		}
+		return strings.Join(parts, "\n")
+	case "ActionEvent":
+		switch {
+		case ev.ToolName != "" && ev.Summary != "":
+			return fmt.Sprintf("[%s] %s", ev.ToolName, ev.Summary)
+		case ev.ToolName != "":
+			return fmt.Sprintf("[%s]", ev.ToolName)
+		case ev.Summary != "":
+			return ev.Summary
+		}
+		return ""
+	case "ObservationEvent":
+		if ev.Observation == nil || !ev.Observation.IsError {
+			return ""
+		}
+		var parts []string
+		for _, c := range ev.Observation.Content {
+			if c.Type == "text" && strings.TrimSpace(c.Text) != "" {
+				parts = append(parts, strings.TrimSpace(c.Text))
+			}
+		}
+		return strings.Join(parts, "\n")
+	case "AgentErrorEvent":
+		if ev.Error != "" {
+			return "error: " + ev.Error
+		}
+		return ""
+	default:
+		return ""
+	}
+}
+
+// runStreamLogOpenHands reads openhands --json output from stdin and writes
+// human-readable text to stdout. Used by the detached __stream-log-openhands
+// subprocess in headless mode.
+func runStreamLogOpenHands(_ string) error {
+	convertOpenHandsStream(os.Stdin, os.Stdout)
+	return nil
+}
+
+// NewStreamLogOpenHandsCmd returns a hidden cobra command that agentctl spawns
+// as a detached background process in headless mode to convert openhands --json
+// output to human-readable text in agent.log.
+func NewStreamLogOpenHandsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "__stream-log-openhands <wtDir>",
+		Hidden: true,
+		Args:   cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			return runStreamLogOpenHands(args[0])
+		},
+	}
+}
+
 // extractStreamText converts a single claude --output-format stream-json line
 // into human-readable text. wtDir is the worktree directory; file paths inside
 // it are shown as relative paths to reduce noise in terminal output. It
 // extracts assistant text and tool-use blocks. "result" events are
 // intentionally ignored because their text duplicates the final "assistant"
 // content block, which would otherwise cause the PR link and closing summary
-// to appear twice in terminal output. Non-JSON lines are returned as-is
-// (plain-text fallback).
+// to appear twice in terminal output. Non-JSON lines are dropped.
 func extractStreamText(line, wtDir string) string {
 	var ev struct {
 		Type    string `json:"type"`
@@ -1775,7 +1953,7 @@ func extractStreamText(line, wtDir string) string {
 		Result string `json:"result"`
 	}
 	if err := json.Unmarshal([]byte(line), &ev); err != nil {
-		return line // not JSON — pass through verbatim
+		return "" // not JSON — drop; in stream-json mode all meaningful output is JSON
 	}
 	switch ev.Type {
 	case "assistant":
@@ -2076,11 +2254,20 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 		}
 		resumeCmd.Stdout = pw
 		resumeCmd.Stderr = pw
+		resumeCmd.Stdin = nil
 	} else {
 		if adapterName == "claude" {
 			// Use stream-json so intermediate tool steps are captured progressively
 			// (same fix as launchAgent headless path).
 			resumeCmd.Args = append(resumeCmd.Args, "--output-format", "stream-json", "--verbose")
+			pr, pw, err = os.Pipe()
+			if err != nil {
+				logFile.Close()
+				return fmt.Errorf("os.Pipe: %w", err)
+			}
+			resumeCmd.Stdout = pw
+			resumeCmd.Stderr = pw
+		} else if adapterName == "openhands" {
 			pr, pw, err = os.Pipe()
 			if err != nil {
 				logFile.Close()
@@ -2108,7 +2295,11 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 	var convWg sync.WaitGroup
 	if headless {
 		if pw != nil {
-			convCmd := exec.Command(os.Args[0], "__stream-log", wtPath)
+			streamLogCmd := "__stream-log"
+			if adapterName == "openhands" {
+				streamLogCmd = "__stream-log-openhands"
+			}
+			convCmd := exec.Command(os.Args[0], streamLogCmd, wtPath)
 			convCmd.Stdin = pr
 			convCmd.Stdout = logFile
 			convCmd.Stderr = logFile
@@ -2133,6 +2324,10 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 			defer pr.Close()
 			defer logFile.Close()
 
+			if adapterName == "openhands" {
+				convertOpenHandsStream(pr, logFile)
+				return
+			}
 			r := bufio.NewReader(pr)
 			for {
 				line, err := r.ReadString('\n')

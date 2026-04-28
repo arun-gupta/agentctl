@@ -181,6 +181,18 @@ Create `~/.config/agentctl/adapters/` (respects `$XDG_CONFIG_HOME`):
 
 Ready-to-use YAML files for agents not included as built-ins. Save any of these to a [drop-in location](#drop-in-locations) to enable the adapter.
 
+### OpenHands
+
+[OpenHands](https://openhands.dev/) is an open-source AI agent platform with a CLI. It generates its own conversation IDs, so `session_type: directory` is used; `--json` enables structured streaming output and resume targets the most recent conversation in the worktree:
+
+```yaml
+binary: openhands
+launch: openhands --always-approve --json -t {kickoff}
+resume_cmd: openhands --always-approve --json --resume --last -t {prompt}
+session_type: directory
+install: uv tool install openhands --python 3.12
+```
+
 ### KiloCode
 
 KiloCode is a standalone AI coding agent with a `kilo run` CLI. It uses `--auto` to disable permission prompts and `--continue` to resume a previous session in the same directory:

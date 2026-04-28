@@ -49,6 +49,7 @@ func newRootCmd() *cobra.Command {
 		cmd.NewLogsCmd(),
 		cmd.NewAttachCmd(),
 		cmd.NewStreamLogCmd(),
+		cmd.NewStreamLogOpenHandsCmd(),
 	)
 
 	// Pre-register --version without a short alias so that cobra's lazy
