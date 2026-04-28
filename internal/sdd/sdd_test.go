@@ -377,8 +377,12 @@ func TestSkipPrompt_doesNotReferExclusivelyToClaudeMD(t *testing.T) {
 	// CLAUDE.md is a Claude Code-specific file. The generic skip prompt must be
 	// agent-neutral so that Codex and other agents find their own convention
 	// files without hunting for a file that may not exist in the target repo.
-	if strings.Contains(prompt, "Read CLAUDE.md") {
-		t.Errorf("SkipPrompt must not use a Claude-specific file reference; got:\n%s", prompt)
+	hasAgentNeutralReference := strings.Contains(prompt, "AGENTS.md") || strings.Contains(prompt, "README.md")
+	if !hasAgentNeutralReference {
+		t.Errorf("SkipPrompt must mention an agent-neutral convention file such as AGENTS.md or README.md; got:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "CLAUDE.md") && !hasAgentNeutralReference {
+		t.Errorf("SkipPrompt must not rely on a Claude-specific file reference without agent-neutral guidance; got:\n%s", prompt)
 	}
 }
 
