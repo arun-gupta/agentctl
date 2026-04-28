@@ -1801,8 +1801,9 @@ func TestSeedEnvLocal_copiesAndStripsPort(t *testing.T) {
 }
 
 func TestStartDevServer_noPackageJSON_returnsEmptyPort(t *testing.T) {
-	dir := t.TempDir() // no package.json
-	pid, port, err := startDevServer(dir, io.Discard)
+	dir := t.TempDir() // no .agentctl.yml
+	var buf strings.Builder
+	pid, port, err := startDevServer(dir, &buf)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1811,6 +1812,9 @@ func TestStartDevServer_noPackageJSON_returnsEmptyPort(t *testing.T) {
 	}
 	if port != "" {
 		t.Errorf("expected empty port when no dev server started, got %q", port)
+	}
+	if !strings.Contains(buf.String(), "warning") {
+		t.Errorf("expected a warning message when dev_server is not configured, got %q", buf.String())
 	}
 }
 

@@ -1332,7 +1332,7 @@ func seedEnvLocal(src, dst string) error {
 
 // startDevServer starts a dev server for the project in dir. Detection order:
 //  1. .agentctl.yml with dev_server field  → run that command with {port} substituted
-//  2. otherwise                            → silent skip, return ("","",nil)
+//  2. otherwise                            → print a warning and skip, return ("","",nil)
 //
 // On success the allocated port is written back to .agentctl.yml so it serves
 // as the single source of truth for all agentctl repo config.
@@ -1347,7 +1347,8 @@ func startDevServer(dir string, out io.Writer) (devPID, portStr string, err erro
 		return startCustomDevServer(dir, cfg, out)
 	}
 
-	// No dev server configured — silently skip
+	// No dev server configured — warn and skip
+	fmt.Fprintf(out, "warning: no dev_server configured in .agentctl.yml, skipping dev server startup\n")
 	return "", "", nil
 }
 
