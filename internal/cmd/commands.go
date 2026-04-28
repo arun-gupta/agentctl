@@ -1937,8 +1937,7 @@ func NewStreamLogOpenHandsCmd() *cobra.Command {
 // extracts assistant text and tool-use blocks. "result" events are
 // intentionally ignored because their text duplicates the final "assistant"
 // content block, which would otherwise cause the PR link and closing summary
-// to appear twice in terminal output. Non-JSON lines are returned as-is
-// (plain-text fallback).
+// to appear twice in terminal output. Non-JSON lines are dropped.
 func extractStreamText(line, wtDir string) string {
 	var ev struct {
 		Type    string `json:"type"`

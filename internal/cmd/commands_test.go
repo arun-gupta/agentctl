@@ -1690,9 +1690,9 @@ func TestExtractStreamText(t *testing.T) {
 			want: "",
 		},
 		{
-			name: "non-JSON passed through",
+			name: "non-JSON dropped",
 			line: "plain text output",
-			want: "plain text output",
+			want: "",
 		},
 		{
 			name: "empty assistant text skipped",
