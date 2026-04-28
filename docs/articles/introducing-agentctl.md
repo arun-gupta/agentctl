@@ -120,11 +120,11 @@ flowchart LR
 
 ## Headless / batch mode
 
-The quick-start workflow keeps the agent attached to your terminal. For running several issues in parallel — or for CI-style automation — use `--headless` to send the agent straight to the background:
+The quick-start workflow keeps the agent attached to your terminal. For running several issues in parallel — or for CI-style automation — pass a comma-separated list of issue numbers and agentctl runs all of them headlessly:
 
 ```mermaid
 flowchart LR
-    A["agentctl start --headless 210\nagentctl start --headless 211\nagentctl start --headless 212"] --> B[3 isolated worktrees\nrunning in parallel]
+    A["agentctl start 210,211,212"] --> B[3 isolated worktrees\nrunning in parallel]
     B --> C[Agent 210\nwrites code]
     B --> D[Agent 211\nwrites code]
     B --> E[Agent 212\nwrites code]
@@ -134,10 +134,8 @@ flowchart LR
 ```
 
 ```bash
-# Start three issues in parallel
-for i in 210 211 212; do
-  agentctl start --headless "$i"
-done
+# Start three issues in parallel (--headless is implicit for batch)
+agentctl start 210,211,212
 ```
 
 Each agent runs in the background and writes its output to `agent.log` inside its worktree. You get your prompt back immediately.
