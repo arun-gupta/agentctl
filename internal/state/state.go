@@ -18,6 +18,7 @@ type AgentFile struct {
 	SessionID string // UUID assigned at spawn time
 	DevPID    string // PID of the dev server process
 	AgentPID  string // PID of the background agent process (headless only)
+	SDD       string // SDD methodology name, e.g. "plain", "speckit"; empty if none
 	// Extra holds any additional key=value pairs not explicitly modelled above.
 	Extra map[string]string
 }
@@ -54,6 +55,8 @@ func Read(worktreePath string) (AgentFile, error) {
 			af.DevPID = v
 		case "agent-pid":
 			af.AgentPID = v
+		case "sdd":
+			af.SDD = v
 		default:
 			af.Extra[k] = v
 		}
@@ -93,6 +96,9 @@ func Write(worktreePath string, af AgentFile) error {
 	}
 	if af.AgentPID != "" {
 		lines = append(lines, "agent-pid="+af.AgentPID)
+	}
+	if af.SDD != "" {
+		lines = append(lines, "sdd="+af.SDD)
 	}
 	for k, v := range af.Extra {
 		lines = append(lines, k+"="+v)

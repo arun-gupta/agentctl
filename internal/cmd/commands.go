@@ -154,6 +154,7 @@ func startOne(issue, slug, agentName, sddName string, headless, quiet bool, out 
 		Agent:     agentName,
 		SessionID: sessionID,
 		DevPID:    devPID,
+		SDD:       sddName,
 	}
 	if err := state.Write(wtPath, af); err != nil {
 		return err
@@ -272,7 +273,7 @@ func runReleasePausedSession(issue, prompt string, headless, quiet bool) error {
 	}
 
 	// Check that a spec exists (paused state reached).
-	if computeSpecState(wt.Path, issue) == "no-spec" {
+	if computeSpecState(wt.Path, issue, af.SDD) == "no-spec" {
 		return fmt.Errorf("spec not yet generated for issue %s; paused state not reached.\nTail %s/agent.log to confirm and retry once the pause is reported.", issue, wt.Path)
 	}
 
@@ -817,7 +818,7 @@ func runStatus(verbose bool) error {
 
 		devPIDStr := pidStatus(af.DevPID)
 		agentPIDStr := pidStatus(af.AgentPID)
-		specState := computeSpecState(wt.Path, wt.Issue)
+		specState := computeSpecState(wt.Path, wt.Issue, af.SDD)
 
 		prState := "none"
 		if branch != "?" && branch != "HEAD" {
@@ -1030,11 +1031,12 @@ func pidStatus(pid string) string {
 }
 
 // computeSpecState derives the spec lifecycle state from filesystem artifacts.
+// sddName is the SDD methodology recorded in .agent (empty when no SDD was requested).
 // It recognises two layouts:
 //   - plain-style:   specs/spec.md (flat); always "paused" — no lifecycle files
 //   - speckit-style: specs/<issue>-*/spec.md with optional plan.md / tasks.md
-func computeSpecState(wtPath, issue string) string {
-	if issue == "" {
+func computeSpecState(wtPath, issue, sddName string) string {
+	if issue == "" || sddName == "" {
 		return "no-spec"
 	}
 	// Plain-style: flat specs/spec.md with no lifecycle subdirectory.
