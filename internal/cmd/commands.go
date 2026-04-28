@@ -911,9 +911,7 @@ func attachLog(wtPath, issue string, w io.Writer, logWait time.Duration) error {
 		_ = tail.Run()
 		fmt.Fprintln(w, "agent has already finished")
 		if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
-			if linkErr := linkPRToIssue(wtPath, branch, issue); linkErr != nil {
-				fmt.Fprintf(w, "note: could not link PR to issue: %v\n", linkErr)
-			}
+			reportPRStatus(w, wtPath, branch, issue)
 		}
 		return nil
 	}
@@ -947,9 +945,7 @@ func attachLog(wtPath, issue string, w io.Writer, logWait time.Duration) error {
 	_ = tail.Process.Kill()
 	_ = tail.Wait()
 	if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
-		if linkErr := linkPRToIssue(wtPath, branch, issue); linkErr != nil {
-			fmt.Fprintf(w, "note: could not link PR to issue: %v\n", linkErr)
-		}
+		reportPRStatus(w, wtPath, branch, issue)
 	}
 	return nil
 }
@@ -1041,30 +1037,34 @@ func ghPRState(repoRoot, branch string) (string, error) {
 	return state, err
 }
 
+type prInfo struct {
+	Number int    `json:"number"`
+	Body   string `json:"body"`
+	URL    string `json:"url"`
+}
+
 // linkPRToIssue appends "Closes #<issueNum>" to the open PR for branch,
 // unless the body already contains a closing keyword (closes/fixes).
-// Silently returns nil when no PR exists.
-func linkPRToIssue(dir, branch, issueNum string) error {
-	cmd := exec.Command("gh", "pr", "view", branch, "--json", "number,body")
+// Returns the PR info (including URL) so callers can display it.
+// Silently returns nil, nil when no PR exists.
+func linkPRToIssue(dir, branch, issueNum string) (*prInfo, error) {
+	cmd := exec.Command("gh", "pr", "view", branch, "--json", "number,body,url")
 	cmd.Dir = dir
 	var out, errBuf bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errBuf
 	if err := cmd.Run(); err != nil {
-		return nil // no PR — silently skip
+		return nil, nil // no PR — silently skip
 	}
 
-	var pr struct {
-		Number int    `json:"number"`
-		Body   string `json:"body"`
-	}
+	var pr prInfo
 	if err := json.Unmarshal(out.Bytes(), &pr); err != nil {
-		return nil
+		return nil, nil
 	}
 
 	lower := strings.ToLower(pr.Body)
 	if strings.Contains(lower, "closes #"+issueNum) || strings.Contains(lower, "fixes #"+issueNum) {
-		return nil
+		return &pr, nil
 	}
 
 	newBody := strings.TrimRight(pr.Body, "\n") + "\n\nCloses #" + issueNum
@@ -1073,9 +1073,21 @@ func linkPRToIssue(dir, branch, issueNum string) error {
 	var editErr bytes.Buffer
 	editCmd.Stderr = &editErr
 	if err := editCmd.Run(); err != nil {
-		return fmt.Errorf("gh pr edit: %w: %s", err, strings.TrimSpace(editErr.String()))
+		return &pr, fmt.Errorf("gh pr edit: %w: %s", err, strings.TrimSpace(editErr.String()))
 	}
-	return nil
+	return &pr, nil
+}
+
+// reportPRStatus links the PR to the issue and prints the PR URL to w.
+// Silent when no PR exists.
+func reportPRStatus(w io.Writer, dir, branch, issueNum string) {
+	pr, err := linkPRToIssue(dir, branch, issueNum)
+	if err != nil {
+		fmt.Fprintf(w, "note: could not link PR to issue: %v\n", err)
+	}
+	if pr != nil && pr.Number > 0 && pr.URL != "" {
+		fmt.Fprintf(w, "PR: #%d  %s\n", pr.Number, pr.URL)
+	}
 }
 
 // parseIssueURL checks whether arg is a full GitHub issue URL of the form
@@ -1585,9 +1597,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 			close(logDone)
 			wg.Wait()
 			if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
-				if linkErr := linkPRToIssue(wtPath, branch, issue); linkErr != nil {
-					fmt.Fprintf(os.Stderr, "note: could not link PR to issue: %v\n", linkErr)
-				}
+				reportPRStatus(os.Stdout, wtPath, branch, issue)
 			}
 			return nil
 		case <-sigCh:
@@ -2106,9 +2116,7 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 			close(logDone)
 			wg.Wait()
 			if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
-				if linkErr := linkPRToIssue(wtPath, branch, issue); linkErr != nil {
-					fmt.Fprintf(os.Stderr, "note: could not link PR to issue: %v\n", linkErr)
-				}
+				reportPRStatus(os.Stdout, wtPath, branch, issue)
 			}
 			return nil
 		case <-sigCh:
