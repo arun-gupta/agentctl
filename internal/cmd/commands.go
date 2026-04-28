@@ -223,16 +223,25 @@ func specExists(wtPath string) bool {
 
 // NewDiscardCmd creates the `discard` subcommand.
 func NewDiscardCmd() *cobra.Command {
-	return &cobra.Command{
+	var stale bool
+	c := &cobra.Command{
 		Use:   "discard [issue]",
 		Short: "Permanently delete a worktree and its local/remote branches",
 		Long: `Discard the worktree for an issue and delete the local and remote branches.
 This action is NOT recoverable. You will be prompted to type YES to confirm.
 
 If no issue number is given, it is inferred from the current branch when
-you are inside a linked worktree.`,
+you are inside a linked worktree.
+
+Use --stale to discard all worktrees that have no running agent and no PR.`,
 		Args: cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if stale {
+				if len(args) > 0 {
+					return fmt.Errorf("--stale and an issue number are mutually exclusive")
+				}
+				return runDiscardStale()
+			}
 			issue, err := resolveIssueArg("discard", args)
 			if err != nil {
 				return err
@@ -240,6 +249,136 @@ you are inside a linked worktree.`,
 			return runRemoveWorktree(issue)
 		},
 	}
+	c.Flags().BoolVar(&stale, "stale", false, "Discard all worktrees with no running agent and no PR")
+	return c
+}
+
+// isAgentRunning returns true when the agent PID recorded in wtPath is alive.
+//
+// If the agent state cannot be read, treat the worktree conservatively as having
+// a running agent so stale-discard does not remove it based on unreadable or
+// corrupt state.
+func isAgentRunning(wtPath string) bool {
+	af, err := state.Read(wtPath)
+	if err != nil {
+		return true
+	}
+	return af.AgentPID != "" && process.IsAlive(af.AgentPID)
+}
+
+// isStaleWorktree returns true when no agent is running and no PR of any state
+// exists for the branch. Returns false conservatively when PR status cannot be
+// reliably determined (e.g. auth or network failures) to avoid discarding
+// potentially active worktrees.
+func isStaleWorktree(repoRoot, branch, wtPath string) bool {
+	if isAgentRunning(wtPath) {
+		return false
+	}
+	hasPR, err := ghHasPR(repoRoot, branch)
+	if err != nil {
+		return false // conservative: can't confirm no PR, skip
+	}
+	return !hasPR
+}
+
+func runDiscardStale() error {
+	repoRoot, err := git.RepoRoot()
+	if err != nil {
+		return fmt.Errorf("cannot determine repo root: %w", err)
+	}
+
+	wts, err := git.LinkedWorktrees(repoRoot)
+	if err != nil {
+		return err
+	}
+
+	type staleEntry struct {
+		issue  string
+		branch string
+		wtPath string
+	}
+	var stale []staleEntry
+	for _, wt := range wts {
+		branch := wt.Branch
+		if branch == "" || branch == "HEAD" {
+			continue
+		}
+		if isStaleWorktree(repoRoot, branch, wt.Path) {
+			stale = append(stale, staleEntry{
+				issue:  git.InferIssue(branch),
+				branch: branch,
+				wtPath: wt.Path,
+			})
+		}
+	}
+
+	if len(stale) == 0 {
+		fmt.Println("No stale worktrees found.")
+		return nil
+	}
+
+	fmt.Fprintf(os.Stderr, "WARNING: The following stale worktrees will be permanently discarded:\n\n")
+	for _, e := range stale {
+		fmt.Fprintf(os.Stderr, "  issue #%s  branch %s\n", e.issue, e.branch)
+		fmt.Fprintf(os.Stderr, "             path   %s\n", e.wtPath)
+	}
+	fmt.Fprintf(os.Stderr, "\nThis action is NOT recoverable.\n")
+	fmt.Fprintf(os.Stderr, "Type YES to confirm: ")
+
+	var confirm string
+	sc := bufio.NewScanner(os.Stdin)
+	if sc.Scan() {
+		confirm = sc.Text()
+	}
+	if strings.ToLower(strings.TrimSpace(confirm)) != "yes" {
+		return fmt.Errorf("aborted")
+	}
+
+	discardStaleEntry := func(wtPath, branch string) error {
+		if wtPath != "" {
+			af, _ := state.Read(wtPath)
+			process.Kill(af.DevPID)
+			process.Kill(af.AgentPID)
+			if err := git.RemoveWorktree(repoRoot, wtPath); err != nil {
+				return fmt.Errorf("remove worktree %s: %w", wtPath, err)
+			}
+			fmt.Printf("Removed %s\n", wtPath)
+		}
+
+		if branch != "" && branch != "HEAD" {
+			if git.BranchExists(repoRoot, branch) {
+				if err := git.DeleteLocalBranch(repoRoot, branch); err != nil {
+					return fmt.Errorf("delete local branch %s: %w", branch, err)
+				}
+			} else {
+				fmt.Printf("Local branch %s already removed\n", branch)
+			}
+
+			msg, err := git.DeleteRemoteBranch(repoRoot, branch)
+			if err != nil {
+				if strings.Contains(msg, "remote ref does not exist") {
+					fmt.Printf("Remote branch %s already removed\n", branch)
+				} else {
+					return fmt.Errorf("delete remote branch %s: %s\nDelete the remote manually with:\n  git push origin --delete %s", branch, strings.TrimSpace(msg), branch)
+				}
+			} else {
+				fmt.Printf("Deleted remote branch origin/%s\n", branch)
+			}
+		}
+
+		return nil
+	}
+
+	discarded := 0
+	for _, e := range stale {
+		if err := discardStaleEntry(e.wtPath, e.branch); err != nil {
+			return err
+		}
+		discarded++
+	}
+
+	fmt.Printf("\nDiscarded %d stale worktree(s)\n", discarded)
+	return nil
 }
 
 func runRemoveWorktree(issue string) error {
@@ -501,7 +640,7 @@ func runCleanupAllMerged() error {
 		return err
 	}
 
-	cleaned, skipped, failed := 0, 0, 0
+	cleaned, skipped, failed, staleCount := 0, 0, 0, 0
 	for _, wt := range wts {
 		branch := wt.Branch
 		if branch == "" || branch == "HEAD" {
@@ -511,6 +650,9 @@ func runCleanupAllMerged() error {
 		}
 		prState, err := ghPRState(repoRoot, branch)
 		if err != nil || prState == "" {
+			if !isAgentRunning(wt.Path) {
+				staleCount++
+			}
 			fmt.Printf("Skipping %s: no PR found\n", branch)
 			skipped++
 			continue
@@ -536,6 +678,9 @@ func runCleanupAllMerged() error {
 	}
 
 	fmt.Printf("\n%d merged worktrees cleaned, %d skipped\n", cleaned, skipped)
+	if staleCount > 0 {
+		fmt.Printf("Note: %d stale worktree(s) found with no agent and no PR — run `agentctl discard --stale` to remove them.\n", staleCount)
+	}
 	if failed > 0 {
 		fmt.Fprintf(os.Stderr, "%d cleanup(s) failed\n", failed)
 		return fmt.Errorf("%d cleanup(s) failed", failed)
@@ -871,6 +1016,23 @@ func ghPRInfo(repoRoot, branch string) (state string, number int, err error) {
 		return "", 0, fmt.Errorf("unexpected gh PR number %q in output %q: %w", parts[1], out.String(), err)
 	}
 	return parts[0], n, nil
+}
+
+// ghHasPR uses `gh pr list --head <branch> --state all` to check whether any
+// PR (open, closed, or merged) exists for the branch. It returns (true, nil)
+// when at least one PR exists, (false, nil) when none exist, and (false, err)
+// when the GH CLI call fails (e.g. auth or network failure) so callers can
+// treat the result conservatively.
+func ghHasPR(repoRoot, branch string) (bool, error) {
+	cmd := exec.Command("gh", "pr", "list", "--head", branch, "--state", "all", "--json", "number")
+	cmd.Dir = repoRoot
+	var out, errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		return false, fmt.Errorf("%w: %s", err, strings.TrimSpace(errBuf.String()))
+	}
+	return strings.TrimSpace(out.String()) != "[]", nil
 }
 
 // ghPRState is a convenience wrapper that returns only the state string.

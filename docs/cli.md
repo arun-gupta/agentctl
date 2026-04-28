@@ -112,6 +112,7 @@ If the PR is not merged, use `agentctl discard` for abandoned work.
 
 ```bash
 agentctl discard [issue-number]
+agentctl discard --stale
 ```
 
 Permanently discards a worktree and deletes local/remote branches. This is unrecoverable and prompts for `YES`.
@@ -119,6 +120,18 @@ Permanently discards a worktree and deletes local/remote branches. This is unrec
 Use this for abandoned or failed work where the PR should not be merged.
 
 Like `cleanup`, the issue number can be inferred from the current branch when run inside a linked worktree.
+
+Use `--stale` to discard all linked worktrees at once that have no running agent and no PR. All matching worktrees are listed before the confirmation prompt. `--stale` and a positional issue number are mutually exclusive.
+
+A worktree is considered stale when both conditions hold:
+1. No agent is running (no `.agent` file, empty `agent-pid`, or the recorded PID is not alive).
+2. No PR of any state exists for the branch (`gh pr list --state all` returns no results).
+
+When `agentctl cleanup --all` skips worktrees with no PR, it prints a hint if any of them are also stale:
+
+```
+Note: N stale worktree(s) found with no agent and no PR — run `agentctl discard --stale` to remove them.
+```
 
 ### `agentctl logs`
 
