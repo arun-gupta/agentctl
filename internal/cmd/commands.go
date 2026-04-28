@@ -262,12 +262,17 @@ func isAgentRunning(wtPath string) bool {
 }
 
 // isStaleWorktree returns true when no agent is running and no PR exists for branch.
+// If PR status cannot be determined reliably, it returns false to avoid discarding
+// a potentially active worktree based on transient GH CLI/auth/network failures.
 func isStaleWorktree(repoRoot, branch, wtPath string) bool {
 	if isAgentRunning(wtPath) {
 		return false
 	}
 	prState, _, err := ghPRInfo(repoRoot, branch)
-	return err != nil || prState == ""
+	if err != nil {
+		return false
+	}
+	return prState == ""
 }
 
 func runDiscardStale() error {
