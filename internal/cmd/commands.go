@@ -1474,7 +1474,9 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 
 	// In interactive mode, capture output through a pipe so we can parse
 	// stream-json events and write human-readable text to the log file
-	// progressively. In headless mode the agent writes directly to the file.
+	// progressively. In headless mode, non-Claude adapters write directly to
+	// the file; Claude headless uses a pipe fed to a detached __stream-log
+	// subprocess so intermediate tool steps are captured progressively.
 	var pr, pw *os.File
 	if !headless {
 		pr, pw, err = os.Pipe()
@@ -1530,6 +1532,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			convCmd := exec.Command(os.Args[0], "__stream-log", wtPath)
 			convCmd.Stdin = pr
 			convCmd.Stdout = logFile
+			convCmd.Stderr = logFile
 			// Set Dir to wtPath so the converter's CWD is outside any temp dir
 			// that the test may have set via chdirTemp, preventing any runtime
 			// exit hooks from creating files in a directory under cleanup.
@@ -1663,8 +1666,8 @@ func waitForFile(path string, timeout time.Duration) error {
 
 // convertStreamToLog reads Claude --output-format stream-json lines from r,
 // converts each event to human-readable text, and appends the result to
-// logPath. Used by runStreamLog (the __stream-log hidden subcommand) and
-// directly in tests.
+// logPath. Used by callers that need stream-json output persisted to a
+// log file, including tests.
 func convertStreamToLog(r io.Reader, logPath, wtDir string) error {
 	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -1694,19 +1697,17 @@ func convertStreamToLog(r io.Reader, logPath, wtDir string) error {
 // (agentctl headless launcher) sets the subprocess stdout to an already-open
 // log file fd so no file-path lookup is needed.
 func runStreamLog(wtDir string) error {
-	w := bufio.NewWriter(os.Stdout)
-	defer w.Flush() //nolint:errcheck
 	r := bufio.NewReader(os.Stdin)
 	for {
 		line, readErr := r.ReadString('\n')
 		if line != "" {
 			if text := extractStreamText(strings.TrimSuffix(line, "\n"), wtDir); text != "" {
-				fmt.Fprintln(w, text)
+				fmt.Fprintln(os.Stdout, text)
 			}
 		}
 		if readErr != nil {
 			if !errors.Is(readErr, io.EOF) {
-				fmt.Fprintf(w, "stream-log read error: %v\n", readErr)
+				fmt.Fprintf(os.Stdout, "stream-log read error: %v\n", readErr)
 			}
 			break
 		}
@@ -2088,6 +2089,7 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 			convCmd := exec.Command(os.Args[0], "__stream-log", wtPath)
 			convCmd.Stdin = pr
 			convCmd.Stdout = logFile
+			convCmd.Stderr = logFile
 			convCmd.Dir = wtPath
 			detachProcess(convCmd)
 			if convErr := convCmd.Start(); convErr != nil {
