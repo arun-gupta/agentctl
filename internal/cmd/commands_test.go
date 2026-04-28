@@ -900,7 +900,23 @@ func TestAgentResume_headless_success(t *testing.T) {
 	chdirTemp(t, dir)
 
 	if err := agentResume("echoagent", dir, "42", "sess-123", "my feedback", true, false); err != nil {
-		t.Errorf("agentResume headless: %v", err)
+		t.Fatalf("agentResume headless: %v", err)
+	}
+
+	agentState, err := os.ReadFile(filepath.Join(dir, ".agent"))
+	if err != nil {
+		t.Fatalf("read .agent: %v", err)
+	}
+	if !strings.Contains(string(agentState), "agent-pid:") {
+		t.Fatalf(".agent missing agent-pid entry:\n%s", string(agentState))
+	}
+
+	logData, err := os.ReadFile(filepath.Join(dir, "agent.log"))
+	if err != nil {
+		t.Fatalf("read agent.log: %v", err)
+	}
+	if !strings.Contains(string(logData), "sess-123") {
+		t.Fatalf("agent.log missing resumed session output:\n%s", string(logData))
 	}
 }
 
