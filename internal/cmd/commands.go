@@ -1512,6 +1512,10 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 
 	agentCmd := ad.LaunchCmd(kickoff, sessionID, wtPath)
 	agentCmd.Dir = wtPath
+	// Remove agent-launcher binaries from the child's PATH so the agent
+	// cannot invoke agentctl, claude, or other agent CLIs even if its model
+	// decides to try — prompt instructions alone are not reliable guards.
+	agentCmd.Env = agentEnv()
 
 	logPath := filepath.Join(wtPath, "agent.log")
 	logFile, err := os.Create(logPath)
@@ -2209,6 +2213,37 @@ func isWriterTerminal(w io.Writer) bool {
 // wildcard allow-list so that sub-agents spawned by the top-level Claude
 // process inherit the same bypass-permissions mode. If the file already
 // exists (e.g. committed in the repo) it is left untouched.
+// agentEnv returns os.Environ() with directories that contain known
+// agent-launcher binaries (claude, agentctl) removed from PATH. This prevents
+// a spawned agent from invoking another AI agent CLI even when its model
+// decides to try — prompt instructions alone are not a reliable guard.
+func agentEnv() []string {
+	blocked := []string{"claude", "agentctl"}
+	rawPath := os.Getenv("PATH")
+	var kept []string
+	for _, dir := range filepath.SplitList(rawPath) {
+		exclude := false
+		for _, bin := range blocked {
+			if _, err := os.Stat(filepath.Join(dir, bin)); err == nil {
+				exclude = true
+				break
+			}
+		}
+		if !exclude {
+			kept = append(kept, dir)
+		}
+	}
+	filteredPath := strings.Join(kept, string(filepath.ListSeparator))
+	env := os.Environ()
+	for i, kv := range env {
+		if strings.HasPrefix(kv, "PATH=") {
+			env[i] = "PATH=" + filteredPath
+			return env
+		}
+	}
+	return append(env, "PATH="+filteredPath)
+}
+
 func writeClaudeSettings(wtPath string) error {
 	dir := filepath.Join(wtPath, ".claude")
 	// Reject symlinks to prevent writing outside the worktree.
@@ -2260,6 +2295,7 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 
 	resumeCmd := ad.ResumeCmd(prompt, sessionID, wtPath)
 	resumeCmd.Dir = wtPath
+	resumeCmd.Env = agentEnv()
 
 	logPath := filepath.Join(wtPath, "agent.log")
 	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
