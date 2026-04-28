@@ -18,14 +18,6 @@ import (
 //go:embed builtin/*.yml
 var builtinFS embed.FS
 
-// genericSkipPrompt is the hardcoded prompt used when --no-sdd is set.
-// It never varies by methodology.
-const genericSkipPrompt = `Work on GitHub issue #{issue}. Read project conventions from AGENTS.md or README.md if present.
-Skip the SDD lifecycle — make the changes directly, push the branch,
-and open a PR. Do not merge.
-Do not invoke external AI agent CLIs (claude, codex, etc.) — use your own tools directly.
-Dev server is running on port {port}.`
-
 // Methodology describes a single SDD lifecycle. The name is derived from the
 // YAML filename stem (e.g. "speckit.yml" → "speckit"). There is no name: field.
 type Methodology struct {
@@ -39,13 +31,6 @@ type Methodology struct {
 // containing {port} is removed so the agent is not told about a dev server.
 func (m *Methodology) KickoffPrompt(issue, port string) string {
 	s := strings.ReplaceAll(m.Kickoff, "{issue}", issue)
-	return substitutePort(s, port)
-}
-
-// SkipPrompt returns the generic skip prompt with {issue} and {port} substituted.
-// This is always the same regardless of which methodology is active.
-func SkipPrompt(issue, port string) string {
-	s := strings.ReplaceAll(genericSkipPrompt, "{issue}", issue)
 	return substitutePort(s, port)
 }
 

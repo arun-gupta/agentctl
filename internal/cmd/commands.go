@@ -95,6 +95,31 @@ Use --sdd <name> to opt into a spec-driven development (SDD) methodology
 	return c
 }
 
+// kickoffTemplate is the default prompt sent to the agent when no --sdd
+// methodology is specified. {issue} and {port} are substituted at call time.
+const kickoffTemplate = `Work on GitHub issue #{issue}. Read AGENTS.md or README.md for project conventions if present.
+Make the changes directly, push the branch, and open a PR. Do not merge.
+You are the coding agent — implement changes using your own file-editing and bash tools.
+Do not run agentctl, claude, codex, or any other agent-launcher CLI.
+Dev server is running on port {port}.`
+
+// buildKickoff returns the default agent kickoff prompt for a plain
+// (non-SDD) run with {issue} and {port} substituted. When port is empty,
+// the dev-server line is omitted entirely.
+func buildKickoff(issue, port string) string {
+	s := strings.ReplaceAll(kickoffTemplate, "{issue}", issue)
+	if port == "" {
+		var lines []string
+		for _, line := range strings.Split(s, "\n") {
+			if !strings.Contains(line, "{port}") {
+				lines = append(lines, line)
+			}
+		}
+		return strings.TrimRight(strings.Join(lines, "\n"), "\n")
+	}
+	return strings.ReplaceAll(s, "{port}", port)
+}
+
 // startOne provisions a worktree for a single issue and launches the agent.
 // It is the per-issue unit used by both single-issue and batch invocations.
 func startOne(issue, slug, agentName, sddName string, headless, quiet bool, out io.Writer) error {
@@ -162,7 +187,7 @@ func startOne(issue, slug, agentName, sddName string, headless, quiet bool, out 
 
 	var kickoff string
 	if sddName == "" {
-		kickoff = sdd.SkipPrompt(issueNum, portStr)
+		kickoff = buildKickoff(issueNum, portStr)
 	} else {
 		m, sddErr := sdd.Get(sddName)
 		if sddErr != nil {

@@ -184,36 +184,6 @@ func TestKickoffPrompt_plain_waitForApproval(t *testing.T) {
 	}
 }
 
-// ─── SkipPrompt ───────────────────────────────────────────────────────────────
-
-func TestSkipPrompt_substitution(t *testing.T) {
-	prompt := sdd.SkipPrompt("42", "3010")
-	if strings.Contains(prompt, "{issue}") {
-		t.Error("SkipPrompt did not substitute {issue}")
-	}
-	if strings.Contains(prompt, "{port}") {
-		t.Error("SkipPrompt did not substitute {port}")
-	}
-	if !strings.Contains(prompt, "42") {
-		t.Error("SkipPrompt missing issue number 42")
-	}
-	if !strings.Contains(prompt, "3010") {
-		t.Error("SkipPrompt missing port 3010")
-	}
-}
-
-func TestSkipPrompt_sameRegardlessOfMethodology(t *testing.T) {
-	// SkipPrompt is always the same generic text, not methodology-specific.
-	p1 := sdd.SkipPrompt("1", "3010")
-	p2 := sdd.SkipPrompt("1", "3010")
-	if p1 != p2 {
-		t.Errorf("SkipPrompt is not deterministic: %q vs %q", p1, p2)
-	}
-	if !strings.Contains(p1, "Skip the SDD lifecycle") {
-		t.Errorf("SkipPrompt missing generic skip text, got: %s", p1)
-	}
-}
-
 // ─── resolution chain ─────────────────────────────────────────────────────────
 
 func TestGet_userLevelOverridesBuiltin(t *testing.T) {
@@ -412,24 +382,6 @@ func assertPromptWithoutPortKeepsGuidance(t *testing.T, promptName, prompt strin
 	}
 }
 
-func TestSkipPrompt_noPort_omitsDevServerLine(t *testing.T) {
-	prompt := sdd.SkipPrompt("42", "")
-	assertPromptWithoutPortKeepsGuidance(t, "SkipPrompt", prompt)
-}
-
-func TestSkipPrompt_isAgentNeutral(t *testing.T) {
-	prompt := sdd.SkipPrompt("42", "3010")
-	if strings.Contains(prompt, "CLAUDE.md") {
-		t.Errorf("SkipPrompt must not reference CLAUDE.md (Claude-specific); got:\n%s", prompt)
-	}
-	if !strings.Contains(prompt, "AGENTS.md") && !strings.Contains(prompt, "README.md") {
-		t.Errorf("SkipPrompt must mention an agent-neutral convention file (AGENTS.md or README.md); got:\n%s", prompt)
-	}
-	if !strings.Contains(prompt, "Do not invoke") {
-		t.Errorf("SkipPrompt must tell agents not to invoke external AI agent CLIs; got:\n%s", prompt)
-	}
-}
-
 func TestBuiltinKickoffs_areAgentNeutral(t *testing.T) {
 	// Isolate from any user-level methodology overrides (XDG_CONFIG_HOME is
 	// honored on all platforms; os.UserConfigDir ignores it on macOS).
@@ -447,8 +399,8 @@ func TestBuiltinKickoffs_areAgentNeutral(t *testing.T) {
 		if !strings.Contains(prompt, "AGENTS.md") && !strings.Contains(prompt, "README.md") {
 			t.Errorf("%s kickoff must mention an agent-neutral convention file; got:\n%s", name, prompt)
 		}
-		if !strings.Contains(prompt, "Do not invoke") {
-			t.Errorf("%s kickoff must tell agents not to invoke external AI agent CLIs; got:\n%s", name, prompt)
+		if !strings.Contains(prompt, "Do not run agentctl") {
+			t.Errorf("%s kickoff must tell agents not to invoke agent-launcher CLIs; got:\n%s", name, prompt)
 		}
 	}
 }
