@@ -190,7 +190,7 @@ binary: openhands
 launch: openhands --headless --always-approve -t {kickoff}
 resume_cmd: openhands --headless --always-approve --resume --last -t {prompt}
 session_type: directory
-install: pip install openhands-ai
+install: uv tool install openhands --python 3.12
 ```
 
 ### KiloCode
