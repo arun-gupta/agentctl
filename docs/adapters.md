@@ -2,9 +2,162 @@
 
 agentctl uses a **YAML adapter system** to launch and resume coding agents. Any tool vendor, user, or editor extension can add a new adapter by dropping a single YAML file into a config directory — no Go knowledge or pull request required.
 
-## How it works
+## Available adapters
 
-One code path handles all adapters. Built-in and user-defined adapters are the same type, loaded by the same loader. The binary ships with five built-in adapters embedded directly — plain YAML files, not special Go code.
+### Tested
+
+| Adapter | Type | Install |
+|---------|------|---------|
+| [claude](#claude) | Built-in (default) | `npm install -g @anthropic-ai/claude-code` |
+| [codex](#codex) | Built-in | `npm install -g @openai/codex` |
+| [copilot](#copilot) | Built-in | `npm install -g @github/copilot` |
+| [openhands](#openhands) | Pluggable | `uv tool install openhands --python 3.12` |
+
+### Untested
+
+The following adapters have not been verified end-to-end. The YAML is provided as a best-effort starting point — flags or command shapes may need adjustment.
+
+| Adapter | Type | Install |
+|---------|------|---------|
+| [gemini](#gemini) | Built-in | `npm install -g @google/gemini-cli` |
+| [opencode](#opencode) | Built-in | `npm install -g opencode@latest` |
+| [kilocode](#kilocode) | Pluggable | `npm install -g @kilocode/cli` |
+| [cursor](#cursor) | Pluggable | `brew install --cask cursor-cli` |
+
+**Built-in** adapters are embedded in the binary and work out of the box.  
+**Pluggable** adapters require saving a YAML file to a [config directory](#drop-in-locations) first.
+
+---
+
+## Tested adapters
+
+### claude
+
+The default adapter. Uses Claude Code with `bypassPermissions` so it can edit files and run commands without prompts.
+
+```yaml
+binary: claude
+launch: claude --permission-mode bypassPermissions -p {kickoff} --session-id {session_id}
+resume_cmd: claude -p {prompt} --resume {session_id}
+install: npm install -g @anthropic-ai/claude-code
+```
+
+### codex
+
+[OpenAI Codex](https://github.com/openai/codex) — OpenAI's CLI coding agent.
+
+```yaml
+binary: codex
+launch: codex exec --dangerously-bypass-approvals-and-sandbox -C {worktree} {kickoff}
+resume_cmd: codex exec resume --last --dangerously-bypass-approvals-and-sandbox {prompt}
+session_type: directory
+install: npm install -g @openai/codex
+```
+
+### copilot
+
+[GitHub Copilot](https://github.com/github/copilot-cli) agent mode.
+
+```yaml
+binary: copilot
+launch: copilot --add-dir {worktree} --allow-all-tools -p {kickoff}
+resume_cmd: copilot --add-dir {worktree} --allow-all-tools -p {prompt} --continue
+session_type: directory
+install: npm install -g @github/copilot
+```
+
+### openhands
+
+[OpenHands](https://openhands.dev/) is an open-source AI agent platform. It runs headlessly with structured JSON output and uses directory-based session continuity.
+
+**One-time setup:** run `openhands` interactively once to configure your LLM provider and API key before using the headless adapter. Settings are saved to `~/.openhands/agent_settings.json`.
+
+Save to a [drop-in location](#drop-in-locations) to enable:
+
+```yaml
+binary: openhands
+launch: openhands --headless --always-approve --json -t {kickoff}
+resume_cmd: openhands --headless --always-approve --json --resume --last -t {prompt}
+session_type: directory
+install: uv tool install openhands --python 3.12
+```
+
+agentctl **best-effort** injects `GITHUB_TOKEN` from `gh auth token` into the agent environment only when `GITHUB_TOKEN` is unset or empty, `gh` is installed, and `gh auth token` returns a non-empty token. When those prerequisites are met, `git push` can work without requiring keychain access.
+
+---
+
+## Untested adapters
+
+These adapters have not been verified end-to-end. See the warning in [Available adapters → Untested](#untested) above.
+
+### gemini
+
+[Gemini CLI](https://github.com/google-gemini/gemini-cli) — Google's coding agent. Uses directory-based session continuity.
+
+```yaml
+binary: gemini
+session_type: directory
+install: npm install -g @google/gemini-cli
+```
+
+### opencode
+
+[OpenCode](https://opencode.ai/) — an open-source coding agent. Uses `--continue` to resume the previous session in the worktree.
+
+```yaml
+binary: opencode run
+launch: opencode run {kickoff}
+resume_cmd: opencode run {prompt} --continue
+session_type: directory
+install: npm install -g opencode@latest
+```
+
+### kilocode
+
+[KiloCode](https://kilocode.ai/) — a standalone AI coding agent CLI. Save to a [drop-in location](#drop-in-locations) to enable.
+
+```yaml
+binary: kilo
+launch: kilo run --auto {kickoff}
+resume_cmd: kilo run --auto --continue {prompt}
+install: npm install -g @kilocode/cli
+```
+
+### cursor
+
+Cursor's CLI agent (`cursor-agent`) is installed separately from the Cursor IDE via the `cursor-cli` cask. Save to a [drop-in location](#drop-in-locations) to enable.
+
+```yaml
+binary: cursor-agent
+launch: cursor-agent -p {kickoff}
+resume_cmd: cursor-agent --continue -p {prompt}
+install: brew install --cask cursor-cli
+```
+
+---
+
+## Drop-in locations
+
+### Project-local (per-repo override)
+
+Create `.agentctl/adapters/` in your application repository root:
+
+```
+your-app-repo/
+└── .agentctl/
+    └── adapters/
+        └── openhands.yml    ← available to everyone on this repo
+```
+
+### User-level (personal override or custom adapter)
+
+Create `~/.config/agentctl/adapters/` (respects `$XDG_CONFIG_HOME`):
+
+```
+~/.config/agentctl/adapters/
+├── claude.yml               ← overrides built-in claude adapter
+└── my-custom-agent.yml      ← new personal adapter
+```
 
 ## Adapter resolution
 
@@ -16,9 +169,11 @@ Resolved in priority order — first match wins:
 | 2 | **User-level** | `~/.config/agentctl/adapters/<name>.yml` |
 | 3 (lowest) | **Built-in** | Embedded in the binary |
 
-Both `.yml` and `.yaml` are accepted. When both exist in the same directory, `.yml` wins and agentctl prints a warning to stderr. Dropping a file at level 1 or 2 with the same name as a built-in overrides it completely — useful for pinning flags without waiting for a release.
+Both `.yml` and `.yaml` are accepted. When both exist in the same directory, `.yml` wins and agentctl prints a warning to stderr.
 
-## YAML schema
+## Writing a custom adapter
+
+### YAML schema
 
 ```yaml
 # Binary to invoke. Required. Space-separated for multi-token binaries
@@ -54,7 +209,7 @@ install: <string>         # optional; e.g. "npm install -g @anthropic-ai/claude-
 
 The adapter name is always the filename stem (`cursor.yml` → `cursor`). There is no `name:` field.
 
-### Placeholders (for `launch` and `resume_cmd` only)
+### Placeholders
 
 Placeholders must be standalone tokens (surrounded by whitespace):
 
@@ -74,17 +229,17 @@ Placeholders must be standalone tokens (surrounded by whitespace):
 | `{session_id}` | UUID assigned by agentctl |
 | `{worktree}` | Absolute path to the linked worktree directory |
 
-## Examples
+### Examples
 
-### One line — minimum viable adapter
+**Minimum viable adapter:**
 
 ```yaml
-binary: cursor
+binary: my-agent
 ```
 
-Gives: `cursor -p {kickoff}` on launch, `cursor -p {prompt}` on resume.
+Gives: `my-agent -p {kickoff}` on launch, `my-agent -p {prompt}` on resume.
 
-### Structured fields
+**Structured fields:**
 
 ```yaml
 binary: codex
@@ -93,7 +248,7 @@ session: --session
 resume_id: --resume
 ```
 
-### Full command override
+**Full command override:**
 
 ```yaml
 binary: my-bot
@@ -103,119 +258,7 @@ resume_cmd: my-bot --continue {prompt} --id {session_id}
 
 `launch` and `resume_cmd` are independent — set one without the other and the unset side falls back to structured fields.
 
-## Built-in adapters
-
-The binary ships with these five built-in adapters. Override any by dropping a same-named file in a higher-priority location.
-
-### claude
-
-```yaml
-binary: claude
-launch: claude --permission-mode bypassPermissions -p {kickoff} --session-id {session_id}
-resume_cmd: claude -p {prompt} --resume {session_id}
-install: npm install -g @anthropic-ai/claude-code
-```
-
-### gemini
-
-```yaml
-binary: gemini
-session_type: directory
-install: npm install -g @google/gemini-cli
-```
-
-### opencode
-
-```yaml
-binary: opencode run
-launch: opencode run {kickoff}
-resume_cmd: opencode run {prompt} --continue
-session_type: directory
-install: npm install -g opencode@latest
-```
-
-### codex
-
-```yaml
-binary: codex
-launch: codex exec --dangerously-bypass-approvals-and-sandbox -C {worktree} {kickoff}
-resume_cmd: codex exec resume --last --dangerously-bypass-approvals-and-sandbox {prompt}
-session_type: directory
-install: npm install -g @openai/codex
-```
-
-### copilot
-
-```yaml
-binary: copilot
-launch: copilot --add-dir {worktree} --allow-all-tools -p {kickoff}
-resume_cmd: copilot --add-dir {worktree} --allow-all-tools -p {prompt} --continue
-session_type: directory
-install: npm install -g @github/copilot
-```
-
-## Drop-in locations
-
-### Project-local (per-repo override)
-
-Create `.agentctl/adapters/` in your application repository root:
-
-```
-your-app-repo/
-└── .agentctl/
-    └── adapters/
-        └── cursor.yml    ← new adapter available to everyone on this repo
-```
-
-### User-level (personal override or custom adapter)
-
-Create `~/.config/agentctl/adapters/` (respects `$XDG_CONFIG_HOME`):
-
-```
-~/.config/agentctl/adapters/
-├── claude.yml            ← overrides built-in claude adapter
-└── my-custom-agent.yml   ← new personal adapter
-```
-
-## Adapter recipes
-
-Ready-to-use YAML files for agents not included as built-ins. Save any of these to a [drop-in location](#drop-in-locations) to enable the adapter.
-
-### OpenHands
-
-[OpenHands](https://openhands.dev/) is an open-source AI agent platform with a CLI. It generates its own conversation IDs, so `session_type: directory` is used; `--json` enables structured streaming output and resume targets the most recent conversation in the worktree:
-
-```yaml
-binary: openhands
-launch: openhands --headless --always-approve --json -t {kickoff}
-resume_cmd: openhands --headless --always-approve --json --resume --last -t {prompt}
-session_type: directory
-install: uv tool install openhands --python 3.12
-```
-
-### KiloCode
-
-KiloCode is a standalone AI coding agent with a `kilo run` CLI. It uses `--auto` to disable permission prompts and `--continue` to resume a previous session in the same directory:
-
-```yaml
-binary: kilo
-launch: kilo run --auto {kickoff}
-resume_cmd: kilo run --auto --continue {prompt}
-install: npm install -g @kilocode/cli
-```
-
-### Cursor
-
-Cursor's CLI agent binary is `cursor-agent`, installed via the `cursor-cli` cask (separate from the Cursor IDE). It uses `-p` for prompt injection and `--continue` to resume the previous session:
-
-```yaml
-binary: cursor-agent
-launch: cursor-agent -p {kickoff}
-resume_cmd: cursor-agent --continue -p {prompt}
-install: brew install --cask cursor-cli
-```
-
-## Command assembly (structured fields)
+### Command assembly
 
 When `launch` / `resume_cmd` are not set, commands are assembled from structured fields:
 
@@ -224,7 +267,7 @@ When `launch` / `resume_cmd` are not set, commands are assembled from structured
 
 `strings.Fields(binary)` splits multi-token binaries — `opencode run` becomes `exec.Command("opencode", "run", ...)`. No shell is involved.
 
-## Validation
+### Validation
 
 | Condition | Behaviour |
 |-----------|-----------|
