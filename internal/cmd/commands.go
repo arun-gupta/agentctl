@@ -1512,6 +1512,9 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 		}
 		agentCmd.Stdout = pw
 		agentCmd.Stderr = pw
+		// Redirect stdin to /dev/null so the agent sees no TTY and does not
+		// render an interactive UI that would overlap agentctl's log output.
+		agentCmd.Stdin = nil
 	} else {
 		if adapterName == "claude" {
 			// Use stream-json so intermediate tool steps are captured progressively.
@@ -2252,6 +2255,7 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 		}
 		resumeCmd.Stdout = pw
 		resumeCmd.Stderr = pw
+		resumeCmd.Stdin = nil
 	} else {
 		if adapterName == "claude" {
 			// Use stream-json so intermediate tool steps are captured progressively
