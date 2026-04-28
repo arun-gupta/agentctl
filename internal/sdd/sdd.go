@@ -23,7 +23,8 @@ var builtinFS embed.FS
 const genericSkipPrompt = `Work on GitHub issue #{issue}. Read project conventions from AGENTS.md or README.md if present.
 Skip the SDD lifecycle — make the changes directly, push the branch,
 and open a PR. Do not merge.
-Do not invoke external AI agent CLIs (claude, codex, etc.) — use your own tools directly.
+You are the coding agent — implement changes using your own file-editing and bash tools.
+Do not run agentctl, claude, codex, or any other agent-launcher CLI.
 Dev server is running on port {port}.`
 
 // Methodology describes a single SDD lifecycle. The name is derived from the

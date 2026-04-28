@@ -425,7 +425,7 @@ func TestSkipPrompt_isAgentNeutral(t *testing.T) {
 	if !strings.Contains(prompt, "AGENTS.md") && !strings.Contains(prompt, "README.md") {
 		t.Errorf("SkipPrompt must mention an agent-neutral convention file (AGENTS.md or README.md); got:\n%s", prompt)
 	}
-	if !strings.Contains(prompt, "Do not invoke") {
+	if !strings.Contains(prompt, "Do not run agentctl") {
 		t.Errorf("SkipPrompt must tell agents not to invoke external AI agent CLIs; got:\n%s", prompt)
 	}
 }
@@ -447,7 +447,7 @@ func TestBuiltinKickoffs_areAgentNeutral(t *testing.T) {
 		if !strings.Contains(prompt, "AGENTS.md") && !strings.Contains(prompt, "README.md") {
 			t.Errorf("%s kickoff must mention an agent-neutral convention file; got:\n%s", name, prompt)
 		}
-		if !strings.Contains(prompt, "Do not invoke") {
+		if !strings.Contains(prompt, "Do not run agentctl") {
 			t.Errorf("%s kickoff must tell agents not to invoke external AI agent CLIs; got:\n%s", name, prompt)
 		}
 	}
