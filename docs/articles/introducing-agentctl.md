@@ -25,8 +25,8 @@ agentctl is a CLI that manages the full lifecycle of AI coding agents working on
 
 1. **Isolated worktree** — agentctl creates a [linked Git worktree](https://git-scm.com/docs/git-worktree) at `../<repo>-<issue>-<slug>/`. Every agent works in its own directory with its own branch; they never share an index or conflict with your primary checkout.
 2. **Reserved port** — agentctl picks a free port in the `3010–3100` range, writes `PORT=<port>` into the worktree's `.env.local`, and starts the dev server there. No two agents fight over the same port.
-3. **Structured lifecycle** — each worktree gets a `.agent` metadata file that tracks the agent name, session ID, and process IDs. `agentctl status` reads these across all worktrees and shows a consolidated table.
-4. **One command per issue** — `agentctl start 42` handles worktree creation, environment seeding, dev server startup, and agent launch. `agentctl cleanup 42` reverses it after the PR merges.
+3. **Structured lifecycle** — each worktree gets a `.agent` metadata file that tracks the agent name, session ID, and process IDs. `agentctl status` reads these across all worktrees and shows a consolidated table. Once the agent opens a PR, the `PR` column updates to show the PR number and state (e.g. `#42 OPEN`).
+4. **One command per issue** — `agentctl start 42` handles worktree creation, environment seeding, dev server startup, and agent launch. When the agent opens a PR, agentctl automatically appends `Closes #42` to the PR body so GitHub links the issue. `agentctl cleanup 42` reverses it after the PR merges.
 
 agentctl is **agent-agnostic and fully pluggable**. The default adapter is Claude Code (`claude`), but `--agent codex`, `--agent copilot`, `--agent gemini`, and `--agent opencode` are all built in. Adding support for a new coding agent takes a single line of YAML:
 
@@ -65,7 +65,19 @@ See [install.md](../install.md) for prebuilt binaries and source builds.
 agentctl start 42
 ```
 
-agentctl creates a linked worktree, reserves a port, starts the dev server, and launches Claude Code — all in one step. Agent output streams live to your terminal so you can follow along.
+agentctl creates a linked worktree, reserves a port, starts the dev server, and launches Claude Code — all in one step. Agent output streams live to your terminal so you can follow along. Press Ctrl+C at any time to detach — the agent keeps running in the background and you get your prompt back.
+
+To suppress log output and show only a progress indicator:
+
+```bash
+agentctl start --quiet 42
+```
+
+When the agent finishes and opens a PR, agentctl prints the PR link:
+
+```text
+PR: #42  https://github.com/owner/repo/pull/42
+```
 
 ### Check what's running
 
@@ -79,10 +91,10 @@ Output looks like:
 
 ```text
 ISSUE  BRANCH            AGENT   PORT  SPEC      PR
-42     42-fix-login      claude  3010  no-spec   none
+42     42-fix-login      claude  3010  no-spec   #42 OPEN
 ```
 
-The `ISSUE` column is your key. `PORT` tells you where the dev server is listening. `SPEC` shows which SDD methodology is active — `no-spec` means the agent is working directly toward a PR with no spec checkpoint; a value like `plain` or `speckit` means spec-driven development is enabled for that issue. `PR` updates once the agent opens a pull request.
+The `ISSUE` column is your key. `PORT` tells you where the dev server is listening. `SPEC` shows which SDD methodology is active — `no-spec` means the agent is working directly toward a PR with no spec checkpoint; a value like `plain` or `speckit` means spec-driven development is enabled for that issue. `PR` shows the PR number and state once the agent opens a pull request; it updates to `MERGED` after merge.
 
 ### Clean up after merge
 
@@ -96,7 +108,7 @@ This pulls `main`, stops the dev server and agent processes, removes the linked 
 
 ## Headless / batch mode
 
-The quick-start workflow keeps the agent attached to your terminal. For running several issues in parallel — or for CI-style automation — use `--headless`:
+The quick-start workflow keeps the agent attached to your terminal. For running several issues in parallel — or for CI-style automation — use `--headless` to send the agent straight to the background:
 
 ```mermaid
 flowchart LR
@@ -130,7 +142,7 @@ Tail a specific agent's log:
 agentctl logs 211
 ```
 
-Attach and wait until an agent finishes — identical to the interactive experience, but for an already-running headless agent:
+Attach and wait until an agent finishes — identical to the interactive experience, but for an already-running headless agent. Ctrl+C detaches without killing the agent:
 
 ```bash
 agentctl attach 211
@@ -140,6 +152,12 @@ When all three have opened PRs, sweep everything in one pass:
 
 ```bash
 agentctl cleanup --all   # cleans up any worktree whose PR is MERGED
+```
+
+For abandoned work (no PR, or a PR that should not be merged), use `agentctl discard`:
+
+```bash
+agentctl discard 211
 ```
 
 ## Spec-driven development (SDD)
