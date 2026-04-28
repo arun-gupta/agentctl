@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/arun-gupta/agentctl/internal/xdg"
 )
 
 //go:embed builtin/*.yml
@@ -180,7 +182,7 @@ func Get(name string) (*Adapter, error) {
 	}
 
 	// 2. User-level
-	if cfgDir, err := os.UserConfigDir(); err == nil {
+	if cfgDir := xdg.UserConfigDir(); cfgDir != "" {
 		dir := filepath.Join(cfgDir, "agentctl", "adapters")
 		if data, src, ok := readFromDir(dir, name); ok {
 			return load(data, src)
@@ -210,7 +212,7 @@ func List() []string {
 	}
 
 	// User-level
-	if cfgDir, err := os.UserConfigDir(); err == nil {
+	if cfgDir := xdg.UserConfigDir(); cfgDir != "" {
 		for _, n := range listDir(filepath.Join(cfgDir, "agentctl", "adapters")) {
 			add(n)
 		}

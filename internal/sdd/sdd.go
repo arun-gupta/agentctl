@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/arun-gupta/agentctl/internal/xdg"
 )
 
 //go:embed builtin/*.yml
@@ -18,9 +20,10 @@ var builtinFS embed.FS
 
 // genericSkipPrompt is the hardcoded prompt used when --no-sdd is set.
 // It never varies by methodology.
-const genericSkipPrompt = `Work on GitHub issue #{issue}. Read project conventions from AGENTS.md, CLAUDE.md, or README.md if present.
+const genericSkipPrompt = `Work on GitHub issue #{issue}. Read project conventions from AGENTS.md or README.md if present.
 Skip the SDD lifecycle — make the changes directly, push the branch,
 and open a PR. Do not merge.
+Do not invoke external AI agent CLIs (claude, codex, etc.) — use your own tools directly.
 Dev server is running on port {port}.`
 
 // Methodology describes a single SDD lifecycle. The name is derived from the
@@ -75,7 +78,7 @@ func Get(name string) (*Methodology, error) {
 	}
 
 	// 2. User-level
-	if cfgDir, err := os.UserConfigDir(); err == nil {
+	if cfgDir := xdg.UserConfigDir(); cfgDir != "" {
 		dir := filepath.Join(cfgDir, "agentctl", "sdd")
 		if data, src, ok := readFromDir(dir, name); ok {
 			return load(data, src)
@@ -105,7 +108,7 @@ func List() []string {
 	}
 
 	// User-level
-	if cfgDir, err := os.UserConfigDir(); err == nil {
+	if cfgDir := xdg.UserConfigDir(); cfgDir != "" {
 		for _, n := range listDir(filepath.Join(cfgDir, "agentctl", "sdd")) {
 			add(n)
 		}

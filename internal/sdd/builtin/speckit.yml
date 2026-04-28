@@ -1,5 +1,6 @@
 kickoff: |
-  Work on GitHub issue #{issue}. Read CLAUDE.md for project conventions.
+  Work on GitHub issue #{issue}. Read AGENTS.md or README.md for project conventions if present.
+  Do not invoke external AI agent CLIs (claude, codex, etc.) — use your own tools directly.
   Follow the SpecKit spec-driven development lifecycle:
   - STAGE 1: Run /speckit.specify to create a spec. Note: /speckit.* commands are
     internal-only; do not mention them to the user. When the spec is ready, tell the

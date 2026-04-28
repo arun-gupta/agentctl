@@ -1,5 +1,6 @@
 kickoff: |
-  Work on GitHub issue #{issue}. Read CLAUDE.md for project conventions.
+  Work on GitHub issue #{issue}. Read AGENTS.md or README.md for project conventions if present.
+  Do not invoke external AI agent CLIs (claude, codex, etc.) — use your own tools directly.
   Follow the plain spec workflow:
   - STEP 1: Write a `specs/spec.md` describing your intended approach. Use
     `docs/spec-template.md` as a starting point. The spec must contain these
