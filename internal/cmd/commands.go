@@ -95,6 +95,10 @@ Use --sdd <name> to opt into a spec-driven development (SDD) methodology
 	return c
 }
 
+// resumeHintFmt is printed after a foreground agent exits so users know how
+// to send follow-up feedback. %s is replaced with the issue number.
+const resumeHintFmt = "agentctl resume %s [feedback]   # no feedback approves; add feedback to request changes\n"
+
 // kickoffTemplate is the default prompt sent to the agent when no --sdd
 // methodology is specified. {issue} and {port} are substituted at call time.
 const kickoffTemplate = `Work on GitHub issue #{issue}. Read AGENTS.md or README.md for project conventions if present.
@@ -1706,7 +1710,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
 				reportPRStatus(os.Stdout, wtPath, branch, issue)
 			}
-			fmt.Fprintf(out, "agentctl resume %s [feedback]   # no feedback approves; add feedback to request changes\n", issue)
+			fmt.Fprintf(out, resumeHintFmt, issue)
 			return nil
 		case <-sigCh:
 			signal.Stop(sigCh)
@@ -2639,7 +2643,7 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 			if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
 				reportPRStatus(os.Stdout, wtPath, branch, issue)
 			}
-			fmt.Fprintf(os.Stdout, "agentctl resume %s [feedback]   # send follow-up feedback; omit [feedback] to use the default proceed approval\n", issue)
+			fmt.Fprintf(os.Stdout, resumeHintFmt, issue)
 			return nil
 		case <-sigCh:
 			signal.Stop(sigCh)

@@ -982,7 +982,7 @@ func TestLaunchAgent_nonHeadless_exitPrintsResumeHint(t *testing.T) {
 	}
 
 	outStr := out.String()
-	want := "agentctl resume 42 [feedback]   # no feedback approves; add feedback to request changes"
+	want := fmt.Sprintf(resumeHintFmt, "42")
 	if !strings.Contains(outStr, want) {
 		t.Errorf("missing resume hint %q in foreground-exit output:\n%s", want, outStr)
 	}
@@ -1415,7 +1415,7 @@ func TestAgentResume_nonHeadless_exitPrintsResumeHint(t *testing.T) {
 	r.Close()
 
 	out := buf.String()
-	want := "agentctl resume 42 [feedback]   # send follow-up feedback; omit [feedback] to use the default proceed approval"
+	want := fmt.Sprintf(resumeHintFmt, "42")
 	if !strings.Contains(out, want) {
 		t.Errorf("missing resume hint %q in foreground-exit output:\n%s", want, out)
 	}
