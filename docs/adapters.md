@@ -7,16 +7,17 @@ agentctl uses a **YAML adapter system** to launch and resume coding agents. Any 
 | Adapter | Availability | Install |
 |---------|-------------|---------|
 | [claude](#claude) | Built-in (default) | `npm install -g @anthropic-ai/claude-code` |
-| [gemini](#gemini) | Built-in | `npm install -g @google/gemini-cli` |
-| [opencode](#opencode) | Built-in | `npm install -g opencode@latest` |
 | [codex](#codex) | Built-in | `npm install -g @openai/codex` |
 | [copilot](#copilot) | Built-in | `npm install -g @github/copilot` |
 | [openhands](#openhands) | Drop-in recipe | `uv tool install openhands --python 3.12` |
-| [kilocode](#kilocode) | Drop-in recipe | `npm install -g @kilocode/cli` |
-| [cursor](#cursor) | Drop-in recipe | `brew install --cask cursor-cli` |
+| [gemini](#gemini) | Built-in — untested | `npm install -g @google/gemini-cli` |
+| [opencode](#opencode) | Built-in — untested | `npm install -g opencode@latest` |
+| [kilocode](#kilocode) | Drop-in recipe — untested | `npm install -g @kilocode/cli` |
+| [cursor](#cursor) | Drop-in recipe — untested | `brew install --cask cursor-cli` |
 
 **Built-in** adapters are embedded in the binary and work out of the box.  
-**Drop-in recipes** require saving a YAML file to a [config directory](#drop-in-locations) first.
+**Drop-in recipes** require saving a YAML file to a [config directory](#drop-in-locations) first.  
+**Untested** adapters have not been verified end-to-end — the YAML is provided as a best-effort starting point.
 
 ## Built-in adapters
 
@@ -35,6 +36,8 @@ install: npm install -g @anthropic-ai/claude-code
 
 ### gemini
 
+> **Untested** — YAML provided as a best-effort starting point.
+
 [Gemini CLI](https://github.com/google-gemini/gemini-cli) — Google's coding agent. Uses directory-based session continuity.
 
 ```yaml
@@ -44,6 +47,8 @@ install: npm install -g @google/gemini-cli
 ```
 
 ### opencode
+
+> **Untested** — YAML provided as a best-effort starting point.
 
 [OpenCode](https://opencode.ai/) — an open-source coding agent. Uses `--continue` to resume the previous session in the worktree.
 
@@ -101,6 +106,8 @@ agentctl automatically injects `GITHUB_TOKEN` from `gh auth token` into the agen
 
 ### kilocode
 
+> **Untested** — YAML provided as a best-effort starting point.
+
 [KiloCode](https://kilocode.ai/) — a standalone AI coding agent CLI.
 
 ```yaml
@@ -111,6 +118,8 @@ install: npm install -g @kilocode/cli
 ```
 
 ### cursor
+
+> **Untested** — YAML provided as a best-effort starting point.
 
 Cursor's CLI agent (`cursor-agent`) is installed separately from the Cursor IDE via the `cursor-cli` cask.
 
