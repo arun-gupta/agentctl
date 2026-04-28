@@ -17,6 +17,15 @@ Running a single AI agent in a terminal works fine. Running several simultaneous
 - **Agent lock-in.** Different tasks suit different coding agents. Switching from Claude to Codex today means re-configuring your workflow from scratch.
 - **SDD integration.** Each SDD methodology — Spec Kit, plain, AgentOS, and others — has its own lifecycle, conventions, and commands, requiring you to learn and configure each one separately with no portability across agents or projects. Coordinating spec-driven workflows across parallel agents is error-prone without dedicated tooling.
 
+```mermaid
+flowchart TD
+    dev["👤 Developer\n(multiple terminal tabs)"] --> wt[Single working tree]
+    a1["🤖 Agent on #42"] --> wt
+    a2["🤖 Agent on #43"] --> wt
+    a3["🤖 Agent on #44"] --> wt
+    wt --> pain["❌ Git conflicts\n❌ Port collisions\n❌ No consolidated status\n❌ Manual lifecycle management"]
+```
+
 agentctl solves all of the above. Every coding agent and every SDD methodology is pluggable — you can mix and match them per issue.
 
 ## What agentctl does
@@ -27,6 +36,16 @@ agentctl is a CLI that manages the full lifecycle of AI coding agents working on
 2. **Reserved port** *(optional)* — when a dev server is configured, agentctl picks a free port in the `3010–3100` range, persists `port: <port>` to `.agentctl.yml`, and starts the dev server there. No two agents fight over the same port.
 3. **Structured lifecycle** — each worktree gets a `.agent` metadata file that tracks the agent name, session ID, and process IDs. `agentctl status` reads these across all worktrees and shows a consolidated table. Once the agent opens a PR, the `PR` column updates to show the PR number and state (e.g. `#42 OPEN`).
 4. **One command per issue** — `agentctl start 42` handles worktree creation, environment seeding, dev server startup, and agent launch. When the agent opens a PR, agentctl automatically appends `Closes #42` to the PR body so GitHub links the issue. `agentctl cleanup 42` reverses it after the PR merges.
+
+```mermaid
+flowchart LR
+    cmd["agentctl start 42"] --> wt["Isolated worktree\n../<repo>-42-<slug>/"]
+    cmd --> port["Reserved port\n3010–3100"]
+    cmd --> meta[".agent state file"]
+    cmd --> agent["Coding agent"]
+    wt & port & meta --> status["agentctl status\n(consolidated view)"]
+    agent --> pr["Pull request"]
+```
 
 agentctl is **agent-agnostic and fully pluggable**. The default adapter is Claude Code (`claude`), and `--agent codex` and `--agent copilot` are tested built-ins. `--agent gemini` and `--agent opencode` are also included and would benefit from additional community testing. Adding support for a new coding agent takes a single line of YAML:
 
