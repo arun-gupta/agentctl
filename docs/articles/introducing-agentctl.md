@@ -258,6 +258,8 @@ To send revision feedback instead:
 agentctl resume 42 "Narrow scope to the API layer; avoid UI changes."
 ```
 
+For a real example of this flow, see [agentctl-test issue #15](https://github.com/arun-gupta/agentctl-test/issues/15).
+
 ### Other SDD methodologies
 
 The `--sdd=plain` methodology requires no external tooling — it works in any repo. For repos configured with Spec Kit, `--sdd=speckit` runs a richer four-stage lifecycle. You can also define your own methodology by dropping a YAML file into `.agentctl/sdd/`. See [sdd.md](../sdd.md) for details.
