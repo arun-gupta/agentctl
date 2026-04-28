@@ -293,13 +293,45 @@ Initializing agent...
 	}
 }
 
-func TestSkipPrompt_noSDDFlag(t *testing.T) {
-	kickoff := sdd.SkipPrompt("42", "3010")
-	if !contains(kickoff, "Skip the SDD lifecycle") {
-		t.Error("no-sdd kickoff should mention skipping SDD")
+func TestBuildKickoff_substitution(t *testing.T) {
+	kickoff := buildKickoff("42", "3010")
+	if strings.Contains(kickoff, "{issue}") {
+		t.Error("buildKickoff did not substitute {issue}")
+	}
+	if strings.Contains(kickoff, "{port}") {
+		t.Error("buildKickoff did not substitute {port}")
+	}
+	if !strings.Contains(kickoff, "42") {
+		t.Error("buildKickoff missing issue number 42")
+	}
+	if !strings.Contains(kickoff, "3010") {
+		t.Error("buildKickoff missing port 3010")
+	}
+}
+
+func TestBuildKickoff_noPort_omitsDevServerLine(t *testing.T) {
+	kickoff := buildKickoff("42", "")
+	if strings.Contains(kickoff, "port") || strings.Contains(kickoff, "{port}") {
+		t.Errorf("buildKickoff with empty port must not mention port, got:\n%s", kickoff)
+	}
+	if !strings.Contains(kickoff, "open a PR") {
+		t.Errorf("buildKickoff with empty port must still instruct to open a PR, got:\n%s", kickoff)
+	}
+}
+
+func TestBuildKickoff_isAgentNeutral(t *testing.T) {
+	kickoff := buildKickoff("42", "3010")
+	if strings.Contains(kickoff, "CLAUDE.md") {
+		t.Errorf("buildKickoff must not reference CLAUDE.md; got:\n%s", kickoff)
+	}
+	if !strings.Contains(kickoff, "AGENTS.md") && !strings.Contains(kickoff, "README.md") {
+		t.Errorf("buildKickoff must mention an agent-neutral convention file; got:\n%s", kickoff)
+	}
+	if !strings.Contains(kickoff, "Do not run agentctl") {
+		t.Errorf("buildKickoff must tell agents not to run agent-launcher CLIs; got:\n%s", kickoff)
 	}
 	if contains(kickoff, "/speckit") {
-		t.Error("no-sdd kickoff should not contain speckit-specific commands")
+		t.Error("buildKickoff must not contain speckit-specific commands")
 	}
 }
 
