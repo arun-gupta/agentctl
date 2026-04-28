@@ -105,7 +105,7 @@ resume_cmd: my-bot --continue {prompt} --id {session_id}
 
 ## Built-in adapters
 
-The binary ships with these six built-in adapters. Override any by dropping a same-named file in a higher-priority location.
+The binary ships with these five built-in adapters. Override any by dropping a same-named file in a higher-priority location.
 
 ### claude
 
@@ -154,16 +154,6 @@ session_type: directory
 install: npm install -g @github/copilot
 ```
 
-### openhands
-
-```yaml
-binary: openhands
-launch: openhands --headless --always-approve -t {kickoff}
-resume_cmd: openhands --headless --always-approve --resume --last -t {prompt}
-session_type: directory
-install: pip install openhands-ai
-```
-
 ## Drop-in locations
 
 ### Project-local (per-repo override)
@@ -190,6 +180,18 @@ Create `~/.config/agentctl/adapters/` (respects `$XDG_CONFIG_HOME`):
 ## Adapter recipes
 
 Ready-to-use YAML files for agents not included as built-ins. Save any of these to a [drop-in location](#drop-in-locations) to enable the adapter.
+
+### OpenHands
+
+[OpenHands](https://openhands.dev/) is an open-source AI agent platform with a headless CLI. It generates its own conversation IDs, so `session_type: directory` is used and resume targets the most recent conversation in the worktree:
+
+```yaml
+binary: openhands
+launch: openhands --headless --always-approve -t {kickoff}
+resume_cmd: openhands --headless --always-approve --resume --last -t {prompt}
+session_type: directory
+install: pip install openhands-ai
+```
 
 ### KiloCode
 
