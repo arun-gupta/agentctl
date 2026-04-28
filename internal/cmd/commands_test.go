@@ -125,14 +125,14 @@ func TestComputeSpecState_done(t *testing.T) {
 	}
 }
 
-func TestSpecExists_absent(t *testing.T) {
+func TestComputeSpecState_speckitStyleAbsent(t *testing.T) {
 	dir := t.TempDir()
-	if specExists(dir) {
-		t.Error("expected specExists to return false for empty dir")
+	if got := computeSpecState(dir, "42"); got != "no-spec" {
+		t.Errorf("computeSpecState empty dir = %q, want %q", got, "no-spec")
 	}
 }
 
-func TestSpecExists_present(t *testing.T) {
+func TestComputeSpecState_speckitStylePresent(t *testing.T) {
 	dir := t.TempDir()
 	specDir := filepath.Join(dir, "specs", "42-feature")
 	if err := os.MkdirAll(specDir, 0o755); err != nil {
@@ -141,8 +141,23 @@ func TestSpecExists_present(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(specDir, "spec.md"), []byte("spec"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if !specExists(dir) {
-		t.Error("expected specExists to return true when spec.md exists")
+	if got := computeSpecState(dir, "42"); got != "paused" {
+		t.Errorf("computeSpecState speckit spec = %q, want %q", got, "paused")
+	}
+}
+
+func TestComputeSpecState_plainStyle(t *testing.T) {
+	// plain SDD writes specs/spec.md directly; status should show "paused".
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "specs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "specs", "spec.md"), []byte("spec"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := computeSpecState(dir, "15")
+	if got != "paused" {
+		t.Errorf("computeSpecState with plain-style spec = %q, want %q", got, "paused")
 	}
 }
 
