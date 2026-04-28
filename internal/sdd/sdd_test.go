@@ -431,6 +431,10 @@ func TestSkipPrompt_isAgentNeutral(t *testing.T) {
 }
 
 func TestBuiltinKickoffs_areAgentNeutral(t *testing.T) {
+	// Isolate from any user-level methodology overrides (XDG_CONFIG_HOME is
+	// honored on all platforms; os.UserConfigDir ignores it on macOS).
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
 	for _, name := range []string{"plain", "speckit"} {
 		m, err := sdd.Get(name)
 		if err != nil {
