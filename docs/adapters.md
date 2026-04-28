@@ -82,13 +82,13 @@ session_type: directory
 install: uv tool install openhands --python 3.12
 ```
 
-agentctl automatically injects `GITHUB_TOKEN` from `gh auth token` into the agent environment so `git push` works without requiring keychain access.
+agentctl **best-effort** injects `GITHUB_TOKEN` from `gh auth token` into the agent environment only when `GITHUB_TOKEN` is unset or empty, `gh` is installed, and `gh auth token` returns a non-empty token. When those prerequisites are met, `git push` can work without requiring keychain access.
 
 ---
 
 ## Untested adapters
 
-These adapters have not been verified end-to-end. Flags or command shapes may need adjustment.
+These adapters have not been verified end-to-end. See the warning in [Available adapters → Untested](#untested) above.
 
 ### gemini
 
@@ -234,10 +234,10 @@ Placeholders must be standalone tokens (surrounded by whitespace):
 **Minimum viable adapter:**
 
 ```yaml
-binary: cursor
+binary: my-agent
 ```
 
-Gives: `cursor -p {kickoff}` on launch, `cursor -p {prompt}` on resume.
+Gives: `my-agent -p {kickoff}` on launch, `my-agent -p {prompt}` on resume.
 
 **Structured fields:**
 
