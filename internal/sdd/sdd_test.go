@@ -139,6 +139,51 @@ func TestKickoffPrompt_speckit_resumeInstruction(t *testing.T) {
 	}
 }
 
+func TestKickoffPrompt_plain_sections(t *testing.T) {
+	m, err := sdd.Get("plain")
+	if err != nil {
+		t.Fatalf("Get(plain) unexpected error: %v", err)
+	}
+	prompt := m.KickoffPrompt("42", "3010")
+	for _, section := range []string{
+		"## Problem",
+		"## Approach",
+		"## Changes",
+		"## Test Cases",
+		"## Risks / Open Questions",
+		"## Out of Scope",
+	} {
+		if !strings.Contains(prompt, section) {
+			t.Errorf("plain prompt missing section %q, got:\n%s", section, prompt)
+		}
+	}
+	// Verify descriptive guidance text is present for key sections.
+	for _, phrase := range []string{
+		"What the issue asks for",
+		"Bulleted list of scenarios",
+		"What will not be done in this PR",
+	} {
+		if !strings.Contains(prompt, phrase) {
+			t.Errorf("plain prompt missing guidance text %q, got:\n%s", phrase, prompt)
+		}
+	}
+	// Verify the template reference is wired in.
+	if !strings.Contains(prompt, "docs/spec-template.md") {
+		t.Errorf("plain prompt must reference docs/spec-template.md, got:\n%s", prompt)
+	}
+}
+
+func TestKickoffPrompt_plain_waitForApproval(t *testing.T) {
+	m, err := sdd.Get("plain")
+	if err != nil {
+		t.Fatalf("Get(plain) unexpected error: %v", err)
+	}
+	prompt := m.KickoffPrompt("42", "3010")
+	if !strings.Contains(prompt, "Stop and wait for human approval") {
+		t.Errorf("plain prompt must instruct agent to stop and wait, got:\n%s", prompt)
+	}
+}
+
 // ─── SkipPrompt ───────────────────────────────────────────────────────────────
 
 func TestSkipPrompt_substitution(t *testing.T) {
