@@ -62,7 +62,7 @@ func TestTitleToSlug(t *testing.T) {
 
 func TestComputeSpecState_noSpec(t *testing.T) {
 	dir := t.TempDir()
-	state := computeSpecState(dir, "42")
+	state := computeSpecState(dir, "42", "plain", true)
 	if state != "no-spec" {
 		t.Errorf("expected no-spec, got %q", state)
 	}
@@ -70,7 +70,7 @@ func TestComputeSpecState_noSpec(t *testing.T) {
 
 func TestComputeSpecState_emptyIssue(t *testing.T) {
 	dir := t.TempDir()
-	state := computeSpecState(dir, "")
+	state := computeSpecState(dir, "", "plain", true)
 	if state != "no-spec" {
 		t.Errorf("expected no-spec for empty issue, got %q", state)
 	}
@@ -85,7 +85,7 @@ func TestComputeSpecState_paused(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(specDir, "spec.md"), []byte("spec"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	state := computeSpecState(dir, "42")
+	state := computeSpecState(dir, "42", "speckit", true)
 	if state != "paused" {
 		t.Errorf("expected paused, got %q", state)
 	}
@@ -102,7 +102,7 @@ func TestComputeSpecState_inProgress(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	state := computeSpecState(dir, "42")
+	state := computeSpecState(dir, "42", "speckit", true)
 	if state != "in-progress" {
 		t.Errorf("expected in-progress, got %q", state)
 	}
@@ -119,7 +119,7 @@ func TestComputeSpecState_done(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	state := computeSpecState(dir, "42")
+	state := computeSpecState(dir, "42", "speckit", true)
 	if state != "done" {
 		t.Errorf("expected done, got %q", state)
 	}
@@ -127,7 +127,7 @@ func TestComputeSpecState_done(t *testing.T) {
 
 func TestComputeSpecState_speckitStyleAbsent(t *testing.T) {
 	dir := t.TempDir()
-	if got := computeSpecState(dir, "42"); got != "no-spec" {
+	if got := computeSpecState(dir, "42", "speckit", true); got != "no-spec" {
 		t.Errorf("computeSpecState empty dir = %q, want %q", got, "no-spec")
 	}
 }
@@ -141,7 +141,7 @@ func TestComputeSpecState_speckitStylePresent(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(specDir, "spec.md"), []byte("spec"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := computeSpecState(dir, "42"); got != "paused" {
+	if got := computeSpecState(dir, "42", "speckit", true); got != "paused" {
 		t.Errorf("computeSpecState speckit spec = %q, want %q", got, "paused")
 	}
 }
@@ -155,9 +155,42 @@ func TestComputeSpecState_plainStyle(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "specs", "spec.md"), []byte("spec"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got := computeSpecState(dir, "15")
+	got := computeSpecState(dir, "15", "plain", true)
 	if got != "paused" {
 		t.Errorf("computeSpecState with plain-style spec = %q, want %q", got, "paused")
+	}
+}
+
+func TestComputeSpecState_plainSpecExistsNoSDD(t *testing.T) {
+	// specs/spec.md exists in the repo (e.g. committed from a prior run) but no
+	// SDD was requested for this issue — status must show "no-spec", not "paused".
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "specs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "specs", "spec.md"), []byte("spec"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := computeSpecState(dir, "11", "", true)
+	if got != "no-spec" {
+		t.Errorf("computeSpecState no SDD + specs/spec.md = %q, want %q", got, "no-spec")
+	}
+}
+
+func TestComputeSpecState_legacyWorktree(t *testing.T) {
+	// Legacy worktrees written before the sdd= key was introduced have sddSet=false.
+	// computeSpecState must fall back to filesystem heuristics so existing worktrees
+	// with spec artifacts continue to show their real lifecycle state.
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "specs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "specs", "spec.md"), []byte("spec"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := computeSpecState(dir, "11", "", false)
+	if got != "paused" {
+		t.Errorf("computeSpecState legacy worktree + specs/spec.md = %q, want %q", got, "paused")
 	}
 }
 

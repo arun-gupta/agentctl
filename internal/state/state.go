@@ -18,6 +18,12 @@ type AgentFile struct {
 	SessionID string // UUID assigned at spawn time
 	DevPID    string // PID of the dev server process
 	AgentPID  string // PID of the background agent process (headless only)
+	SDD       string // SDD methodology name, e.g. "plain", "speckit"; empty if none
+	// SDDSet is true when the sdd= key was explicitly present in the .agent file,
+	// even if its value is empty. Use this to distinguish new worktrees created
+	// without --sdd (SDDSet=true, SDD="") from legacy worktrees written before the
+	// sdd key was introduced (SDDSet=false).
+	SDDSet bool
 	// Extra holds any additional key=value pairs not explicitly modelled above.
 	Extra map[string]string
 }
@@ -54,6 +60,9 @@ func Read(worktreePath string) (AgentFile, error) {
 			af.DevPID = v
 		case "agent-pid":
 			af.AgentPID = v
+		case "sdd":
+			af.SDD = v
+			af.SDDSet = true
 		default:
 			af.Extra[k] = v
 		}
@@ -77,6 +86,8 @@ func GetKey(worktreePath, key string) (string, error) {
 		return af.DevPID, nil
 	case "agent-pid":
 		return af.AgentPID, nil
+	case "sdd":
+		return af.SDD, nil
 	default:
 		return af.Extra[key], nil
 	}
@@ -94,6 +105,9 @@ func Write(worktreePath string, af AgentFile) error {
 	if af.AgentPID != "" {
 		lines = append(lines, "agent-pid="+af.AgentPID)
 	}
+	// Always write sdd= so readers can distinguish new worktrees created without
+	// --sdd (sdd= present but empty) from legacy worktrees that predate this key.
+	lines = append(lines, "sdd="+af.SDD)
 	for k, v := range af.Extra {
 		lines = append(lines, k+"="+v)
 	}
