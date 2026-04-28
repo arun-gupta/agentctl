@@ -27,9 +27,10 @@ Side effects:
 - Creates a worktree at `../<repo>-<issue>-<slug>/`.
 - Reserves a dev-server port in the `3010-3100` range.
 - Writes `.agent` metadata in the worktree.
-- Seeds `.env.local` from the primary worktree when present and appends `PORT=<port>`.
-- Runs `npm install --silent` and starts `npm run dev -- -p <port>`.
+- Seeds `.env.local` from the primary worktree when present, stripping any existing `PORT=` lines (does not inject `PORT=<port>` itself).
+- Starts the dev server: if `.agentctl.yml` defines a `dev_server` command it is used (with `{port}` substituted); otherwise falls back to `npm install --loglevel=error && npm run dev -- -p <port>` when `package.json` exists; silently skipped for non-Node repos.
 - Launches the selected adapter.
+- When the agent exits, appends `Closes #<issue>` to the PR body retrieved via `gh pr view <branch>`, unless the body already contains `closes #<issue>` or `fixes #<issue>` (case-insensitive). Other closing keywords such as `resolves #<issue>` do not suppress the append.
 
 ### `agentctl resume`
 

@@ -64,6 +64,7 @@ Placeholders must be standalone tokens (surrounded by whitespace):
 |-------------|-------|
 | `{kickoff}` | Multi-line kickoff prompt |
 | `{session_id}` | UUID assigned by agentctl |
+| `{worktree}` | Absolute path to the linked worktree directory |
 
 #### `resume_cmd` placeholders
 
@@ -71,6 +72,7 @@ Placeholders must be standalone tokens (surrounded by whitespace):
 |-------------|-------|
 | `{prompt}` | Resume/revision prompt |
 | `{session_id}` | UUID assigned by agentctl |
+| `{worktree}` | Absolute path to the linked worktree directory |
 
 ## Examples
 
@@ -126,7 +128,9 @@ install: npm install -g @google/gemini-cli
 
 ```yaml
 binary: opencode run
-session: --session
+launch: opencode run {kickoff}
+resume_cmd: opencode run {prompt} --continue
+session_type: directory
 install: npm install -g opencode@latest
 ```
 
@@ -134,9 +138,9 @@ install: npm install -g opencode@latest
 
 ```yaml
 binary: codex
-prompt: -q
-session: --session
-resume_id: --resume
+launch: codex exec --dangerously-bypass-approvals-and-sandbox -C {worktree} {kickoff}
+resume_cmd: codex exec resume --last --dangerously-bypass-approvals-and-sandbox {prompt}
+session_type: directory
 install: npm install -g @openai/codex
 ```
 
@@ -144,7 +148,9 @@ install: npm install -g @openai/codex
 
 ```yaml
 binary: copilot
-session: --session-id
+launch: copilot --add-dir {worktree} --allow-all-tools -p {kickoff}
+resume_cmd: copilot --add-dir {worktree} --allow-all-tools -p {prompt} --continue
+session_type: directory
 install: npm install -g @github/copilot
 ```
 
