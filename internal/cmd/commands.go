@@ -297,11 +297,8 @@ func runReleasePausedSession(issue, prompt string, headless, quiet bool) error {
 		return err
 	}
 
-	// Check that a spec exists (paused state reached).
-	if af.SDDSet && af.SDD == "" {
-		return fmt.Errorf("worktree for issue %s was started without --sdd; resume is not applicable", issue)
-	}
-	if computeSpecState(wt.Path, issue, af.SDD, af.SDDSet) == "no-spec" {
+	// For SDD runs, require the spec pause to have been reached before resuming.
+	if af.SDD != "" && computeSpecState(wt.Path, issue, af.SDD, af.SDDSet) == "no-spec" {
 		return fmt.Errorf("spec not yet generated for issue %s; paused state not reached.\nTail %s/agent.log to confirm and retry once the pause is reported.", issue, wt.Path)
 	}
 
