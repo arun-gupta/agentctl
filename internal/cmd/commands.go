@@ -2268,20 +2268,28 @@ func agentEnv(wtPath string) ([]string, error) {
 
 	env := os.Environ()
 
-	// If GITHUB_TOKEN is absent, pull it from `gh auth token` so the agent
-	// can push to GitHub without needing keychain access (the agent process
-	// runs detached and cannot unlock the macOS keychain).
+	// If GITHUB_TOKEN is absent or empty, pull it from `gh auth token` so
+	// the agent can push to GitHub without needing keychain access (the agent
+	// process runs detached and cannot unlock the macOS keychain).
 	hasGHToken := false
-	for _, kv := range env {
+	ghTokenIdx := -1
+	for i, kv := range env {
 		if strings.HasPrefix(kv, "GITHUB_TOKEN=") {
-			hasGHToken = true
+			ghTokenIdx = i
+			if strings.TrimPrefix(kv, "GITHUB_TOKEN=") != "" {
+				hasGHToken = true
+			}
 			break
 		}
 	}
 	if !hasGHToken {
 		if out, err := exec.Command("gh", "auth", "token").Output(); err == nil {
 			if token := strings.TrimSpace(string(out)); token != "" {
-				env = append(env, "GITHUB_TOKEN="+token)
+				if ghTokenIdx >= 0 {
+					env[ghTokenIdx] = "GITHUB_TOKEN=" + token
+				} else {
+					env = append(env, "GITHUB_TOKEN="+token)
+				}
 			}
 		}
 	}
