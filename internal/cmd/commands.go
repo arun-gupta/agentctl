@@ -1512,7 +1512,11 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 
 	agentCmd := ad.LaunchCmd(kickoff, sessionID, wtPath)
 	agentCmd.Dir = wtPath
-	agentCmd.Env = agentEnv(wtPath)
+	agentEnv, err := agentEnv(wtPath)
+	if err != nil {
+		return fmt.Errorf("agentEnv: %w", err)
+	}
+	agentCmd.Env = agentEnv
 
 	logPath := filepath.Join(wtPath, "agent.log")
 	logFile, err := os.Create(logPath)
@@ -2210,19 +2214,53 @@ func isWriterTerminal(w io.Writer) bool {
 // HOME to a private directory inside the worktree so the agent gets a fresh
 // ~/.claude (no existing sessions to attach to) while every other tool keeps
 // working. Git and SSH stay functional via symlinks into the real home.
-func agentEnv(wtPath string) []string {
+// Returns an error if the private HOME directory cannot be created.
+func agentEnv(wtPath string) ([]string, error) {
 	agentHome := filepath.Join(wtPath, ".agent-home")
-	_ = os.MkdirAll(agentHome, 0o755)
+
+	// Guard against a pre-existing symlink at .agent-home: a malicious repo
+	// could plant one to redirect HOME outside the worktree and bypass isolation.
+	if fi, err := os.Lstat(agentHome); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("agentEnv: .agent-home is a symlink; refusing to use as HOME")
+	}
+
+	if err := os.MkdirAll(agentHome, 0o755); err != nil {
+		return nil, fmt.Errorf("agentEnv: create agent home dir: %w", err)
+	}
 
 	realHome, err := os.UserHomeDir()
 	if err == nil {
-		// Symlink .gitconfig and .ssh so git operations and SSH key auth work.
+		// Link .gitconfig and .ssh so git operations and SSH key auth work.
 		for _, name := range []string{".gitconfig", ".ssh"} {
 			src := filepath.Join(realHome, name)
 			dst := filepath.Join(agentHome, name)
-			if _, statErr := os.Lstat(dst); statErr != nil {
-				if _, srcErr := os.Lstat(src); srcErr == nil {
-					_ = os.Symlink(src, dst)
+
+			// Skip dst if already present; treat unexpected stat errors as a warning.
+			if _, statErr := os.Lstat(dst); statErr == nil {
+				continue
+			} else if !os.IsNotExist(statErr) {
+				fmt.Fprintf(os.Stderr, "agentctl: warning: stat %s: %v\n", dst, statErr)
+				continue
+			}
+
+			// Only proceed when src actually exists; warn on unexpected src errors.
+			if _, srcErr := os.Lstat(src); srcErr != nil {
+				if !os.IsNotExist(srcErr) {
+					fmt.Fprintf(os.Stderr, "agentctl: warning: stat %s: %v\n", src, srcErr)
+				}
+				continue
+			}
+
+			if symlinkErr := os.Symlink(src, dst); symlinkErr != nil {
+				// On Windows, symlinks require Developer Mode. Fall back to
+				// copying regular files (e.g. .gitconfig); for directories
+				// (.ssh) emit a warning so failures are diagnosable.
+				if name == ".gitconfig" {
+					if copyErr := copyFile(src, dst); copyErr != nil {
+						fmt.Fprintf(os.Stderr, "agentctl: warning: copy %s: %v\n", name, copyErr)
+					}
+				} else {
+					fmt.Fprintf(os.Stderr, "agentctl: warning: symlink %s: %v (git/SSH may not work)\n", name, symlinkErr)
 				}
 			}
 		}
@@ -2232,12 +2270,42 @@ func agentEnv(wtPath string) []string {
 	for i, kv := range env {
 		if strings.HasPrefix(kv, "HOME=") {
 			env[i] = "HOME=" + agentHome
-			return env
+			return env, nil
 		}
 	}
-	return append(env, "HOME="+agentHome)
+	return append(env, "HOME="+agentHome), nil
 }
 
+// copyFile copies the file at src to dst using regular file I/O.
+// It is used as a Windows fallback when os.Symlink is unavailable.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close() // read-only; Close error is safe to ignore
+
+	fi, err := in.Stat()
+	if err != nil {
+		return err
+	}
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fi.Mode())
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
+}
+
+// writeClaudeSettings creates .claude/settings.json in wtPath with a
+// wildcard allow-list so that sub-agents spawned by the top-level Claude
+// process inherit the same bypass-permissions mode. If the file already
+// exists (e.g. committed in the repo) it is left untouched.
 func writeClaudeSettings(wtPath string) error {
 	dir := filepath.Join(wtPath, ".claude")
 	// Reject symlinks to prevent writing outside the worktree.
@@ -2289,7 +2357,11 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 
 	resumeCmd := ad.ResumeCmd(prompt, sessionID, wtPath)
 	resumeCmd.Dir = wtPath
-	resumeCmd.Env = agentEnv(wtPath)
+	resumeEnv, err := agentEnv(wtPath)
+	if err != nil {
+		return fmt.Errorf("agentEnv: %w", err)
+	}
+	resumeCmd.Env = resumeEnv
 
 	logPath := filepath.Join(wtPath, "agent.log")
 	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)

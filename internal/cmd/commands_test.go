@@ -1299,7 +1299,106 @@ func TestAgentResume_nonHeadless_sigintPrintsHints(t *testing.T) {
 	}
 }
 
-// ─── streamLog ────────────────────────────────────────────────────────────────
+// ─── HOME isolation ───────────────────────────────────────────────────────────
+
+// TestLaunchAgent_homeIsolation verifies that a process spawned by launchAgent
+// sees HOME set to $wtPath/.agent-home and not the user's real home directory.
+func TestLaunchAgent_homeIsolation(t *testing.T) {
+	dir := t.TempDir()
+	envFile := filepath.Join(dir, "env.txt")
+
+	// Stub script: record the HOME env variable and exit.
+	scriptPath := filepath.Join(dir, "envagent")
+	script := "#!/bin/sh\necho \"HOME=$HOME\" > \"" + envFile + "\"\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	writeLocalAdapter(t, dir, "envagent", "binary: "+scriptPath+"\nsession: --session\n")
+	chdirTemp(t, dir)
+
+	if err := launchAgent("envagent", dir, "42", "3010", "sess-abc", "do the thing", "", true, false, &bytes.Buffer{}); err != nil {
+		t.Fatalf("launchAgent headless: %v", err)
+	}
+
+	// Poll until the stub writes the env file.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(envFile); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	data, err := os.ReadFile(envFile)
+	if err != nil {
+		t.Fatalf("reading env file: %v", err)
+	}
+	want := "HOME=" + filepath.Join(dir, ".agent-home")
+	if !strings.Contains(string(data), want) {
+		t.Errorf("expected HOME to be %q; got: %q", want, strings.TrimSpace(string(data)))
+	}
+}
+
+// TestAgentResume_homeIsolation verifies that a process spawned by agentResume
+// sees HOME set to $wtPath/.agent-home and not the user's real home directory.
+func TestAgentResume_homeIsolation(t *testing.T) {
+	dir := t.TempDir()
+	envFile := filepath.Join(dir, "env.txt")
+
+	// Stub script: record the HOME env variable and exit.
+	scriptPath := filepath.Join(dir, "envagent")
+	script := "#!/bin/sh\necho \"HOME=$HOME\" > \"" + envFile + "\"\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	writeLocalAdapter(t, dir, "envagent", "binary: "+scriptPath+"\nsession: --session\n")
+	chdirTemp(t, dir)
+
+	if err := agentResume("envagent", dir, "42", "sess-abc", "feedback", true, false); err != nil {
+		t.Fatalf("agentResume headless: %v", err)
+	}
+
+	// Poll until the stub writes the env file.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(envFile); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	data, err := os.ReadFile(envFile)
+	if err != nil {
+		t.Fatalf("reading env file: %v", err)
+	}
+	want := "HOME=" + filepath.Join(dir, ".agent-home")
+	if !strings.Contains(string(data), want) {
+		t.Errorf("expected HOME to be %q; got: %q", want, strings.TrimSpace(string(data)))
+	}
+}
+
+// TestAgentEnv_rejectsSymlink verifies that agentEnv returns an error when
+// .agent-home already exists as a symlink (prevents HOME redirection attacks).
+func TestAgentEnv_rejectsSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := t.TempDir()
+	agentHome := filepath.Join(dir, ".agent-home")
+	if err := os.Symlink(target, agentHome); err != nil {
+		t.Skipf("cannot create symlink (requires elevated privileges on Windows): %v", err)
+	}
+
+	_, err := agentEnv(dir)
+	if err == nil {
+		t.Fatal("expected error when .agent-home is a symlink")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Errorf("error should mention symlink; got: %v", err)
+	}
+}
+
+
 
 func TestStreamLog_fileExists(t *testing.T) {
 	dir := t.TempDir()
