@@ -180,7 +180,7 @@ func Get(name string) (*Adapter, error) {
 	}
 
 	// 2. User-level
-	if cfgDir, err := os.UserConfigDir(); err == nil {
+	if cfgDir := userConfigDir(); cfgDir != "" {
 		dir := filepath.Join(cfgDir, "agentctl", "adapters")
 		if data, src, ok := readFromDir(dir, name); ok {
 			return load(data, src)
@@ -210,7 +210,7 @@ func List() []string {
 	}
 
 	// User-level
-	if cfgDir, err := os.UserConfigDir(); err == nil {
+	if cfgDir := userConfigDir(); cfgDir != "" {
 		for _, n := range listDir(filepath.Join(cfgDir, "agentctl", "adapters")) {
 			add(n)
 		}
@@ -299,6 +299,20 @@ func loadBuiltin(name string) (*Adapter, error) {
 		return nil, fmt.Errorf("unknown adapter: %s. Available: %s", name, strings.Join(all, " "))
 	}
 	return load(data, "builtin/"+name+".yml")
+}
+
+// userConfigDir returns the user-level config directory, preferring
+// $XDG_CONFIG_HOME when set so that tests can override it portably on all
+// platforms (os.UserConfigDir ignores XDG_CONFIG_HOME on macOS).
+func userConfigDir() string {
+	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
+		return dir
+	}
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	return dir
 }
 
 // listBuiltins returns the names of all embedded built-in adapters.
