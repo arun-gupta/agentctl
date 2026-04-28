@@ -878,6 +878,30 @@ func TestLaunchAgent_nonHeadless_sigintPrintsHints(t *testing.T) {
 	}
 }
 
+// ─── resume command flags ─────────────────────────────────────────────────────
+
+func TestResumeCmd_headlessFlag(t *testing.T) {
+	c := NewResumeCmd()
+	f := c.Flags().Lookup("headless")
+	if f == nil {
+		t.Fatal("--headless flag must be registered on resume cmd")
+	}
+	if f.DefValue != "false" {
+		t.Errorf("--headless default should be false, got %q", f.DefValue)
+	}
+}
+
+func TestResumeCmd_quietFlag(t *testing.T) {
+	c := NewResumeCmd()
+	f := c.Flags().Lookup("quiet")
+	if f == nil {
+		t.Fatal("--quiet flag must be registered on resume cmd")
+	}
+	if f.DefValue != "false" {
+		t.Errorf("--quiet default should be false, got %q", f.DefValue)
+	}
+}
+
 // ─── agentResume ─────────────────────────────────────────────────────────────
 
 func TestLaunchAgent_nonZeroExitLogsToStderr(t *testing.T) {
@@ -922,21 +946,137 @@ func TestLaunchAgent_nonZeroExitLogsToStderr(t *testing.T) {
 
 func TestAgentResume_unknownAdapter(t *testing.T) {
 	dir := t.TempDir()
-	err := agentResume("nonexistent-xyz-abc", dir, "sess-123", "my feedback")
+	err := agentResume("nonexistent-xyz-abc", dir, "42", "sess-123", "my feedback", true, false)
 	if err == nil {
 		t.Error("expected error for unknown adapter")
 	}
 }
 
-func TestAgentResume_success(t *testing.T) {
+func TestAgentResume_headless_success(t *testing.T) {
 	dir := t.TempDir()
 	// Use `echo` as the resume binary — always on PATH, exits immediately.
 	writeLocalAdapter(t, dir, "echoagent",
 		"binary: echo\nsession: --session\n")
 	chdirTemp(t, dir)
 
-	if err := agentResume("echoagent", dir, "sess-123", "my feedback"); err != nil {
-		t.Errorf("agentResume: %v", err)
+	if err := agentResume("echoagent", dir, "42", "sess-123", "my feedback", true, false); err != nil {
+		t.Fatalf("agentResume headless: %v", err)
+	}
+
+	agentState, err := os.ReadFile(filepath.Join(dir, ".agent"))
+	if err != nil {
+		t.Fatalf("read .agent: %v", err)
+	}
+	if !strings.Contains(string(agentState), "agent-pid=") {
+		t.Fatalf(".agent missing agent-pid entry:\n%s", string(agentState))
+	}
+
+	// The background echo process may not have written yet; poll briefly.
+	var logData []byte
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		logData, _ = os.ReadFile(filepath.Join(dir, "agent.log"))
+		if strings.Contains(string(logData), "sess-123") {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !strings.Contains(string(logData), "sess-123") {
+		t.Fatalf("agent.log missing resumed session output:\n%s", string(logData))
+	}
+}
+
+func TestAgentResume_nonHeadless_exitsWhenAgentDone(t *testing.T) {
+	dir := t.TempDir()
+	// Use `echo` as the resume binary — always on PATH, exits immediately.
+	writeLocalAdapter(t, dir, "echoagent",
+		"binary: echo\nsession: --session\n")
+	chdirTemp(t, dir)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- agentResume("echoagent", dir, "42", "sess-123", "my feedback", false, false)
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("agentResume non-headless: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		if p, err := os.FindProcess(os.Getpid()); err == nil {
+			_ = p.Signal(os.Interrupt)
+		}
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("agentResume did not return after agent exit and cleanup returned error: %v", err)
+			}
+			t.Fatal("agentResume did not return after agent process exited — required interrupt-driven cleanup before failing")
+		case <-time.After(2 * time.Second):
+			t.Fatal("agentResume hung even after interrupt")
+		}
+	}
+}
+
+func TestAgentResume_nonHeadless_sigintPrintsHints(t *testing.T) {
+	dir := t.TempDir()
+
+	scriptPath := filepath.Join(dir, "sleepagent")
+	script := "#!/bin/sh\nsleep 30\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeLocalAdapter(t, dir, "sleepagent", "binary: "+scriptPath+"\n")
+	chdirTemp(t, dir)
+
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stdout = w
+	t.Cleanup(func() { os.Stdout = oldStdout })
+
+	done := make(chan error, 1)
+	go func() {
+		done <- agentResume("sleepagent", dir, "42", "sess-123", "feedback", false, false)
+	}()
+
+	time.Sleep(500 * time.Millisecond)
+
+	if p, err := os.FindProcess(os.Getpid()); err == nil {
+		_ = p.Signal(os.Interrupt)
+	}
+
+	select {
+	case launchErr := <-done:
+		if launchErr != nil {
+			t.Fatalf("agentResume: %v", launchErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("agentResume did not return after SIGINT")
+	}
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatalf("reading captured stdout: %v", err)
+	}
+	r.Close()
+
+	out := buf.String()
+	for _, want := range []string{
+		"agent still running in background",
+		"agentctl logs 42",
+		"agentctl attach 42",
+		"agentctl discard 42",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in stdout after Ctrl+C, got:\n%s", want, out)
+		}
 	}
 }
 

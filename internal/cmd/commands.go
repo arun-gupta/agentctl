@@ -151,13 +151,20 @@ func runStart(issue, slug, agentName, sddName string, headless, quiet bool) erro
 
 // NewResumeCmd creates the `resume` subcommand.
 func NewResumeCmd() *cobra.Command {
-	return &cobra.Command{
+	var (
+		headless bool
+		quiet    bool
+	)
+	c := &cobra.Command{
 		Use:   "resume <issue> [feedback]",
 		Short: "Resume a paused spec review: approve or revise",
-		Long: `Resume a paused headless agent after the spec-review checkpoint.
+		Long: `Resume a paused agent after the spec-review checkpoint.
 
 Without feedback, sends approval ("proceed") and the agent begins implementation.
-With feedback, sends the revision text and the agent rewrites the spec.`,
+With feedback, sends the revision text and the agent rewrites the spec.
+
+By default the resumed agent streams its output to the terminal (foreground).
+Use --headless to run it in the background and write output to agent.log.`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			prompt := "proceed"
@@ -167,12 +174,15 @@ With feedback, sends the revision text and the agent rewrites the spec.`,
 				}
 				prompt = args[1]
 			}
-			return runReleasePausedSession(args[0], prompt)
+			return runReleasePausedSession(args[0], prompt, headless, quiet)
 		},
 	}
+	c.Flags().BoolVar(&headless, "headless", false, "Run agent in background (log -> agent.log)")
+	c.Flags().BoolVar(&quiet, "quiet", false, "Suppress agent log output; show spinner/heartbeat only")
+	return c
 }
 
-func runReleasePausedSession(issue, prompt string) error {
+func runReleasePausedSession(issue, prompt string, headless, quiet bool) error {
 	repoRoot, err := git.RepoRoot()
 	if err != nil {
 		return fmt.Errorf("cannot determine repo root: %w", err)
@@ -199,12 +209,7 @@ func runReleasePausedSession(issue, prompt string) error {
 		return fmt.Errorf("spec not yet generated for issue %s; paused state not reached.\nTail %s/agent.log to confirm and retry once the pause is reported.", issue, wt.Path)
 	}
 
-	if err := agentResume(af.Agent, wt.Path, af.SessionID, prompt); err != nil {
-		return err
-	}
-	fmt.Printf("Released pause for issue %s; Stage 2 running in background.\n", issue)
-	fmt.Printf("Tail: %s/agent.log\n", wt.Path)
-	return nil
+	return agentResume(af.Agent, wt.Path, issue, af.SessionID, prompt, headless, quiet)
 }
 
 // specExists checks whether a spec.md file exists anywhere under
@@ -1732,30 +1737,227 @@ func writeClaudeSettings(wtPath string) error {
 }
 
 // agentResume starts the coding agent in resume mode using the named adapter.
-func agentResume(adapterName, wtPath, sessionID, prompt string) error {
+// When headless is false (default) it streams agent.log to the terminal and
+// blocks until the agent exits. When headless is true it detaches immediately
+// and writes output to agent.log.
+func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless, quiet bool) error {
 	ad, err := adapters.Get(adapterName)
 	if err != nil {
 		return err
 	}
 
+	if err := ad.CheckBinary(); err != nil {
+		return err
+	}
+
+	if headless && adapterName == "claude" {
+		if err := writeClaudeSettings(wtPath); err != nil {
+			return err
+		}
+	}
+
 	resumeCmd := ad.ResumeCmd(prompt, sessionID, wtPath)
 	resumeCmd.Dir = wtPath
 
-	logFile, err := os.OpenFile(filepath.Join(wtPath, "agent.log"),
-		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	logPath := filepath.Join(wtPath, "agent.log")
+	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("open agent.log for append: %w", err)
 	}
-	resumeCmd.Stdout = logFile
-	resumeCmd.Stderr = logFile
+
+	var pr, pw *os.File
+	if !headless {
+		pr, pw, err = os.Pipe()
+		if err != nil {
+			logFile.Close()
+			return fmt.Errorf("os.Pipe: %w", err)
+		}
+		if adapterName == "claude" {
+			resumeCmd.Args = append(resumeCmd.Args, "--output-format", "stream-json", "--verbose")
+		}
+		resumeCmd.Stdout = pw
+		resumeCmd.Stderr = pw
+	} else {
+		if adapterName == "claude" {
+			resumeCmd.Args = append(resumeCmd.Args, "--verbose")
+		}
+		resumeCmd.Stdout = logFile
+		resumeCmd.Stderr = logFile
+	}
+
 	detachProcess(resumeCmd)
 
 	if err := resumeCmd.Start(); err != nil {
+		if pw != nil {
+			pw.Close()
+			pr.Close()
+		}
 		logFile.Close()
 		return fmt.Errorf("agent resume failed to start: %w", err)
 	}
-	logFile.Close()
-	// Release our reference to the process handle; the agent runs independently.
-	_ = resumeCmd.Process.Release()
-	return nil
+
+	var convWg sync.WaitGroup
+	if headless {
+		logFile.Close()
+	} else {
+		pw.Close()
+		convWg.Add(1)
+		go func() {
+			defer convWg.Done()
+			defer pr.Close()
+			defer logFile.Close()
+
+			r := bufio.NewReader(pr)
+			for {
+				line, err := r.ReadString('\n')
+				if line != "" {
+					if text := extractStreamText(strings.TrimSuffix(line, "\n"), wtPath); text != "" {
+						fmt.Fprintln(logFile, text)
+					}
+				}
+				if err != nil {
+					if !errors.Is(err, io.EOF) {
+						fmt.Fprintf(logFile, "converter read error: %v\n", err)
+					}
+					break
+				}
+			}
+		}()
+	}
+
+	pid := resumeCmd.Process.Pid
+
+	exitCh := make(chan struct{})
+	go func() {
+		if err := resumeCmd.Wait(); err != nil {
+			fmt.Fprintf(os.Stderr, "agent exited: %v\n", err)
+		}
+		close(exitCh)
+	}()
+
+	if err := state.AppendKey(wtPath, "agent-pid", strconv.Itoa(pid)); err != nil {
+		return err
+	}
+
+	if headless {
+		fmt.Printf("Released pause for issue %s; Stage 2 running in background.\n", issue)
+		fmt.Printf("Tail: %s\n", logPath)
+		return nil
+	}
+
+	if err := waitForFile(logPath, 10*time.Second); err != nil {
+		return err
+	}
+
+	mirrorResumeLogFromOffset := func(srcPath string, dst *os.File, offset int64, done <-chan struct{}) {
+		src, err := os.Open(srcPath)
+		if err != nil {
+			return
+		}
+		defer src.Close()
+
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+
+			info, err := src.Stat()
+			if err != nil {
+				return
+			}
+
+			size := info.Size()
+			if size < offset {
+				offset = size
+			}
+
+			if size > offset {
+				if _, err := src.Seek(offset, io.SeekStart); err != nil {
+					return
+				}
+				written, err := io.Copy(dst, io.LimitReader(src, size-offset))
+				offset += written
+				if err != nil {
+					return
+				}
+				if err := dst.Sync(); err != nil {
+					return
+				}
+			}
+
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+			}
+		}
+	}
+
+	followResumeLogFromEOF := func(srcPath string, out io.Writer, done <-chan struct{}, quiet bool, color bool) {
+		info, err := os.Stat(srcPath)
+		if err != nil {
+			followLog(srcPath, out, done, quiet, color)
+			return
+		}
+
+		tmp, err := os.CreateTemp("", "agentctl-resume-log-*")
+		if err != nil {
+			followLog(srcPath, out, done, quiet, color)
+			return
+		}
+		tmpPath := tmp.Name()
+		defer func() {
+			_ = tmp.Close()
+			_ = os.Remove(tmpPath)
+		}()
+
+		mirrorDone := make(chan struct{})
+		go func() {
+			defer close(mirrorDone)
+			mirrorResumeLogFromOffset(srcPath, tmp, info.Size(), done)
+		}()
+
+		followLog(tmpPath, out, done, quiet, color)
+		<-mirrorDone
+	}
+
+	logDone := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		followResumeLogFromEOF(logPath, os.Stdout, logDone, quiet, true)
+	}()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	for {
+		select {
+		case <-exitCh:
+			signal.Stop(sigCh)
+			convWg.Wait()
+			close(logDone)
+			wg.Wait()
+			if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
+				if linkErr := linkPRToIssue(wtPath, branch, issue); linkErr != nil {
+					fmt.Fprintf(os.Stderr, "note: could not link PR to issue: %v\n", linkErr)
+				}
+			}
+			return nil
+		case <-sigCh:
+			signal.Stop(sigCh)
+			close(logDone)
+			wg.Wait()
+			fmt.Fprintf(os.Stdout, "agent still running in background\n")
+			fmt.Fprintf(os.Stdout, "  agentctl logs %s     # follow log\n", issue)
+			fmt.Fprintf(os.Stdout, "  agentctl attach %s   # stream live output\n", issue)
+			fmt.Fprintf(os.Stdout, "  agentctl discard %s  # permanently delete worktree and branches\n", issue)
+			return nil
+		}
+	}
 }
