@@ -1873,16 +1873,25 @@ func TestLaunchAgent_nonClaudeDoesNotWriteSettingsJson(t *testing.T) {
 // makeGHStub writes a stub gh script to stubDir and returns the path to the
 // calls log file where the stub records each invocation (one arg per line).
 // viewJSON is written as the stdout for "gh pr view"; pass "" to simulate a
-// missing PR (gh exits 1).  For "gh pr edit" the stub always exits 0 unless
-// editFail is true.
-func makeGHStub(t *testing.T, stubDir, viewJSON string, editFail bool) string {
+// missing PR (gh exits 1).  listJSON is written as the stdout for "gh pr list";
+// pass "" to return an empty array (no PRs, gh exits 0).  For "gh pr edit" the
+// stub always exits 0 unless editFail is true.
+func makeGHStub(t *testing.T, stubDir, viewJSON, listJSON string, editFail bool) string {
 	t.Helper()
 	callsFile := filepath.Join(stubDir, "gh-calls.txt")
 	responseFile := filepath.Join(stubDir, "gh-response.json")
+	listFile := filepath.Join(stubDir, "gh-list.json")
 	if viewJSON != "" {
 		if err := os.WriteFile(responseFile, []byte(viewJSON), 0o644); err != nil {
 			t.Fatal(err)
 		}
+	}
+	listOut := "[]"
+	if listJSON != "" {
+		listOut = listJSON
+	}
+	if err := os.WriteFile(listFile, []byte(listOut), 0o644); err != nil {
+		t.Fatal(err)
 	}
 
 	prViewExit := 0
@@ -1900,6 +1909,10 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   if [ -f %s ]; then cat %s; fi
   exit %d
 fi
+if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+  cat %s
+  exit 0
+fi
 if [ "$1" = "pr" ] && [ "$2" = "edit" ]; then
   exit %d
 fi
@@ -1907,6 +1920,7 @@ exit 0`,
 		callsFile,
 		responseFile, responseFile,
 		prViewExit,
+		listFile,
 		prEditExit,
 	)
 	ghPath := filepath.Join(stubDir, "gh")
@@ -1924,7 +1938,7 @@ func prependPath(t *testing.T, dir string) {
 
 func TestLinkPRToIssue_noPR(t *testing.T) {
 	stubDir := t.TempDir()
-	callsFile := makeGHStub(t, stubDir, "", false)
+	callsFile := makeGHStub(t, stubDir, "", "", false)
 	prependPath(t, stubDir)
 
 	if err := linkPRToIssue(t.TempDir(), "42-my-feature", "42"); err != nil {
@@ -1956,7 +1970,7 @@ func TestLinkPRToIssue_alreadyLinked(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			stubDir := t.TempDir()
 			viewJSON := fmt.Sprintf(`{"number":7,"body":%q}`, tc.body)
-			callsFile := makeGHStub(t, stubDir, viewJSON, false)
+			callsFile := makeGHStub(t, stubDir, viewJSON, "", false)
 			prependPath(t, stubDir)
 
 			if err := linkPRToIssue(t.TempDir(), "42-feature", "42"); err != nil {
@@ -1973,7 +1987,7 @@ func TestLinkPRToIssue_alreadyLinked(t *testing.T) {
 func TestLinkPRToIssue_addsLink(t *testing.T) {
 	stubDir := t.TempDir()
 	viewJSON := `{"number":7,"body":"some PR work"}`
-	callsFile := makeGHStub(t, stubDir, viewJSON, false)
+	callsFile := makeGHStub(t, stubDir, viewJSON, "", false)
 	prependPath(t, stubDir)
 
 	if err := linkPRToIssue(t.TempDir(), "42-feature", "42"); err != nil {
@@ -1993,7 +2007,7 @@ func TestLinkPRToIssue_addsLink(t *testing.T) {
 func TestLinkPRToIssue_addsLink_emptyBody(t *testing.T) {
 	stubDir := t.TempDir()
 	viewJSON := `{"number":3,"body":""}`
-	callsFile := makeGHStub(t, stubDir, viewJSON, false)
+	callsFile := makeGHStub(t, stubDir, viewJSON, "", false)
 	prependPath(t, stubDir)
 
 	if err := linkPRToIssue(t.TempDir(), "42-feature", "42"); err != nil {
@@ -2010,7 +2024,7 @@ func TestLinkPRToIssue_addsLink_emptyBody(t *testing.T) {
 func TestLinkPRToIssue_editError(t *testing.T) {
 	stubDir := t.TempDir()
 	viewJSON := `{"number":7,"body":"some work"}`
-	makeGHStub(t, stubDir, viewJSON, true) // editFail=true
+	makeGHStub(t, stubDir, viewJSON, "", true) // editFail=true
 	prependPath(t, stubDir)
 
 	err := linkPRToIssue(t.TempDir(), "42-feature", "42")
@@ -2081,5 +2095,138 @@ func TestIsAgentRunning_livePID(t *testing.T) {
 	}
 	if !isAgentRunning(dir) {
 		t.Error("expected isAgentRunning=true when AgentPID is the current process")
+	}
+}
+
+func TestIsAgentRunning_unreadableFile(t *testing.T) {
+	dir := t.TempDir()
+	// Write an .agent file then make it unreadable.
+	agentFile := filepath.Join(dir, ".agent")
+	if err := os.WriteFile(agentFile, []byte("agent-pid=99999\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(agentFile, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(agentFile, 0o600) })
+	// Should return true conservatively when file is unreadable.
+	if os.Getuid() == 0 {
+		t.Skip("root bypasses permission checks")
+	}
+	if !isAgentRunning(dir) {
+		t.Error("expected isAgentRunning=true when .agent file is unreadable (conservative)")
+	}
+}
+
+// ─── ghHasPR ─────────────────────────────────────────────────────────────────
+
+func TestGhHasPR_noPR(t *testing.T) {
+	stubDir := t.TempDir()
+	makeGHStub(t, stubDir, "", "", false) // listJSON="" → returns []
+	prependPath(t, stubDir)
+
+	has, err := ghHasPR(t.TempDir(), "42-my-feature")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if has {
+		t.Error("expected ghHasPR=false when pr list returns []")
+	}
+}
+
+func TestGhHasPR_hasPR(t *testing.T) {
+	stubDir := t.TempDir()
+	listJSON := `[{"number":7}]`
+	makeGHStub(t, stubDir, "", listJSON, false)
+	prependPath(t, stubDir)
+
+	has, err := ghHasPR(t.TempDir(), "42-my-feature")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !has {
+		t.Error("expected ghHasPR=true when pr list returns a non-empty array")
+	}
+}
+
+func TestGhHasPR_ghError(t *testing.T) {
+	// Use a stub that exits non-zero for pr list to simulate auth/network failure.
+	stubDir := t.TempDir()
+	script := fmt.Sprintf(`#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+  echo "error: not authenticated" >&2
+  exit 1
+fi
+exit 0`)
+	ghPath := filepath.Join(stubDir, "gh")
+	if err := os.WriteFile(ghPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prependPath(t, stubDir)
+
+	has, err := ghHasPR(t.TempDir(), "42-my-feature")
+	if err == nil {
+		t.Fatal("expected error when gh exits non-zero")
+	}
+	if has {
+		t.Error("expected ghHasPR=false on error")
+	}
+}
+
+// ─── isStaleWorktree ─────────────────────────────────────────────────────────
+
+func TestIsStaleWorktree_agentRunning(t *testing.T) {
+	dir := t.TempDir()
+	pid := strconv.Itoa(os.Getpid())
+	if err := state.Write(dir, state.AgentFile{Agent: "claude", AgentPID: pid}); err != nil {
+		t.Fatal(err)
+	}
+	// No gh stub needed; isAgentRunning short-circuits.
+	if isStaleWorktree(t.TempDir(), "42-my-feature", dir) {
+		t.Error("expected isStaleWorktree=false when agent is running")
+	}
+}
+
+func TestIsStaleWorktree_hasPR(t *testing.T) {
+	dir := t.TempDir() // no .agent file → agent not running
+	stubDir := t.TempDir()
+	listJSON := `[{"number":7}]`
+	makeGHStub(t, stubDir, "", listJSON, false)
+	prependPath(t, stubDir)
+
+	if isStaleWorktree(t.TempDir(), "42-my-feature", dir) {
+		t.Error("expected isStaleWorktree=false when a PR exists")
+	}
+}
+
+func TestIsStaleWorktree_noPRNoAgent(t *testing.T) {
+	dir := t.TempDir() // no .agent file → agent not running
+	stubDir := t.TempDir()
+	makeGHStub(t, stubDir, "", "", false) // listJSON="" → returns []
+	prependPath(t, stubDir)
+
+	if !isStaleWorktree(t.TempDir(), "42-my-feature", dir) {
+		t.Error("expected isStaleWorktree=true when no agent and no PR")
+	}
+}
+
+func TestIsStaleWorktree_ghError(t *testing.T) {
+	dir := t.TempDir() // no .agent file → agent not running
+	stubDir := t.TempDir()
+	script := `#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+  echo "error: not authenticated" >&2
+  exit 1
+fi
+exit 0`
+	ghPath := filepath.Join(stubDir, "gh")
+	if err := os.WriteFile(ghPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prependPath(t, stubDir)
+
+	// On gh error, should return false conservatively.
+	if isStaleWorktree(t.TempDir(), "42-my-feature", dir) {
+		t.Error("expected isStaleWorktree=false when gh returns an error (conservative)")
 	}
 }

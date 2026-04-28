@@ -228,7 +228,7 @@ This action is NOT recoverable. You will be prompted to type YES to confirm.
 If no issue number is given, it is inferred from the current branch when
 you are inside a linked worktree.
 
-Use --stale to discard all worktrees that have no running agent and no open PR.`,
+Use --stale to discard all worktrees that have no running agent and no PR.`,
 		Args: cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if stale {
@@ -244,7 +244,7 @@ Use --stale to discard all worktrees that have no running agent and no open PR.`
 			return runRemoveWorktree(issue)
 		},
 	}
-	c.Flags().BoolVar(&stale, "stale", false, "Discard all worktrees with no running agent and no open PR")
+	c.Flags().BoolVar(&stale, "stale", false, "Discard all worktrees with no running agent and no PR")
 	return c
 }
 
@@ -261,18 +261,19 @@ func isAgentRunning(wtPath string) bool {
 	return af.AgentPID != "" && process.IsAlive(af.AgentPID)
 }
 
-// isStaleWorktree returns true when no agent is running and no PR exists for branch.
-// If PR status cannot be determined reliably, it returns false to avoid discarding
-// a potentially active worktree based on transient GH CLI/auth/network failures.
+// isStaleWorktree returns true when no agent is running and no PR of any state
+// exists for the branch. Returns false conservatively when PR status cannot be
+// reliably determined (e.g. auth or network failures) to avoid discarding
+// potentially active worktrees.
 func isStaleWorktree(repoRoot, branch, wtPath string) bool {
 	if isAgentRunning(wtPath) {
 		return false
 	}
-	prState, _, err := ghPRInfo(repoRoot, branch)
+	hasPR, err := ghHasPR(repoRoot, branch)
 	if err != nil {
-		return false
+		return false // conservative: can't confirm no PR, skip
 	}
-	return prState == ""
+	return !hasPR
 }
 
 func runDiscardStale() error {
@@ -1020,6 +1021,23 @@ func ghPRInfo(repoRoot, branch string) (state string, number int, err error) {
 		return "", 0, fmt.Errorf("unexpected gh PR number %q in output %q: %w", parts[1], out.String(), err)
 	}
 	return parts[0], n, nil
+}
+
+// ghHasPR uses `gh pr list --head <branch> --state all` to check whether any
+// PR (open, closed, or merged) exists for the branch. It returns (true, nil)
+// when at least one PR exists, (false, nil) when none exist, and (false, err)
+// when the GH CLI call fails (e.g. auth or network failure) so callers can
+// treat the result conservatively.
+func ghHasPR(repoRoot, branch string) (bool, error) {
+	cmd := exec.Command("gh", "pr", "list", "--head", branch, "--state", "all", "--json", "number")
+	cmd.Dir = repoRoot
+	var out, errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		return false, fmt.Errorf("%w: %s", err, strings.TrimSpace(errBuf.String()))
+	}
+	return strings.TrimSpace(out.String()) != "[]", nil
 }
 
 // ghPRState is a convenience wrapper that returns only the state string.
