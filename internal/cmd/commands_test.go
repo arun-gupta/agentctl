@@ -19,6 +19,24 @@ import (
 	"github.com/arun-gupta/agentctl/internal/state"
 )
 
+// TestMain handles the hidden __stream-log subprocess that launchAgent/agentResume
+// spawn in headless claude mode. Without this, the subprocess would restart the
+// test suite instead of running the converter.
+func TestMain(m *testing.M) {
+	if len(os.Args) > 1 && os.Args[1] == "__stream-log" {
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: __stream-log <wtDir>")
+			os.Exit(1)
+		}
+		if err := runStreamLog(os.Args[2]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
+
 func TestTitleToSlug(t *testing.T) {
 	tests := []struct {
 		title string
@@ -807,10 +825,10 @@ func TestLaunchAgent_claudeNonHeadlessInjectsStreamJsonAndVerbose(t *testing.T) 
 	}
 }
 
-// TestLaunchAgent_claudeHeadlessInjectsVerboseOnly verifies that launchAgent
-// appends only --verbose (not --output-format stream-json) to the claude
-// command line in headless mode.
-func TestLaunchAgent_claudeHeadlessInjectsVerboseOnly(t *testing.T) {
+// TestLaunchAgent_claudeHeadlessUsesStreamJson verifies that launchAgent
+// appends --output-format stream-json --verbose to the claude command line in
+// headless mode so intermediate tool steps are captured in agent.log.
+func TestLaunchAgent_claudeHeadlessUsesStreamJson(t *testing.T) {
 	dir := t.TempDir()
 	argsFile := filepath.Join(dir, "argv.txt")
 
@@ -842,14 +860,10 @@ func TestLaunchAgent_claudeHeadlessInjectsVerboseOnly(t *testing.T) {
 		t.Fatalf("reading argv file: %v", err)
 	}
 	argsStr := string(argsData)
-	if !strings.Contains(argsStr, "--verbose") {
-		t.Errorf("missing --verbose in headless claude argv: %q", argsStr)
-	}
-	if strings.Contains(argsStr, "--output-format") {
-		t.Errorf("unexpected --output-format in headless claude argv: %q", argsStr)
-	}
-	if strings.Contains(argsStr, "stream-json") {
-		t.Errorf("unexpected stream-json in headless claude argv: %q", argsStr)
+	for _, want := range []string{"--output-format", "stream-json", "--verbose"} {
+		if !strings.Contains(argsStr, want) {
+			t.Errorf("missing %q in headless claude argv: %q", want, argsStr)
+		}
 	}
 }
 
@@ -1397,6 +1411,42 @@ func TestAttachLog_agentRunning(t *testing.T) {
 	}
 	if elapsed > 5*time.Second {
 		t.Errorf("attachLog took too long (%v)", elapsed)
+	}
+}
+
+// TestConvertStreamToLog verifies that convertStreamToLog parses stream-json
+// lines and appends human-readable text to the log file without truncating
+// existing content.
+func TestConvertStreamToLog(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "agent.log")
+
+	// Verify append semantics: write prior content first.
+	if err := os.WriteFile(logPath, []byte("prior line\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	assistantLine := `{"type":"assistant","message":{"content":[{"type":"text","text":"Hello world"}]}}`
+	toolLine := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"bash","input":{"command":"go test ./..."}}]}}`
+	input := assistantLine + "\n" + toolLine + "\n"
+
+	if err := convertStreamToLog(strings.NewReader(input), logPath, dir); err != nil {
+		t.Fatalf("convertStreamToLog: %v", err)
+	}
+
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(content)
+	if !strings.Contains(got, "prior line") {
+		t.Error("convertStreamToLog must append, not truncate; prior content missing")
+	}
+	if !strings.Contains(got, "Hello world") {
+		t.Errorf("expected 'Hello world' in log:\n%s", got)
+	}
+	if !strings.Contains(got, "bash: go test ./...") {
+		t.Errorf("expected bash tool label in log:\n%s", got)
 	}
 }
 
@@ -2048,9 +2098,13 @@ func TestWriteClaudeSettings_doesNotOverwrite(t *testing.T) {
 
 func TestLaunchAgent_claudeHeadlessWritesSettingsJson(t *testing.T) {
 	dir := t.TempDir()
-	argsFile := filepath.Join(dir, "argv.txt")
 	scriptPath := filepath.Join(dir, "claude-stub")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"" + argsFile + "\"\n"
+	// The stub exits immediately without writing any files to the temp dir.
+	// Previous versions wrote argv.txt here, but that file is never read by
+	// this test and its asynchronous creation caused a temp-dir cleanup race
+	// on Linux CI (shell started after RemoveAll, creating a file in a
+	// directory that was being concurrently removed).
+	script := "#!/bin/sh\n"
 	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

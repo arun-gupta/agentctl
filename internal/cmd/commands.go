@@ -1541,7 +1541,9 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 
 	// In interactive mode, capture output through a pipe so we can parse
 	// stream-json events and write human-readable text to the log file
-	// progressively. In headless mode the agent writes directly to the file.
+	// progressively. In headless mode, non-Claude adapters write directly to
+	// the file; Claude headless uses a pipe fed to a detached __stream-log
+	// subprocess so intermediate tool steps are captured progressively.
 	var pr, pw *os.File
 	if !headless {
 		pr, pw, err = os.Pipe()
@@ -1556,14 +1558,23 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 		agentCmd.Stdout = pw
 		agentCmd.Stderr = pw
 	} else {
-		// --verbose is Claude-specific; inject it for headless Claude runs so
-		// agent.log receives the same verbose output as before this feature was
-		// introduced. Interactive mode uses --output-format stream-json instead.
 		if adapterName == "claude" {
-			agentCmd.Args = append(agentCmd.Args, "--verbose")
+			// Use stream-json so intermediate tool steps are captured progressively.
+			// Since the parent exits immediately in headless mode, a detached
+			// __stream-log subprocess converts the pipe to human-readable text in
+			// agent.log.
+			agentCmd.Args = append(agentCmd.Args, "--output-format", "stream-json", "--verbose")
+			pr, pw, err = os.Pipe()
+			if err != nil {
+				logFile.Close()
+				return fmt.Errorf("os.Pipe: %w", err)
+			}
+			agentCmd.Stdout = pw
+			agentCmd.Stderr = pw
+		} else {
+			agentCmd.Stdout = logFile
+			agentCmd.Stderr = logFile
 		}
-		agentCmd.Stdout = logFile
-		agentCmd.Stderr = logFile
 	}
 
 	detachProcess(agentCmd)
@@ -1581,7 +1592,29 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 	// content into the log file before signalling followLog to do its final read.
 	var convWg sync.WaitGroup
 	if headless {
-		// The child process inherits the fd; close our copy.
+		if pw != nil {
+			// Claude headless: spawn a detached __stream-log process. Its stdout
+			// is the already-open logFile fd so it never opens files by path
+			// (avoids race with test cleanup removing the temp dir).
+			convCmd := exec.Command(os.Args[0], "__stream-log", wtPath)
+			convCmd.Stdin = pr
+			convCmd.Stdout = logFile
+			convCmd.Stderr = logFile
+			// Set Dir to wtPath so the converter's CWD is outside any temp dir
+			// that the test may have set via chdirTemp, preventing any runtime
+			// exit hooks from creating files in a directory under cleanup.
+			convCmd.Dir = wtPath
+			detachProcess(convCmd)
+			if convErr := convCmd.Start(); convErr != nil {
+				pw.Close()
+				pr.Close()
+				logFile.Close()
+				return fmt.Errorf("start log converter: %w", convErr)
+			}
+			_ = convCmd.Process.Release()
+			pw.Close()
+			pr.Close()
+		}
 		logFile.Close()
 	} else {
 		// Close the write end in the parent; the child has its own copy.
@@ -1696,6 +1729,72 @@ func waitForFile(path string, timeout time.Duration) error {
 		time.Sleep(100 * time.Millisecond)
 	}
 	return fmt.Errorf("%s did not appear within %s", path, timeout)
+}
+
+// convertStreamToLog reads Claude --output-format stream-json lines from r,
+// converts each event to human-readable text, and appends the result to
+// logPath. Used by callers that need stream-json output persisted to a
+// log file, including tests.
+func convertStreamToLog(r io.Reader, logPath, wtDir string) error {
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	br := bufio.NewReader(r)
+	for {
+		line, readErr := br.ReadString('\n')
+		if line != "" {
+			if text := extractStreamText(strings.TrimSuffix(line, "\n"), wtDir); text != "" {
+				fmt.Fprintln(f, text)
+			}
+		}
+		if readErr != nil {
+			if !errors.Is(readErr, io.EOF) {
+				fmt.Fprintf(f, "stream-log read error: %v\n", readErr)
+			}
+			break
+		}
+	}
+	return nil
+}
+
+// runStreamLog reads Claude --output-format stream-json lines from stdin,
+// converts each event to human-readable text, and writes to stdout. The caller
+// (agentctl headless launcher) sets the subprocess stdout to an already-open
+// log file fd so no file-path lookup is needed.
+func runStreamLog(wtDir string) error {
+	r := bufio.NewReader(os.Stdin)
+	for {
+		line, readErr := r.ReadString('\n')
+		if line != "" {
+			if text := extractStreamText(strings.TrimSuffix(line, "\n"), wtDir); text != "" {
+				fmt.Fprintln(os.Stdout, text)
+			}
+		}
+		if readErr != nil {
+			if !errors.Is(readErr, io.EOF) {
+				fmt.Fprintf(os.Stdout, "stream-log read error: %v\n", readErr)
+			}
+			break
+		}
+	}
+	return nil
+}
+
+// NewStreamLogCmd returns a hidden cobra command that agentctl spawns as a
+// detached background process in headless mode. It reads Claude
+// --output-format stream-json from stdin and writes human-readable text to
+// stdout (which is the inherited agent.log file descriptor).
+func NewStreamLogCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "__stream-log <wtDir>",
+		Hidden: true,
+		Args:   cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			return runStreamLog(args[0])
+		},
+	}
 }
 
 // extractStreamText converts a single claude --output-format stream-json line
@@ -2024,10 +2123,20 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 		resumeCmd.Stderr = pw
 	} else {
 		if adapterName == "claude" {
-			resumeCmd.Args = append(resumeCmd.Args, "--verbose")
+			// Use stream-json so intermediate tool steps are captured progressively
+			// (same fix as launchAgent headless path).
+			resumeCmd.Args = append(resumeCmd.Args, "--output-format", "stream-json", "--verbose")
+			pr, pw, err = os.Pipe()
+			if err != nil {
+				logFile.Close()
+				return fmt.Errorf("os.Pipe: %w", err)
+			}
+			resumeCmd.Stdout = pw
+			resumeCmd.Stderr = pw
+		} else {
+			resumeCmd.Stdout = logFile
+			resumeCmd.Stderr = logFile
 		}
-		resumeCmd.Stdout = logFile
-		resumeCmd.Stderr = logFile
 	}
 
 	detachProcess(resumeCmd)
@@ -2043,6 +2152,23 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 
 	var convWg sync.WaitGroup
 	if headless {
+		if pw != nil {
+			convCmd := exec.Command(os.Args[0], "__stream-log", wtPath)
+			convCmd.Stdin = pr
+			convCmd.Stdout = logFile
+			convCmd.Stderr = logFile
+			convCmd.Dir = wtPath
+			detachProcess(convCmd)
+			if convErr := convCmd.Start(); convErr != nil {
+				pw.Close()
+				pr.Close()
+				logFile.Close()
+				return fmt.Errorf("start log converter: %w", convErr)
+			}
+			_ = convCmd.Process.Release()
+			pw.Close()
+			pr.Close()
+		}
 		logFile.Close()
 	} else {
 		pw.Close()
