@@ -109,7 +109,29 @@ A lightweight single-file spec workflow with one approval gate and no slash comm
 kickoff: |
   Work on GitHub issue #{issue}. Read CLAUDE.md for project conventions.
   Follow the plain spec workflow:
-  - STEP 1: Write a `specs/spec.md` describing your intended approach. Stop and wait for human approval.
+  - STEP 1: Write a `specs/spec.md` describing your intended approach using the
+    following format:
+
+      ## Problem
+      What the issue asks for and why.
+
+      ## Approach
+      How you plan to solve it.
+
+      ## Changes
+      Files/modules to add, modify, or delete. Include new function signatures,
+      CLI flags, HTTP endpoints, or data structure snippets inline here if applicable.
+
+      ## Test Cases
+      Bulleted list of scenarios that will be validated (not code — just what will be tested).
+
+      ## Risks / Open Questions
+      What you are uncertain about, assumptions made, or areas where human judgment is needed.
+
+      ## Out of Scope
+      What will not be done in this PR.
+
+    Stop and wait for human approval before proceeding.
   - STEP 2: After approval, implement the changes directly, push the branch, and open a PR. Do not merge.
   Dev server is running on port {port}.
 ```
@@ -118,7 +140,7 @@ kickoff: |
 agentctl start 42 --sdd=plain
 ```
 
-> **Planned:** [#68](https://github.com/arun-gupta/agentctl/issues/68) will add a prescribed `spec.md` format (Problem / Approach / Changes / Out of scope) as a hint in the kickoff prompt so specs have a consistent shape to review.
+A `specs/spec.md` template is also included in the repository root for agent reference.
 
 ### Planned built-in methodologies
 
