@@ -187,8 +187,8 @@ Ready-to-use YAML files for agents not included as built-ins. Save any of these 
 
 ```yaml
 binary: openhands
-launch: openhands --always-approve --json -t {kickoff}
-resume_cmd: openhands --always-approve --json --resume --last -t {prompt}
+launch: openhands --headless --always-approve --json -t {kickoff}
+resume_cmd: openhands --headless --always-approve --json --resume --last -t {prompt}
 session_type: directory
 install: uv tool install openhands --python 3.12
 ```
