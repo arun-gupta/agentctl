@@ -1706,6 +1706,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
 				reportPRStatus(os.Stdout, wtPath, branch, issue)
 			}
+			fmt.Fprintf(out, "agentctl resume %s   # send a follow-up prompt\n", issue)
 			return nil
 		case <-sigCh:
 			signal.Stop(sigCh)
@@ -2638,6 +2639,7 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 			if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
 				reportPRStatus(os.Stdout, wtPath, branch, issue)
 			}
+			fmt.Fprintf(os.Stdout, "agentctl resume %s   # send a follow-up prompt\n", issue)
 			return nil
 		case <-sigCh:
 			signal.Stop(sigCh)
