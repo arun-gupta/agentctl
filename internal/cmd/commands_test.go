@@ -1482,7 +1482,58 @@ func TestAgentEnv_rejectsSymlink(t *testing.T) {
 	}
 }
 
+// TestAgentEnv_ghConfigSymlink verifies that agentEnv creates a real directory
+// at .agent-home/.config and a symlink .agent-home/.config/gh → <HOME>/.config/gh,
+// rather than symlinking the entire ~/.config tree.
+func TestAgentEnv_ghConfigSymlink(t *testing.T) {
+	// Build a fake HOME containing .config/gh
+	fakeHome := t.TempDir()
+	ghConfigSrc := filepath.Join(fakeHome, ".config", "gh")
+	if err := os.MkdirAll(ghConfigSrc, 0o755); err != nil {
+		t.Fatalf("setup fake HOME: %v", err)
+	}
 
+	// Point HOME at our fake directory so os.UserHomeDir picks it up.
+	t.Setenv("HOME", fakeHome)
+
+	dir := t.TempDir()
+	if _, err := agentEnv(dir); err != nil {
+		t.Fatalf("agentEnv: %v", err)
+	}
+
+	agentHome := filepath.Join(dir, ".agent-home")
+
+	// .agent-home/.config must be a real directory, not a symlink to the whole
+	// ~/.config tree (that would expose unrelated host application configs).
+	configDst := filepath.Join(agentHome, ".config")
+	fi, err := os.Lstat(configDst)
+	if err != nil {
+		t.Skipf("symlinks not supported on this platform: %v", err)
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		t.Error(".agent-home/.config must be a real directory, not a symlink to the entire ~/.config")
+	}
+	if !fi.IsDir() {
+		t.Errorf(".agent-home/.config must be a directory; got mode %v", fi.Mode())
+	}
+
+	// .agent-home/.config/gh must be a symlink pointing to the real ~/.config/gh.
+	ghConfigDst := filepath.Join(agentHome, ".config", "gh")
+	ghFi, err := os.Lstat(ghConfigDst)
+	if err != nil {
+		t.Fatalf(".agent-home/.config/gh missing: %v", err)
+	}
+	if ghFi.Mode()&os.ModeSymlink == 0 {
+		t.Error(".agent-home/.config/gh must be a symlink")
+	}
+	target, err := os.Readlink(ghConfigDst)
+	if err != nil {
+		t.Fatalf("readlink .agent-home/.config/gh: %v", err)
+	}
+	if target != ghConfigSrc {
+		t.Errorf(".agent-home/.config/gh symlink target = %q; want %q", target, ghConfigSrc)
+	}
+}
 
 func TestStreamLog_fileExists(t *testing.T) {
 	dir := t.TempDir()
