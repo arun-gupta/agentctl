@@ -1954,7 +1954,7 @@ func extractStreamText(line, wtDir string) string {
 		Result string `json:"result"`
 	}
 	if err := json.Unmarshal([]byte(line), &ev); err != nil {
-		return line // not JSON — pass through verbatim
+		return "" // not JSON — drop; in stream-json mode all meaningful output is JSON
 	}
 	switch ev.Type {
 	case "assistant":
