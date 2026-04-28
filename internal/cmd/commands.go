@@ -144,20 +144,27 @@ func runStart(issue, slug, agentName, sddName string, headless, quiet bool) erro
 		kickoff = m.KickoffPrompt(issueNum, portStr)
 	}
 
-	return launchAgent(agentName, wtPath, issueNum, portStr, sessionID, kickoff, headless, quiet)
+	return launchAgent(agentName, wtPath, issueNum, portStr, sessionID, kickoff, sddName, headless, quiet, os.Stdout)
 }
 
 // ─── resume ───────────────────────────────────────────────────────────────────
 
 // NewResumeCmd creates the `resume` subcommand.
 func NewResumeCmd() *cobra.Command {
-	return &cobra.Command{
+	var (
+		headless bool
+		quiet    bool
+	)
+	c := &cobra.Command{
 		Use:   "resume <issue> [feedback]",
 		Short: "Resume a paused spec review: approve or revise",
-		Long: `Resume a paused headless agent after the spec-review checkpoint.
+		Long: `Resume a paused agent after the spec-review checkpoint.
 
 Without feedback, sends approval ("proceed") and the agent begins implementation.
-With feedback, sends the revision text and the agent rewrites the spec.`,
+With feedback, sends the revision text and the agent rewrites the spec.
+
+By default the resumed agent streams its output to the terminal (foreground).
+Use --headless to run it in the background and write output to agent.log.`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			prompt := "proceed"
@@ -167,12 +174,15 @@ With feedback, sends the revision text and the agent rewrites the spec.`,
 				}
 				prompt = args[1]
 			}
-			return runReleasePausedSession(args[0], prompt)
+			return runReleasePausedSession(args[0], prompt, headless, quiet)
 		},
 	}
+	c.Flags().BoolVar(&headless, "headless", false, "Run agent in background (log -> agent.log)")
+	c.Flags().BoolVar(&quiet, "quiet", false, "Suppress agent log output; show spinner/heartbeat only")
+	return c
 }
 
-func runReleasePausedSession(issue, prompt string) error {
+func runReleasePausedSession(issue, prompt string, headless, quiet bool) error {
 	repoRoot, err := git.RepoRoot()
 	if err != nil {
 		return fmt.Errorf("cannot determine repo root: %w", err)
@@ -199,12 +209,7 @@ func runReleasePausedSession(issue, prompt string) error {
 		return fmt.Errorf("spec not yet generated for issue %s; paused state not reached.\nTail %s/agent.log to confirm and retry once the pause is reported.", issue, wt.Path)
 	}
 
-	if err := agentResume(af.Agent, wt.Path, af.SessionID, prompt); err != nil {
-		return err
-	}
-	fmt.Printf("Released pause for issue %s; Stage 2 running in background.\n", issue)
-	fmt.Printf("Tail: %s/agent.log\n", wt.Path)
-	return nil
+	return agentResume(af.Agent, wt.Path, issue, af.SessionID, prompt, headless, quiet)
 }
 
 // specExists checks whether a spec.md file exists anywhere under
@@ -218,16 +223,25 @@ func specExists(wtPath string) bool {
 
 // NewDiscardCmd creates the `discard` subcommand.
 func NewDiscardCmd() *cobra.Command {
-	return &cobra.Command{
+	var stale bool
+	c := &cobra.Command{
 		Use:   "discard [issue]",
 		Short: "Permanently delete a worktree and its local/remote branches",
 		Long: `Discard the worktree for an issue and delete the local and remote branches.
 This action is NOT recoverable. You will be prompted to type YES to confirm.
 
 If no issue number is given, it is inferred from the current branch when
-you are inside a linked worktree.`,
+you are inside a linked worktree.
+
+Use --stale to discard all worktrees that have no running agent and no PR.`,
 		Args: cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if stale {
+				if len(args) > 0 {
+					return fmt.Errorf("--stale and an issue number are mutually exclusive")
+				}
+				return runDiscardStale()
+			}
 			issue, err := resolveIssueArg("discard", args)
 			if err != nil {
 				return err
@@ -235,6 +249,136 @@ you are inside a linked worktree.`,
 			return runRemoveWorktree(issue)
 		},
 	}
+	c.Flags().BoolVar(&stale, "stale", false, "Discard all worktrees with no running agent and no PR")
+	return c
+}
+
+// isAgentRunning returns true when the agent PID recorded in wtPath is alive.
+//
+// If the agent state cannot be read, treat the worktree conservatively as having
+// a running agent so stale-discard does not remove it based on unreadable or
+// corrupt state.
+func isAgentRunning(wtPath string) bool {
+	af, err := state.Read(wtPath)
+	if err != nil {
+		return true
+	}
+	return af.AgentPID != "" && process.IsAlive(af.AgentPID)
+}
+
+// isStaleWorktree returns true when no agent is running and no PR of any state
+// exists for the branch. Returns false conservatively when PR status cannot be
+// reliably determined (e.g. auth or network failures) to avoid discarding
+// potentially active worktrees.
+func isStaleWorktree(repoRoot, branch, wtPath string) bool {
+	if isAgentRunning(wtPath) {
+		return false
+	}
+	hasPR, err := ghHasPR(repoRoot, branch)
+	if err != nil {
+		return false // conservative: can't confirm no PR, skip
+	}
+	return !hasPR
+}
+
+func runDiscardStale() error {
+	repoRoot, err := git.RepoRoot()
+	if err != nil {
+		return fmt.Errorf("cannot determine repo root: %w", err)
+	}
+
+	wts, err := git.LinkedWorktrees(repoRoot)
+	if err != nil {
+		return err
+	}
+
+	type staleEntry struct {
+		issue  string
+		branch string
+		wtPath string
+	}
+	var stale []staleEntry
+	for _, wt := range wts {
+		branch := wt.Branch
+		if branch == "" || branch == "HEAD" {
+			continue
+		}
+		if isStaleWorktree(repoRoot, branch, wt.Path) {
+			stale = append(stale, staleEntry{
+				issue:  git.InferIssue(branch),
+				branch: branch,
+				wtPath: wt.Path,
+			})
+		}
+	}
+
+	if len(stale) == 0 {
+		fmt.Println("No stale worktrees found.")
+		return nil
+	}
+
+	fmt.Fprintf(os.Stderr, "WARNING: The following stale worktrees will be permanently discarded:\n\n")
+	for _, e := range stale {
+		fmt.Fprintf(os.Stderr, "  issue #%s  branch %s\n", e.issue, e.branch)
+		fmt.Fprintf(os.Stderr, "             path   %s\n", e.wtPath)
+	}
+	fmt.Fprintf(os.Stderr, "\nThis action is NOT recoverable.\n")
+	fmt.Fprintf(os.Stderr, "Type YES to confirm: ")
+
+	var confirm string
+	sc := bufio.NewScanner(os.Stdin)
+	if sc.Scan() {
+		confirm = sc.Text()
+	}
+	if strings.ToLower(strings.TrimSpace(confirm)) != "yes" {
+		return fmt.Errorf("aborted")
+	}
+
+	discardStaleEntry := func(wtPath, branch string) error {
+		if wtPath != "" {
+			af, _ := state.Read(wtPath)
+			process.Kill(af.DevPID)
+			process.Kill(af.AgentPID)
+			if err := git.RemoveWorktree(repoRoot, wtPath); err != nil {
+				return fmt.Errorf("remove worktree %s: %w", wtPath, err)
+			}
+			fmt.Printf("Removed %s\n", wtPath)
+		}
+
+		if branch != "" && branch != "HEAD" {
+			if git.BranchExists(repoRoot, branch) {
+				if err := git.DeleteLocalBranch(repoRoot, branch); err != nil {
+					return fmt.Errorf("delete local branch %s: %w", branch, err)
+				}
+			} else {
+				fmt.Printf("Local branch %s already removed\n", branch)
+			}
+
+			msg, err := git.DeleteRemoteBranch(repoRoot, branch)
+			if err != nil {
+				if strings.Contains(msg, "remote ref does not exist") {
+					fmt.Printf("Remote branch %s already removed\n", branch)
+				} else {
+					return fmt.Errorf("delete remote branch %s: %s\nDelete the remote manually with:\n  git push origin --delete %s", branch, strings.TrimSpace(msg), branch)
+				}
+			} else {
+				fmt.Printf("Deleted remote branch origin/%s\n", branch)
+			}
+		}
+
+		return nil
+	}
+
+	discarded := 0
+	for _, e := range stale {
+		if err := discardStaleEntry(e.wtPath, e.branch); err != nil {
+			return err
+		}
+		discarded++
+	}
+
+	fmt.Printf("\nDiscarded %d stale worktree(s)\n", discarded)
+	return nil
 }
 
 func runRemoveWorktree(issue string) error {
@@ -496,7 +640,7 @@ func runCleanupAllMerged() error {
 		return err
 	}
 
-	cleaned, skipped, failed := 0, 0, 0
+	cleaned, skipped, failed, staleCount := 0, 0, 0, 0
 	for _, wt := range wts {
 		branch := wt.Branch
 		if branch == "" || branch == "HEAD" {
@@ -506,6 +650,9 @@ func runCleanupAllMerged() error {
 		}
 		prState, err := ghPRState(repoRoot, branch)
 		if err != nil || prState == "" {
+			if !isAgentRunning(wt.Path) {
+				staleCount++
+			}
 			fmt.Printf("Skipping %s: no PR found\n", branch)
 			skipped++
 			continue
@@ -531,6 +678,9 @@ func runCleanupAllMerged() error {
 	}
 
 	fmt.Printf("\n%d merged worktrees cleaned, %d skipped\n", cleaned, skipped)
+	if staleCount > 0 {
+		fmt.Printf("Note: %d stale worktree(s) found with no agent and no PR — run `agentctl discard --stale` to remove them.\n", staleCount)
+	}
 	if failed > 0 {
 		fmt.Fprintf(os.Stderr, "%d cleanup(s) failed\n", failed)
 		return fmt.Errorf("%d cleanup(s) failed", failed)
@@ -761,9 +911,7 @@ func attachLog(wtPath, issue string, w io.Writer, logWait time.Duration) error {
 		_ = tail.Run()
 		fmt.Fprintln(w, "agent has already finished")
 		if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
-			if linkErr := linkPRToIssue(wtPath, branch, issue); linkErr != nil {
-				fmt.Fprintf(w, "note: could not link PR to issue: %v\n", linkErr)
-			}
+			reportPRStatus(w, wtPath, branch, issue)
 		}
 		return nil
 	}
@@ -797,9 +945,7 @@ func attachLog(wtPath, issue string, w io.Writer, logWait time.Duration) error {
 	_ = tail.Process.Kill()
 	_ = tail.Wait()
 	if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
-		if linkErr := linkPRToIssue(wtPath, branch, issue); linkErr != nil {
-			fmt.Fprintf(w, "note: could not link PR to issue: %v\n", linkErr)
-		}
+		reportPRStatus(w, wtPath, branch, issue)
 	}
 	return nil
 }
@@ -868,36 +1014,57 @@ func ghPRInfo(repoRoot, branch string) (state string, number int, err error) {
 	return parts[0], n, nil
 }
 
+// ghHasPR uses `gh pr list --head <branch> --state all` to check whether any
+// PR (open, closed, or merged) exists for the branch. It returns (true, nil)
+// when at least one PR exists, (false, nil) when none exist, and (false, err)
+// when the GH CLI call fails (e.g. auth or network failure) so callers can
+// treat the result conservatively.
+func ghHasPR(repoRoot, branch string) (bool, error) {
+	cmd := exec.Command("gh", "pr", "list", "--head", branch, "--state", "all", "--json", "number")
+	cmd.Dir = repoRoot
+	var out, errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		return false, fmt.Errorf("%w: %s", err, strings.TrimSpace(errBuf.String()))
+	}
+	return strings.TrimSpace(out.String()) != "[]", nil
+}
+
 // ghPRState is a convenience wrapper that returns only the state string.
 func ghPRState(repoRoot, branch string) (string, error) {
 	state, _, err := ghPRInfo(repoRoot, branch)
 	return state, err
 }
 
+type prInfo struct {
+	Number int    `json:"number"`
+	Body   string `json:"body"`
+	URL    string `json:"url"`
+}
+
 // linkPRToIssue appends "Closes #<issueNum>" to the open PR for branch,
 // unless the body already contains a closing keyword (closes/fixes).
-// Silently returns nil when no PR exists.
-func linkPRToIssue(dir, branch, issueNum string) error {
-	cmd := exec.Command("gh", "pr", "view", branch, "--json", "number,body")
+// Returns the PR info (including URL) so callers can display it.
+// Silently returns nil, nil when no PR exists.
+func linkPRToIssue(dir, branch, issueNum string) (*prInfo, error) {
+	cmd := exec.Command("gh", "pr", "view", branch, "--json", "number,body,url")
 	cmd.Dir = dir
 	var out, errBuf bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errBuf
 	if err := cmd.Run(); err != nil {
-		return nil // no PR — silently skip
+		return nil, nil // no PR — silently skip
 	}
 
-	var pr struct {
-		Number int    `json:"number"`
-		Body   string `json:"body"`
-	}
+	var pr prInfo
 	if err := json.Unmarshal(out.Bytes(), &pr); err != nil {
-		return nil
+		return nil, nil
 	}
 
 	lower := strings.ToLower(pr.Body)
 	if strings.Contains(lower, "closes #"+issueNum) || strings.Contains(lower, "fixes #"+issueNum) {
-		return nil
+		return &pr, nil
 	}
 
 	newBody := strings.TrimRight(pr.Body, "\n") + "\n\nCloses #" + issueNum
@@ -906,9 +1073,21 @@ func linkPRToIssue(dir, branch, issueNum string) error {
 	var editErr bytes.Buffer
 	editCmd.Stderr = &editErr
 	if err := editCmd.Run(); err != nil {
-		return fmt.Errorf("gh pr edit: %w: %s", err, strings.TrimSpace(editErr.String()))
+		return &pr, fmt.Errorf("gh pr edit: %w: %s", err, strings.TrimSpace(editErr.String()))
 	}
-	return nil
+	return &pr, nil
+}
+
+// reportPRStatus links the PR to the issue and prints the PR URL to w.
+// Silent when no PR exists.
+func reportPRStatus(w io.Writer, dir, branch, issueNum string) {
+	pr, err := linkPRToIssue(dir, branch, issueNum)
+	if err != nil {
+		fmt.Fprintf(w, "note: could not link PR to issue: %v\n", err)
+	}
+	if pr != nil && pr.Number > 0 && pr.URL != "" {
+		fmt.Fprintf(w, "PR: #%d  %s\n", pr.Number, pr.URL)
+	}
 }
 
 // parseIssueURL checks whether arg is a full GitHub issue URL of the form
@@ -1268,7 +1447,7 @@ func findWorktreePath(issue string) (string, error) {
 // then either returns immediately (headless) or streams agent.log to stdout
 // until the agent exits (non-headless). quiet suppresses log lines, showing
 // only the spinner/heartbeat.
-func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, headless, quiet bool) error {
+func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName string, headless, quiet bool, out io.Writer) error {
 	ad, err := adapters.Get(adapterName)
 	if err != nil {
 		return err
@@ -1388,11 +1567,17 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 	}
 
 	if headless {
-		fmt.Printf("Agent PID %d — log: %s\n", pid, logPath)
-		fmt.Printf("Session ID: %s\n", sessionID)
-		fmt.Printf("Use \"agentctl resume %s [feedback]\" to continue the session.\n", issue)
-		fmt.Println("Without feedback, it sends approval (\"proceed\") and the agent begins implementation.")
-		fmt.Println("With feedback, it sends the revision text and the agent rewrites the spec.")
+		fmt.Fprintf(out, "Agent PID %d — log: %s\n", pid, logPath)
+		if sddName != "" {
+			fmt.Fprintf(out, "Session ID: %s\n", sessionID)
+			fmt.Fprintf(out, "Use \"agentctl resume %s [feedback]\" to continue the session.\n", issue)
+			fmt.Fprintln(out, "Without feedback, it sends approval (\"proceed\") and the agent begins implementation.")
+			fmt.Fprintln(out, "With feedback, it sends the revision text and the agent rewrites the spec.")
+		} else {
+			fmt.Fprintf(out, "agentctl logs %s      # follow log\n", issue)
+			fmt.Fprintf(out, "agentctl attach %s    # stream live and wait\n", issue)
+			fmt.Fprintf(out, "agentctl discard %s   # abandon\n", issue)
+		}
 		return nil
 	}
 
@@ -1405,7 +1590,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		followLog(logPath, os.Stdout, logDone, quiet, true)
+		followLog(logPath, out, logDone, quiet, true)
 	}()
 
 	sigCh := make(chan os.Signal, 1)
@@ -1418,19 +1603,17 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 			close(logDone)
 			wg.Wait()
 			if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
-				if linkErr := linkPRToIssue(wtPath, branch, issue); linkErr != nil {
-					fmt.Fprintf(os.Stderr, "note: could not link PR to issue: %v\n", linkErr)
-				}
+				reportPRStatus(os.Stdout, wtPath, branch, issue)
 			}
 			return nil
 		case <-sigCh:
 			signal.Stop(sigCh)
 			close(logDone)
 			wg.Wait()
-			fmt.Fprintf(os.Stdout, "agent still running in background\n")
-			fmt.Fprintf(os.Stdout, "  agentctl logs %s     # follow log\n", issue)
-			fmt.Fprintf(os.Stdout, "  agentctl attach %s   # stream live output\n", issue)
-			fmt.Fprintf(os.Stdout, "  agentctl discard %s  # permanently delete worktree and branches\n", issue)
+			fmt.Fprintf(out, "agent still running in background\n")
+			fmt.Fprintf(out, "  agentctl logs %s     # follow log\n", issue)
+			fmt.Fprintf(out, "  agentctl attach %s   # stream live output\n", issue)
+			fmt.Fprintf(out, "  agentctl discard %s  # permanently delete worktree and branches\n", issue)
 			return nil
 		}
 	}
@@ -1732,30 +1915,225 @@ func writeClaudeSettings(wtPath string) error {
 }
 
 // agentResume starts the coding agent in resume mode using the named adapter.
-func agentResume(adapterName, wtPath, sessionID, prompt string) error {
+// When headless is false (default) it streams agent.log to the terminal and
+// blocks until the agent exits. When headless is true it detaches immediately
+// and writes output to agent.log.
+func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless, quiet bool) error {
 	ad, err := adapters.Get(adapterName)
 	if err != nil {
 		return err
 	}
 
+	if err := ad.CheckBinary(); err != nil {
+		return err
+	}
+
+	if headless && adapterName == "claude" {
+		if err := writeClaudeSettings(wtPath); err != nil {
+			return err
+		}
+	}
+
 	resumeCmd := ad.ResumeCmd(prompt, sessionID, wtPath)
 	resumeCmd.Dir = wtPath
 
-	logFile, err := os.OpenFile(filepath.Join(wtPath, "agent.log"),
-		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	logPath := filepath.Join(wtPath, "agent.log")
+	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("open agent.log for append: %w", err)
 	}
-	resumeCmd.Stdout = logFile
-	resumeCmd.Stderr = logFile
+
+	var pr, pw *os.File
+	if !headless {
+		pr, pw, err = os.Pipe()
+		if err != nil {
+			logFile.Close()
+			return fmt.Errorf("os.Pipe: %w", err)
+		}
+		if adapterName == "claude" {
+			resumeCmd.Args = append(resumeCmd.Args, "--output-format", "stream-json", "--verbose")
+		}
+		resumeCmd.Stdout = pw
+		resumeCmd.Stderr = pw
+	} else {
+		if adapterName == "claude" {
+			resumeCmd.Args = append(resumeCmd.Args, "--verbose")
+		}
+		resumeCmd.Stdout = logFile
+		resumeCmd.Stderr = logFile
+	}
+
 	detachProcess(resumeCmd)
 
 	if err := resumeCmd.Start(); err != nil {
+		if pw != nil {
+			pw.Close()
+			pr.Close()
+		}
 		logFile.Close()
 		return fmt.Errorf("agent resume failed to start: %w", err)
 	}
-	logFile.Close()
-	// Release our reference to the process handle; the agent runs independently.
-	_ = resumeCmd.Process.Release()
-	return nil
+
+	var convWg sync.WaitGroup
+	if headless {
+		logFile.Close()
+	} else {
+		pw.Close()
+		convWg.Add(1)
+		go func() {
+			defer convWg.Done()
+			defer pr.Close()
+			defer logFile.Close()
+
+			r := bufio.NewReader(pr)
+			for {
+				line, err := r.ReadString('\n')
+				if line != "" {
+					if text := extractStreamText(strings.TrimSuffix(line, "\n"), wtPath); text != "" {
+						fmt.Fprintln(logFile, text)
+					}
+				}
+				if err != nil {
+					if !errors.Is(err, io.EOF) {
+						fmt.Fprintf(logFile, "converter read error: %v\n", err)
+					}
+					break
+				}
+			}
+		}()
+	}
+
+	pid := resumeCmd.Process.Pid
+
+	exitCh := make(chan struct{})
+	go func() {
+		if err := resumeCmd.Wait(); err != nil {
+			fmt.Fprintf(os.Stderr, "agent exited: %v\n", err)
+		}
+		close(exitCh)
+	}()
+
+	if err := state.AppendKey(wtPath, "agent-pid", strconv.Itoa(pid)); err != nil {
+		return err
+	}
+
+	if headless {
+		fmt.Printf("Released pause for issue %s; Stage 2 running in background.\n", issue)
+		fmt.Printf("Tail: %s\n", logPath)
+		return nil
+	}
+
+	if err := waitForFile(logPath, 10*time.Second); err != nil {
+		return err
+	}
+
+	mirrorResumeLogFromOffset := func(srcPath string, dst *os.File, offset int64, done <-chan struct{}) {
+		src, err := os.Open(srcPath)
+		if err != nil {
+			return
+		}
+		defer src.Close()
+
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+
+			info, err := src.Stat()
+			if err != nil {
+				return
+			}
+
+			size := info.Size()
+			if size < offset {
+				offset = size
+			}
+
+			if size > offset {
+				if _, err := src.Seek(offset, io.SeekStart); err != nil {
+					return
+				}
+				written, err := io.Copy(dst, io.LimitReader(src, size-offset))
+				offset += written
+				if err != nil {
+					return
+				}
+				if err := dst.Sync(); err != nil {
+					return
+				}
+			}
+
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+			}
+		}
+	}
+
+	followResumeLogFromEOF := func(srcPath string, out io.Writer, done <-chan struct{}, quiet bool, color bool) {
+		info, err := os.Stat(srcPath)
+		if err != nil {
+			followLog(srcPath, out, done, quiet, color)
+			return
+		}
+
+		tmp, err := os.CreateTemp("", "agentctl-resume-log-*")
+		if err != nil {
+			followLog(srcPath, out, done, quiet, color)
+			return
+		}
+		tmpPath := tmp.Name()
+		defer func() {
+			_ = tmp.Close()
+			_ = os.Remove(tmpPath)
+		}()
+
+		mirrorDone := make(chan struct{})
+		go func() {
+			defer close(mirrorDone)
+			mirrorResumeLogFromOffset(srcPath, tmp, info.Size(), done)
+		}()
+
+		followLog(tmpPath, out, done, quiet, color)
+		<-mirrorDone
+	}
+
+	logDone := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		followResumeLogFromEOF(logPath, os.Stdout, logDone, quiet, true)
+	}()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	for {
+		select {
+		case <-exitCh:
+			signal.Stop(sigCh)
+			convWg.Wait()
+			close(logDone)
+			wg.Wait()
+			if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
+				reportPRStatus(os.Stdout, wtPath, branch, issue)
+			}
+			return nil
+		case <-sigCh:
+			signal.Stop(sigCh)
+			close(logDone)
+			wg.Wait()
+			fmt.Fprintf(os.Stdout, "agent still running in background\n")
+			fmt.Fprintf(os.Stdout, "  agentctl logs %s     # follow log\n", issue)
+			fmt.Fprintf(os.Stdout, "  agentctl attach %s   # stream live output\n", issue)
+			fmt.Fprintf(os.Stdout, "  agentctl discard %s  # permanently delete worktree and branches\n", issue)
+			return nil
+		}
+	}
 }

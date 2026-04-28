@@ -621,7 +621,7 @@ func writeLocalAdapter(t *testing.T, dir, name, content string) {
 
 func TestLaunchAgent_unknownAdapter(t *testing.T) {
 	dir := t.TempDir()
-	err := launchAgent("nonexistent-xyz-abc", dir, "42", "3010", "sess-123", "kickoff", true, false)
+	err := launchAgent("nonexistent-xyz-abc", dir, "42", "3010", "sess-123", "kickoff", "", true, false, &bytes.Buffer{})
 	if err == nil {
 		t.Error("expected error for unknown adapter")
 	}
@@ -632,7 +632,7 @@ func TestLaunchAgent_binaryNotFound(t *testing.T) {
 	writeLocalAdapter(t, dir, "fakebinary", "binary: __nonexistent_binary_xyz__\n")
 	chdirTemp(t, dir)
 
-	err := launchAgent("fakebinary", dir, "42", "3010", "sess-123", "kickoff", true, false)
+	err := launchAgent("fakebinary", dir, "42", "3010", "sess-123", "kickoff", "", true, false, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error when binary not found")
 	}
@@ -648,7 +648,8 @@ func TestLaunchAgent_headless(t *testing.T) {
 		"binary: echo\nsession: --session\n")
 	chdirTemp(t, dir)
 
-	err := launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", true, false)
+	var out bytes.Buffer
+	err := launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", "", true, false, &out)
 	if err != nil {
 		t.Fatalf("launchAgent headless: %v", err)
 	}
@@ -664,6 +665,47 @@ func TestLaunchAgent_headless(t *testing.T) {
 	if _, err := strconv.Atoi(af.AgentPID); err != nil {
 		t.Errorf("agent-pid %q is not a valid integer: %v", af.AgentPID, err)
 	}
+
+	// Without --sdd: operational hints, no resume/speckit language.
+	outStr := out.String()
+	if !strings.Contains(outStr, "Agent PID") {
+		t.Errorf("missing 'Agent PID' in headless output:\n%s", outStr)
+	}
+	for _, unwanted := range []string{"Session ID", "agentctl resume", "sends approval", "rewrites the spec"} {
+		if strings.Contains(outStr, unwanted) {
+			t.Errorf("non-SDD headless output must not contain %q:\n%s", unwanted, outStr)
+		}
+	}
+	for _, want := range []string{"agentctl logs 42", "agentctl attach 42", "agentctl discard 42"} {
+		if !strings.Contains(outStr, want) {
+			t.Errorf("missing %q in non-SDD headless output:\n%s", want, outStr)
+		}
+	}
+}
+
+func TestLaunchAgent_headless_withSDD_showsResumeHint(t *testing.T) {
+	dir := t.TempDir()
+	writeLocalAdapter(t, dir, "echoagent",
+		"binary: echo\nsession: --session\n")
+	chdirTemp(t, dir)
+
+	var out bytes.Buffer
+	err := launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", "plain", true, false, &out)
+	if err != nil {
+		t.Fatalf("launchAgent headless SDD: %v", err)
+	}
+
+	outStr := out.String()
+	for _, want := range []string{"Session ID: sess-abc", "agentctl resume 42", "sends approval"} {
+		if !strings.Contains(outStr, want) {
+			t.Errorf("SDD headless output missing %q:\n%s", want, outStr)
+		}
+	}
+	for _, unwanted := range []string{"agentctl logs", "agentctl attach", "agentctl discard"} {
+		if strings.Contains(outStr, unwanted) {
+			t.Errorf("SDD headless output must not contain %q:\n%s", unwanted, outStr)
+		}
+	}
 }
 
 func TestLaunchAgent_nonHeadless_exitsWhenAgentDone(t *testing.T) {
@@ -678,7 +720,7 @@ func TestLaunchAgent_nonHeadless_exitsWhenAgentDone(t *testing.T) {
 	// Ctrl+C or any other intervention.
 	done := make(chan error, 1)
 	go func() {
-		done <- launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", false, false)
+		done <- launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", "", false, false, &bytes.Buffer{})
 	}()
 
 	select {
@@ -728,7 +770,7 @@ func TestLaunchAgent_claudeNonHeadlessInjectsStreamJsonAndVerbose(t *testing.T) 
 
 	done := make(chan error, 1)
 	go func() {
-		done <- launchAgent("claude", dir, "42", "3010", "sess-abc", "kickoff text", false, false)
+		done <- launchAgent("claude", dir, "42", "3010", "sess-abc", "kickoff text", "", false, false, &bytes.Buffer{})
 	}()
 
 	select {
@@ -779,7 +821,7 @@ func TestLaunchAgent_claudeHeadlessInjectsVerboseOnly(t *testing.T) {
 	writeLocalAdapter(t, dir, "claude", "binary: "+scriptPath+"\nsession: --session\n")
 	chdirTemp(t, dir)
 
-	if err := launchAgent("claude", dir, "42", "3010", "sess-abc", "kickoff text", true, false); err != nil {
+	if err := launchAgent("claude", dir, "42", "3010", "sess-abc", "kickoff text", "", true, false, &bytes.Buffer{}); err != nil {
 		t.Fatalf("launchAgent headless: %v", err)
 	}
 
@@ -811,7 +853,7 @@ func TestLaunchAgent_claudeHeadlessInjectsVerboseOnly(t *testing.T) {
 
 // TestLaunchAgent_nonHeadless_sigintPrintsHints verifies that pressing Ctrl+C
 // while launchAgent is streaming output in non-headless mode prints the
-// expected reconnection hints (logs, attach, discard) to stdout.
+// expected reconnection hints (logs, attach, discard) to the provided writer.
 func TestLaunchAgent_nonHeadless_sigintPrintsHints(t *testing.T) {
 	dir := t.TempDir()
 
@@ -824,18 +866,10 @@ func TestLaunchAgent_nonHeadless_sigintPrintsHints(t *testing.T) {
 	writeLocalAdapter(t, dir, "sleepagent", "binary: "+scriptPath+"\n")
 	chdirTemp(t, dir)
 
-	// Redirect os.Stdout to a pipe so we can capture the hint output.
-	oldStdout := os.Stdout
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("os.Pipe: %v", err)
-	}
-	os.Stdout = w
-	t.Cleanup(func() { os.Stdout = oldStdout })
-
+	var outBuf bytes.Buffer
 	done := make(chan error, 1)
 	go func() {
-		done <- launchAgent("sleepagent", dir, "42", "3010", "sess-abc", "do the thing", false, false)
+		done <- launchAgent("sleepagent", dir, "42", "3010", "sess-abc", "do the thing", "", false, false, &outBuf)
 	}()
 
 	// Give launchAgent time to start the agent process and register its signal
@@ -855,17 +889,7 @@ func TestLaunchAgent_nonHeadless_sigintPrintsHints(t *testing.T) {
 		t.Fatal("launchAgent did not return after SIGINT")
 	}
 
-	// Close the write end and restore stdout before reading captured output.
-	w.Close()
-	os.Stdout = oldStdout
-
-	var buf bytes.Buffer
-	if _, err := buf.ReadFrom(r); err != nil {
-		t.Fatalf("reading captured stdout: %v", err)
-	}
-	r.Close()
-
-	out := buf.String()
+	out := outBuf.String()
 	for _, want := range []string{
 		"agent still running in background",
 		"agentctl logs 42",
@@ -873,8 +897,32 @@ func TestLaunchAgent_nonHeadless_sigintPrintsHints(t *testing.T) {
 		"agentctl discard 42",
 	} {
 		if !strings.Contains(out, want) {
-			t.Errorf("missing %q in stdout after Ctrl+C, got:\n%s", want, out)
+			t.Errorf("missing %q in out after Ctrl+C, got:\n%s", want, out)
 		}
+	}
+}
+
+// ─── resume command flags ─────────────────────────────────────────────────────
+
+func TestResumeCmd_headlessFlag(t *testing.T) {
+	c := NewResumeCmd()
+	f := c.Flags().Lookup("headless")
+	if f == nil {
+		t.Fatal("--headless flag must be registered on resume cmd")
+	}
+	if f.DefValue != "false" {
+		t.Errorf("--headless default should be false, got %q", f.DefValue)
+	}
+}
+
+func TestResumeCmd_quietFlag(t *testing.T) {
+	c := NewResumeCmd()
+	f := c.Flags().Lookup("quiet")
+	if f == nil {
+		t.Fatal("--quiet flag must be registered on resume cmd")
+	}
+	if f.DefValue != "false" {
+		t.Errorf("--quiet default should be false, got %q", f.DefValue)
 	}
 }
 
@@ -899,7 +947,7 @@ func TestLaunchAgent_nonZeroExitLogsToStderr(t *testing.T) {
 	// closed, which happens after fmt.Fprintf(os.Stderr, ...) in the reaper
 	// goroutine — so by the time launchAgent returns, the message is already
 	// captured in the pipe.
-	launchErr := launchAgent("falseagent", dir, "42", "3010", "sess-abc", "do the thing", false, false)
+	launchErr := launchAgent("falseagent", dir, "42", "3010", "sess-abc", "do the thing", "", false, false, &bytes.Buffer{})
 
 	// Close the write end and restore stderr before reading.
 	w.Close()
@@ -922,21 +970,137 @@ func TestLaunchAgent_nonZeroExitLogsToStderr(t *testing.T) {
 
 func TestAgentResume_unknownAdapter(t *testing.T) {
 	dir := t.TempDir()
-	err := agentResume("nonexistent-xyz-abc", dir, "sess-123", "my feedback")
+	err := agentResume("nonexistent-xyz-abc", dir, "42", "sess-123", "my feedback", true, false)
 	if err == nil {
 		t.Error("expected error for unknown adapter")
 	}
 }
 
-func TestAgentResume_success(t *testing.T) {
+func TestAgentResume_headless_success(t *testing.T) {
 	dir := t.TempDir()
 	// Use `echo` as the resume binary — always on PATH, exits immediately.
 	writeLocalAdapter(t, dir, "echoagent",
 		"binary: echo\nsession: --session\n")
 	chdirTemp(t, dir)
 
-	if err := agentResume("echoagent", dir, "sess-123", "my feedback"); err != nil {
-		t.Errorf("agentResume: %v", err)
+	if err := agentResume("echoagent", dir, "42", "sess-123", "my feedback", true, false); err != nil {
+		t.Fatalf("agentResume headless: %v", err)
+	}
+
+	agentState, err := os.ReadFile(filepath.Join(dir, ".agent"))
+	if err != nil {
+		t.Fatalf("read .agent: %v", err)
+	}
+	if !strings.Contains(string(agentState), "agent-pid=") {
+		t.Fatalf(".agent missing agent-pid entry:\n%s", string(agentState))
+	}
+
+	// The background echo process may not have written yet; poll briefly.
+	var logData []byte
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		logData, _ = os.ReadFile(filepath.Join(dir, "agent.log"))
+		if strings.Contains(string(logData), "sess-123") {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !strings.Contains(string(logData), "sess-123") {
+		t.Fatalf("agent.log missing resumed session output:\n%s", string(logData))
+	}
+}
+
+func TestAgentResume_nonHeadless_exitsWhenAgentDone(t *testing.T) {
+	dir := t.TempDir()
+	// Use `echo` as the resume binary — always on PATH, exits immediately.
+	writeLocalAdapter(t, dir, "echoagent",
+		"binary: echo\nsession: --session\n")
+	chdirTemp(t, dir)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- agentResume("echoagent", dir, "42", "sess-123", "my feedback", false, false)
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("agentResume non-headless: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		if p, err := os.FindProcess(os.Getpid()); err == nil {
+			_ = p.Signal(os.Interrupt)
+		}
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("agentResume did not return after agent exit and cleanup returned error: %v", err)
+			}
+			t.Fatal("agentResume did not return after agent process exited — required interrupt-driven cleanup before failing")
+		case <-time.After(2 * time.Second):
+			t.Fatal("agentResume hung even after interrupt")
+		}
+	}
+}
+
+func TestAgentResume_nonHeadless_sigintPrintsHints(t *testing.T) {
+	dir := t.TempDir()
+
+	scriptPath := filepath.Join(dir, "sleepagent")
+	script := "#!/bin/sh\nsleep 30\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeLocalAdapter(t, dir, "sleepagent", "binary: "+scriptPath+"\n")
+	chdirTemp(t, dir)
+
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stdout = w
+	t.Cleanup(func() { os.Stdout = oldStdout })
+
+	done := make(chan error, 1)
+	go func() {
+		done <- agentResume("sleepagent", dir, "42", "sess-123", "feedback", false, false)
+	}()
+
+	time.Sleep(500 * time.Millisecond)
+
+	if p, err := os.FindProcess(os.Getpid()); err == nil {
+		_ = p.Signal(os.Interrupt)
+	}
+
+	select {
+	case launchErr := <-done:
+		if launchErr != nil {
+			t.Fatalf("agentResume: %v", launchErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("agentResume did not return after SIGINT")
+	}
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatalf("reading captured stdout: %v", err)
+	}
+	r.Close()
+
+	out := buf.String()
+	for _, want := range []string{
+		"agent still running in background",
+		"agentctl logs 42",
+		"agentctl attach 42",
+		"agentctl discard 42",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in stdout after Ctrl+C, got:\n%s", want, out)
+		}
 	}
 }
 
@@ -1891,7 +2055,7 @@ func TestLaunchAgent_claudeHeadlessWritesSettingsJson(t *testing.T) {
 	writeLocalAdapter(t, dir, "claude", "binary: "+scriptPath+"\nsession: --session\n")
 	chdirTemp(t, dir)
 
-	if err := launchAgent("claude", dir, "42", "3010", "sess-abc", "kickoff text", true, false); err != nil {
+	if err := launchAgent("claude", dir, "42", "3010", "sess-abc", "kickoff text", "", true, false, &bytes.Buffer{}); err != nil {
 		t.Fatalf("launchAgent headless: %v", err)
 	}
 
@@ -1919,7 +2083,7 @@ func TestLaunchAgent_nonClaudeDoesNotWriteSettingsJson(t *testing.T) {
 	writeLocalAdapter(t, dir, "echoagent", "binary: echo\nsession: --session\n")
 	chdirTemp(t, dir)
 
-	if err := launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", true, false); err != nil {
+	if err := launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", "", true, false, &bytes.Buffer{}); err != nil {
 		t.Fatalf("launchAgent headless: %v", err)
 	}
 
@@ -1933,16 +2097,25 @@ func TestLaunchAgent_nonClaudeDoesNotWriteSettingsJson(t *testing.T) {
 // makeGHStub writes a stub gh script to stubDir and returns the path to the
 // calls log file where the stub records each invocation (one arg per line).
 // viewJSON is written as the stdout for "gh pr view"; pass "" to simulate a
-// missing PR (gh exits 1).  For "gh pr edit" the stub always exits 0 unless
-// editFail is true.
-func makeGHStub(t *testing.T, stubDir, viewJSON string, editFail bool) string {
+// missing PR (gh exits 1).  listJSON is written as the stdout for "gh pr list";
+// pass "" to return an empty array (no PRs, gh exits 0).  For "gh pr edit" the
+// stub always exits 0 unless editFail is true.
+func makeGHStub(t *testing.T, stubDir, viewJSON, listJSON string, editFail bool) string {
 	t.Helper()
 	callsFile := filepath.Join(stubDir, "gh-calls.txt")
 	responseFile := filepath.Join(stubDir, "gh-response.json")
+	listFile := filepath.Join(stubDir, "gh-list.json")
 	if viewJSON != "" {
 		if err := os.WriteFile(responseFile, []byte(viewJSON), 0o644); err != nil {
 			t.Fatal(err)
 		}
+	}
+	listOut := "[]"
+	if listJSON != "" {
+		listOut = listJSON
+	}
+	if err := os.WriteFile(listFile, []byte(listOut), 0o644); err != nil {
+		t.Fatal(err)
 	}
 
 	prViewExit := 0
@@ -1960,6 +2133,10 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   if [ -f %s ]; then cat %s; fi
   exit %d
 fi
+if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+  cat %s
+  exit 0
+fi
 if [ "$1" = "pr" ] && [ "$2" = "edit" ]; then
   exit %d
 fi
@@ -1967,6 +2144,7 @@ exit 0`,
 		callsFile,
 		responseFile, responseFile,
 		prViewExit,
+		listFile,
 		prEditExit,
 	)
 	ghPath := filepath.Join(stubDir, "gh")
@@ -1984,11 +2162,15 @@ func prependPath(t *testing.T, dir string) {
 
 func TestLinkPRToIssue_noPR(t *testing.T) {
 	stubDir := t.TempDir()
-	callsFile := makeGHStub(t, stubDir, "", false)
+	callsFile := makeGHStub(t, stubDir, "", "", false)
 	prependPath(t, stubDir)
 
-	if err := linkPRToIssue(t.TempDir(), "42-my-feature", "42"); err != nil {
-		t.Errorf("expected nil for no-PR case, got: %v", err)
+	pr, err := linkPRToIssue(t.TempDir(), "42-my-feature", "42")
+	if err != nil {
+		t.Errorf("expected nil error for no-PR case, got: %v", err)
+	}
+	if pr != nil {
+		t.Errorf("expected nil prInfo for no-PR case, got: %+v", pr)
 	}
 
 	calls, _ := os.ReadFile(callsFile)
@@ -2016,10 +2198,10 @@ func TestLinkPRToIssue_alreadyLinked(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			stubDir := t.TempDir()
 			viewJSON := fmt.Sprintf(`{"number":7,"body":%q}`, tc.body)
-			callsFile := makeGHStub(t, stubDir, viewJSON, false)
+			callsFile := makeGHStub(t, stubDir, viewJSON, "", false)
 			prependPath(t, stubDir)
 
-			if err := linkPRToIssue(t.TempDir(), "42-feature", "42"); err != nil {
+			if _, err := linkPRToIssue(t.TempDir(), "42-feature", "42"); err != nil {
 				t.Errorf("expected nil, got: %v", err)
 			}
 			calls, _ := os.ReadFile(callsFile)
@@ -2032,12 +2214,16 @@ func TestLinkPRToIssue_alreadyLinked(t *testing.T) {
 
 func TestLinkPRToIssue_addsLink(t *testing.T) {
 	stubDir := t.TempDir()
-	viewJSON := `{"number":7,"body":"some PR work"}`
-	callsFile := makeGHStub(t, stubDir, viewJSON, false)
+	viewJSON := `{"number":7,"body":"some PR work","url":"https://github.com/owner/repo/pull/7"}`
+	callsFile := makeGHStub(t, stubDir, viewJSON, "", false)
 	prependPath(t, stubDir)
 
-	if err := linkPRToIssue(t.TempDir(), "42-feature", "42"); err != nil {
+	pr, err := linkPRToIssue(t.TempDir(), "42-feature", "42")
+	if err != nil {
 		t.Fatalf("linkPRToIssue: %v", err)
+	}
+	if pr == nil || pr.URL != "https://github.com/owner/repo/pull/7" {
+		t.Errorf("expected PR URL to be returned, got: %+v", pr)
 	}
 
 	calls, _ := os.ReadFile(callsFile)
@@ -2052,11 +2238,11 @@ func TestLinkPRToIssue_addsLink(t *testing.T) {
 
 func TestLinkPRToIssue_addsLink_emptyBody(t *testing.T) {
 	stubDir := t.TempDir()
-	viewJSON := `{"number":3,"body":""}`
-	callsFile := makeGHStub(t, stubDir, viewJSON, false)
+	viewJSON := `{"number":3,"body":"","url":"https://github.com/owner/repo/pull/3"}`
+	callsFile := makeGHStub(t, stubDir, viewJSON, "", false)
 	prependPath(t, stubDir)
 
-	if err := linkPRToIssue(t.TempDir(), "42-feature", "42"); err != nil {
+	if _, err := linkPRToIssue(t.TempDir(), "42-feature", "42"); err != nil {
 		t.Fatalf("linkPRToIssue: %v", err)
 	}
 
@@ -2069,15 +2255,422 @@ func TestLinkPRToIssue_addsLink_emptyBody(t *testing.T) {
 
 func TestLinkPRToIssue_editError(t *testing.T) {
 	stubDir := t.TempDir()
-	viewJSON := `{"number":7,"body":"some work"}`
-	makeGHStub(t, stubDir, viewJSON, true) // editFail=true
+	viewJSON := `{"number":7,"body":"some work","url":"https://github.com/owner/repo/pull/7"}`
+	makeGHStub(t, stubDir, viewJSON, "", true) // editFail=true
 	prependPath(t, stubDir)
 
-	err := linkPRToIssue(t.TempDir(), "42-feature", "42")
+	_, err := linkPRToIssue(t.TempDir(), "42-feature", "42")
 	if err == nil {
 		t.Error("expected error when gh pr edit fails")
 	}
 	if !strings.Contains(err.Error(), "gh pr edit") {
 		t.Errorf("expected 'gh pr edit' in error, got: %v", err)
+	}
+}
+
+func TestReportPRStatus_printsPRLink(t *testing.T) {
+	stubDir := t.TempDir()
+	viewJSON := `{"number":9,"body":"work","url":"https://github.com/owner/repo/pull/9"}`
+	makeGHStub(t, stubDir, viewJSON, "", false)
+	prependPath(t, stubDir)
+
+	var buf bytes.Buffer
+	reportPRStatus(&buf, t.TempDir(), "2-my-feature", "2")
+
+	out := buf.String()
+	if !strings.Contains(out, "PR: #9") {
+		t.Errorf("expected PR number in output, got: %q", out)
+	}
+	if !strings.Contains(out, "https://github.com/owner/repo/pull/9") {
+		t.Errorf("expected PR URL in output, got: %q", out)
+	}
+}
+
+func TestReportPRStatus_noPR_printsNothing(t *testing.T) {
+	stubDir := t.TempDir()
+	makeGHStub(t, stubDir, "", "", false) // no PR
+	prependPath(t, stubDir)
+
+	var buf bytes.Buffer
+	reportPRStatus(&buf, t.TempDir(), "2-my-feature", "2")
+
+	if buf.Len() > 0 {
+		t.Errorf("expected no output when no PR exists, got: %q", buf.String())
+	}
+}
+
+// ─── discard --stale ─────────────────────────────────────────────────────────
+
+func TestDiscardCmd_staleFlagRegistered(t *testing.T) {
+	c := NewDiscardCmd()
+	if f := c.Flags().Lookup("stale"); f == nil {
+		t.Fatal("--stale flag must be registered on the discard command")
+	}
+}
+
+func TestDiscardCmd_staleMutuallyExclusiveWithIssue(t *testing.T) {
+	c := NewDiscardCmd()
+	var errBuf bytes.Buffer
+	c.SetErr(&errBuf)
+	c.SilenceUsage = true
+	c.SetArgs([]string{"--stale", "42"})
+	err := c.Execute()
+	if err == nil {
+		t.Fatal("expected error when --stale and issue number are both provided")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("error should mention mutually exclusive, got: %v", err)
+	}
+}
+
+func TestIsAgentRunning_noAgentFile(t *testing.T) {
+	dir := t.TempDir()
+	if isAgentRunning(dir) {
+		t.Error("expected isAgentRunning=false when no .agent file exists")
+	}
+}
+
+func TestIsAgentRunning_emptyPID(t *testing.T) {
+	dir := t.TempDir()
+	if err := state.Write(dir, state.AgentFile{Agent: "claude", SessionID: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	if isAgentRunning(dir) {
+		t.Error("expected isAgentRunning=false when AgentPID is empty")
+	}
+}
+
+func TestIsAgentRunning_deadPID(t *testing.T) {
+	dir := t.TempDir()
+	if err := state.Write(dir, state.AgentFile{Agent: "claude", AgentPID: "9999999"}); err != nil {
+		t.Fatal(err)
+	}
+	if isAgentRunning(dir) {
+		t.Error("expected isAgentRunning=false for a dead PID")
+	}
+}
+
+func TestIsAgentRunning_livePID(t *testing.T) {
+	dir := t.TempDir()
+	pid := strconv.Itoa(os.Getpid())
+	if err := state.Write(dir, state.AgentFile{Agent: "claude", AgentPID: pid}); err != nil {
+		t.Fatal(err)
+	}
+	if !isAgentRunning(dir) {
+		t.Error("expected isAgentRunning=true when AgentPID is the current process")
+	}
+}
+
+func TestIsAgentRunning_unreadableFile(t *testing.T) {
+	dir := t.TempDir()
+	// Write an .agent file then make it unreadable.
+	agentFile := filepath.Join(dir, ".agent")
+	if err := os.WriteFile(agentFile, []byte("agent-pid=99999\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(agentFile, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(agentFile, 0o600) })
+	// Should return true conservatively when file is unreadable.
+	if os.Getuid() == 0 {
+		t.Skip("root bypasses permission checks")
+	}
+	if !isAgentRunning(dir) {
+		t.Error("expected isAgentRunning=true when .agent file is unreadable (conservative)")
+	}
+}
+
+// ─── ghHasPR ─────────────────────────────────────────────────────────────────
+
+func TestGhHasPR_noPR(t *testing.T) {
+	stubDir := t.TempDir()
+	makeGHStub(t, stubDir, "", "", false) // listJSON="" → returns []
+	prependPath(t, stubDir)
+
+	has, err := ghHasPR(t.TempDir(), "42-my-feature")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if has {
+		t.Error("expected ghHasPR=false when pr list returns []")
+	}
+}
+
+func TestGhHasPR_hasPR(t *testing.T) {
+	stubDir := t.TempDir()
+	listJSON := `[{"number":7}]`
+	makeGHStub(t, stubDir, "", listJSON, false)
+	prependPath(t, stubDir)
+
+	has, err := ghHasPR(t.TempDir(), "42-my-feature")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !has {
+		t.Error("expected ghHasPR=true when pr list returns a non-empty array")
+	}
+}
+
+func TestGhHasPR_ghError(t *testing.T) {
+	// Use a stub that exits non-zero for pr list to simulate auth/network failure.
+	stubDir := t.TempDir()
+	script := fmt.Sprintf(`#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+  echo "error: not authenticated" >&2
+  exit 1
+fi
+exit 0`)
+	ghPath := filepath.Join(stubDir, "gh")
+	if err := os.WriteFile(ghPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prependPath(t, stubDir)
+
+	has, err := ghHasPR(t.TempDir(), "42-my-feature")
+	if err == nil {
+		t.Fatal("expected error when gh exits non-zero")
+	}
+	if has {
+		t.Error("expected ghHasPR=false on error")
+	}
+}
+
+// ─── isStaleWorktree ─────────────────────────────────────────────────────────
+
+func TestIsStaleWorktree_agentRunning(t *testing.T) {
+	dir := t.TempDir()
+	pid := strconv.Itoa(os.Getpid())
+	if err := state.Write(dir, state.AgentFile{Agent: "claude", AgentPID: pid}); err != nil {
+		t.Fatal(err)
+	}
+	// No gh stub needed; isAgentRunning short-circuits.
+	if isStaleWorktree(t.TempDir(), "42-my-feature", dir) {
+		t.Error("expected isStaleWorktree=false when agent is running")
+	}
+}
+
+func TestIsStaleWorktree_hasPR(t *testing.T) {
+	dir := t.TempDir() // no .agent file → agent not running
+	stubDir := t.TempDir()
+	listJSON := `[{"number":7}]`
+	makeGHStub(t, stubDir, "", listJSON, false)
+	prependPath(t, stubDir)
+
+	if isStaleWorktree(t.TempDir(), "42-my-feature", dir) {
+		t.Error("expected isStaleWorktree=false when a PR exists")
+	}
+}
+
+func TestIsStaleWorktree_noPRNoAgent(t *testing.T) {
+	dir := t.TempDir() // no .agent file → agent not running
+	stubDir := t.TempDir()
+	makeGHStub(t, stubDir, "", "", false) // listJSON="" → returns []
+	prependPath(t, stubDir)
+
+	if !isStaleWorktree(t.TempDir(), "42-my-feature", dir) {
+		t.Error("expected isStaleWorktree=true when no agent and no PR")
+	}
+}
+
+func TestIsStaleWorktree_ghError(t *testing.T) {
+	dir := t.TempDir() // no .agent file → agent not running
+	stubDir := t.TempDir()
+	script := `#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+  echo "error: not authenticated" >&2
+  exit 1
+fi
+exit 0`
+	ghPath := filepath.Join(stubDir, "gh")
+	if err := os.WriteFile(ghPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prependPath(t, stubDir)
+
+	// On gh error, should return false conservatively.
+	if isStaleWorktree(t.TempDir(), "42-my-feature", dir) {
+		t.Error("expected isStaleWorktree=false when gh returns an error (conservative)")
+	}
+}
+
+// ─── runDiscardStale integration ─────────────────────────────────────────────
+
+// initGitRepoForStale creates a temporary git repository with an initial
+// commit and returns its path. Tests that need this are skipped when git is
+// not available.
+func initGitRepoForStale(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found in PATH")
+	}
+	dir := t.TempDir()
+	gitRun := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	gitRun("init")
+	gitRun("config", "user.email", "test@example.com")
+	gitRun("config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(dir, "README"), []byte("test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun("add", ".")
+	gitRun("commit", "-m", "init")
+	return dir
+}
+
+// pipeStdin replaces os.Stdin with a pipe that delivers text for the duration
+// of the test, then restores the original os.Stdin via t.Cleanup.
+func pipeStdin(t *testing.T, text string) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() {
+		os.Stdin = old
+		r.Close()
+	})
+	if _, err := fmt.Fprintln(w, text); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+}
+
+// addWorktree creates a linked worktree at wtPath on branch branchName.
+func addWorktree(t *testing.T, repo, wtPath, branchName string) {
+	t.Helper()
+	cmd := exec.Command("git", "-C", repo, "worktree", "add", wtPath, "-b", branchName)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add: %v\n%s", err, out)
+	}
+}
+
+func TestRunDiscardStale_noStaleWorktrees_agentRunning(t *testing.T) {
+	repo := initGitRepoForStale(t)
+	wtPath := filepath.Join(t.TempDir(), "42-my-feature")
+	addWorktree(t, repo, wtPath, "42-my-feature")
+
+	// Write .agent file with current PID so agent appears running.
+	pid := strconv.Itoa(os.Getpid())
+	if err := state.Write(wtPath, state.AgentFile{Agent: "claude", AgentPID: pid}); err != nil {
+		t.Fatal(err)
+	}
+
+	// gh stub: no PRs — but agent is running, so worktree is not stale.
+	stubDir := t.TempDir()
+	makeGHStub(t, stubDir, "", "", false)
+	prependPath(t, stubDir)
+
+	chdirTemp(t, repo)
+	if err := runDiscardStale(); err != nil {
+		t.Fatalf("expected nil, got: %v", err)
+	}
+
+	// Worktree must still exist.
+	if _, err := os.Stat(wtPath); err != nil {
+		t.Errorf("worktree should still exist when agent is running: %v", err)
+	}
+}
+
+func TestRunDiscardStale_noStaleWorktrees_hasPR(t *testing.T) {
+	repo := initGitRepoForStale(t)
+	wtPath := filepath.Join(t.TempDir(), "42-my-feature")
+	addWorktree(t, repo, wtPath, "42-my-feature")
+
+	// gh stub: pr list returns a PR → not stale.
+	stubDir := t.TempDir()
+	makeGHStub(t, stubDir, "", `[{"number":7}]`, false)
+	prependPath(t, stubDir)
+
+	chdirTemp(t, repo)
+	if err := runDiscardStale(); err != nil {
+		t.Fatalf("expected nil, got: %v", err)
+	}
+
+	// Worktree must still exist.
+	if _, err := os.Stat(wtPath); err != nil {
+		t.Errorf("worktree should still exist when PR exists: %v", err)
+	}
+}
+
+func TestRunDiscardStale_confirmationAbort(t *testing.T) {
+	repo := initGitRepoForStale(t)
+	wtPath := filepath.Join(t.TempDir(), "42-my-feature")
+	addWorktree(t, repo, wtPath, "42-my-feature")
+
+	// gh stub: no PRs → stale.
+	stubDir := t.TempDir()
+	makeGHStub(t, stubDir, "", "", false)
+	prependPath(t, stubDir)
+
+	chdirTemp(t, repo)
+	pipeStdin(t, "n")
+
+	err := runDiscardStale()
+	if err == nil {
+		t.Fatal("expected aborted error when user declines confirmation")
+	}
+	if !strings.Contains(err.Error(), "aborted") {
+		t.Errorf("expected 'aborted' in error, got: %v", err)
+	}
+
+	// Worktree must still exist — nothing should have been removed.
+	if _, err := os.Stat(wtPath); err != nil {
+		t.Errorf("worktree should still exist after abort: %v", err)
+	}
+}
+
+func TestRunDiscardStale_confirmationYES_removesWorktreeAndBranch(t *testing.T) {
+	repo := initGitRepoForStale(t)
+
+	// Create a bare repo as origin. The branch has not been pushed, so
+	// git push origin --delete will report "remote ref does not exist",
+	// which discardStaleEntry treats as "already removed" (success).
+	originDir := filepath.Join(t.TempDir(), "origin.git")
+	if err := os.MkdirAll(originDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("git", "init", "--bare")
+	cmd.Dir = originDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init --bare: %v\n%s", err, out)
+	}
+	cmd = exec.Command("git", "-C", repo, "remote", "add", "origin", originDir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git remote add: %v\n%s", err, out)
+	}
+
+	wtPath := filepath.Join(t.TempDir(), "42-my-feature")
+	addWorktree(t, repo, wtPath, "42-my-feature")
+
+	// gh stub: no PRs → stale.
+	stubDir := t.TempDir()
+	makeGHStub(t, stubDir, "", "", false)
+	prependPath(t, stubDir)
+
+	chdirTemp(t, repo)
+	pipeStdin(t, "YES")
+
+	if err := runDiscardStale(); err != nil {
+		t.Fatalf("runDiscardStale: %v", err)
+	}
+
+	// Worktree directory must be gone.
+	if _, err := os.Stat(wtPath); !os.IsNotExist(err) {
+		t.Error("worktree dir should be removed after YES confirmation")
+	}
+
+	// Local branch must be gone.
+	cmd = exec.Command("git", "-C", repo, "show-ref", "--verify", "--quiet", "refs/heads/42-my-feature")
+	if err := cmd.Run(); err == nil {
+		t.Error("local branch should be deleted after YES confirmation")
 	}
 }
