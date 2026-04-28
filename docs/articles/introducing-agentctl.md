@@ -161,7 +161,12 @@ dev_server: "npm run dev -- --port {port}"
 port: 3010
 ```
 
-Both fields are optional. Omitting `dev_server` means agentctl skips port reservation and dev server startup entirely.
+Both fields are optional. Omitting `dev_server` means agentctl skips port reservation and dev server startup entirely. **All project types — including Node.js — must set `dev_server` explicitly** if they need a dev server. For example:
+
+```yaml
+# Node.js project that needs npm install before starting
+dev_server: "npm install --loglevel=error && npm run dev -- -p {port}"
+```
 
 ## Headless / batch mode
 

@@ -28,7 +28,7 @@ Side effects:
 - Reserves a dev-server port in the `3010-3100` range.
 - Writes `.agent` metadata in the worktree.
 - Seeds `.env.local` from the primary worktree when present, stripping any existing `PORT=` lines (does not inject `PORT=<port>` itself).
-- Starts the dev server: if `.agentctl.yml` defines a `dev_server` command it is used (with `{port}` substituted); otherwise falls back to `npm install --loglevel=error && npm run dev -- -p <port>` when `package.json` exists; silently skipped for non-Node repos.
+- Starts the dev server: if `.agentctl.yml` defines a `dev_server` command it is used (with `{port}` substituted); otherwise the step is silently skipped. Node.js projects (and any project with a dev server) must set `dev_server` explicitly in `.agentctl.yml`.
 - Launches the selected adapter.
 - When the agent exits, appends `Closes #<issue>` to the PR body retrieved via `gh pr view <branch>`, unless the body already contains `closes #<issue>` or `fixes #<issue>` (case-insensitive). Other closing keywords such as `resolves #<issue>` do not suppress the append.
 

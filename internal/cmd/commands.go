@@ -1332,8 +1332,7 @@ func seedEnvLocal(src, dst string) error {
 
 // startDevServer starts a dev server for the project in dir. Detection order:
 //  1. .agentctl.yml with dev_server field  → run that command with {port} substituted
-//  2. package.json present                 → npm install + npm run dev
-//  3. neither                              → silent skip, return ("","",nil)
+//  2. otherwise                            → silent skip, return ("","",nil)
 //
 // On success the allocated port is written back to .agentctl.yml so it serves
 // as the single source of truth for all agentctl repo config.
@@ -1348,12 +1347,7 @@ func startDevServer(dir string, out io.Writer) (devPID, portStr string, err erro
 		return startCustomDevServer(dir, cfg, out)
 	}
 
-	// Case 2: Node.js project
-	if _, statErr := os.Stat(filepath.Join(dir, "package.json")); statErr == nil {
-		return startNodeDevServer(dir, cfg, out)
-	}
-
-	// Case 3: no dev server configured — silently skip
+	// No dev server configured — silently skip
 	return "", "", nil
 }
 
@@ -1390,60 +1384,6 @@ func startCustomDevServer(dir string, cfg *config.AgentctlConfig, out io.Writer)
 		fmt.Fprintf(out, "warning: could not persist port to .agentctl.yml: %v\n", err)
 	}
 	return fmt.Sprintf("%d", devCmd.Process.Pid), portStr, nil
-}
-
-func startNodeDevServer(dir string, cfg *config.AgentctlConfig, out io.Writer) (devPID, portStr string, err error) {
-	if err := runNpmInstall(dir); err != nil {
-		return "", "", err
-	}
-
-	port, err := findFreePort(3010, 3100)
-	if err != nil {
-		return "", "", err
-	}
-	portStr = fmt.Sprintf("%d", port)
-
-	devLog, err := os.Create(filepath.Join(dir, "dev.log"))
-	if err != nil {
-		return "", "", err
-	}
-	devCmd := exec.Command("npm", "run", "dev", "--", "-p", portStr)
-	devCmd.Dir = dir
-	devCmd.Stdout = devLog
-	devCmd.Stderr = devLog
-	if err := devCmd.Start(); err != nil {
-		devLog.Close()
-		return "", "", fmt.Errorf("start dev server: %w", err)
-	}
-	if err := devLog.Close(); err != nil {
-		fmt.Fprintf(out, "warning: close dev log: %v\n", err)
-	}
-	fmt.Fprintf(out, "Dev server: http://localhost:%s (log: %s/dev.log)\n", portStr, dir)
-
-	cfg.Port = port
-	if err := config.Write(dir, cfg); err != nil {
-		fmt.Fprintf(out, "warning: could not persist port to .agentctl.yml: %v\n", err)
-	}
-	return fmt.Sprintf("%d", devCmd.Process.Pid), portStr, nil
-}
-
-func runNpmInstall(dir string) error {
-	if _, err := os.Stat(filepath.Join(dir, "package.json")); os.IsNotExist(err) {
-		return fmt.Errorf("this project does not appear to be a Node.js application\nagentctl start currently requires a project with an npm dev server\nSee https://github.com/arun-gupta/agentctl/issues/65 to track support for other project types")
-	}
-
-	if _, err := exec.LookPath("npm"); err != nil {
-		return fmt.Errorf("npm not found in PATH\nInstall Node.js from https://nodejs.org and ensure npm is on your PATH, then re-run agentctl start")
-	}
-
-	cmd := exec.Command("npm", "install", "--loglevel=error")
-	cmd.Dir = dir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("dependency installation failed in %s: %w\n\nPossible causes:\n  • Node version mismatch (check .nvmrc or the project's required Node version)\n  • Network error or private registry credentials required\n\nTo debug: cd %s && npm install", dir, err, dir)
-	}
-	return nil
 }
 
 // findFreePort scans the [lo, hi] range for a port that is not in LISTEN state.
