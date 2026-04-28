@@ -1,8 +1,9 @@
 kickoff: |
   Work on GitHub issue #{issue}. Read CLAUDE.md for project conventions.
   Follow the plain spec workflow:
-  - STEP 1: Write a `specs/spec.md` describing your intended approach using the
-    following format:
+  - STEP 1: Write a `specs/spec.md` describing your intended approach. Use
+    `docs/spec-template.md` as a starting point. The spec must contain these
+    sections:
 
       ## Problem
       What the issue asks for and why.

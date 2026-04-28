@@ -105,42 +105,13 @@ kickoff: |
 
 A lightweight single-file spec workflow with one approval gate and no slash commands. Use this when the target repository is not set up for Spec Kit.
 
-```yaml
-kickoff: |
-  Work on GitHub issue #{issue}. Read CLAUDE.md for project conventions.
-  Follow the plain spec workflow:
-  - STEP 1: Write a `specs/spec.md` describing your intended approach using the
-    following format:
-
-      ## Problem
-      What the issue asks for and why.
-
-      ## Approach
-      How you plan to solve it.
-
-      ## Changes
-      Files/modules to add, modify, or delete. Include new function signatures,
-      CLI flags, HTTP endpoints, or data structure snippets inline here if applicable.
-
-      ## Test Cases
-      Bulleted list of scenarios that will be validated (not code — just what will be tested).
-
-      ## Risks / Open Questions
-      What you are uncertain about, assumptions made, or areas where human judgment is needed.
-
-      ## Out of Scope
-      What will not be done in this PR.
-
-    Stop and wait for human approval before proceeding.
-  - STEP 2: After approval, implement the changes directly, push the branch, and open a PR. Do not merge.
-  Dev server is running on port {port}.
-```
+The kickoff prompt embeds a six-section spec format (Problem / Approach / Changes / Test Cases / Risks / Open Questions / Out of Scope) and directs the agent to use `docs/spec-template.md` as a starting point. See [`plain.yml`](../internal/sdd/builtin/plain.yml) for the full embedded format.
 
 ```bash
 agentctl start 42 --sdd=plain
 ```
 
-A `specs/spec.md` template is also included in the repository root for agent reference.
+A blank `docs/spec-template.md` is included in this repository for agent reference.
 
 ### Planned built-in methodologies
 

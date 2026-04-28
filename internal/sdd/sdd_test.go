@@ -167,6 +167,10 @@ func TestKickoffPrompt_plain_sections(t *testing.T) {
 			t.Errorf("plain prompt missing guidance text %q, got:\n%s", phrase, prompt)
 		}
 	}
+	// Verify the template reference is wired in.
+	if !strings.Contains(prompt, "docs/spec-template.md") {
+		t.Errorf("plain prompt must reference docs/spec-template.md, got:\n%s", prompt)
+	}
 }
 
 func TestKickoffPrompt_plain_waitForApproval(t *testing.T) {
