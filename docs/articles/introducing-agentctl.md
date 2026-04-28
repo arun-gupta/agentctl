@@ -1,6 +1,6 @@
 # Introducing agentctl
 
-AI coding agents like Claude Code, Codex, and Copilot have become genuine productivity multipliers. Point one at a GitHub issue and it writes code, runs tests, and opens a pull request — often with minimal intervention. But what happens when you want to work on ten issues at once, or switch between different coding agents depending on the task?
+AI coding agents like [Claude Code](https://claude.ai/code), [Codex](https://github.com/openai/codex), and [Copilot](https://github.com/features/copilot) have become genuine productivity multipliers. Point one at a GitHub issue and it writes code, runs tests, and opens a pull request — often with minimal intervention. But what happens when you want to work on ten issues at once, or switch between different coding agents depending on the task?
 
 Beyond parallelism, the industry has seen a wave of Spec-Driven Development (SDD) methodologies — frameworks like Spec Kit, AgentOS, OpenSpec, and Kiro-style specs that inject a human review checkpoint before an agent begins writing code. agentctl integrates all of these into a unified SDLC workflow, with human-in-the-loop at exactly the right moments.
 
