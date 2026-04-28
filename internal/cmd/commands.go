@@ -1859,12 +1859,89 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 		return err
 	}
 
+	mirrorResumeLogFromOffset := func(srcPath string, dst *os.File, offset int64, done <-chan struct{}) {
+		src, err := os.Open(srcPath)
+		if err != nil {
+			return
+		}
+		defer src.Close()
+
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+
+			info, err := src.Stat()
+			if err != nil {
+				return
+			}
+
+			size := info.Size()
+			if size < offset {
+				offset = size
+			}
+
+			if size > offset {
+				if _, err := src.Seek(offset, io.SeekStart); err != nil {
+					return
+				}
+				written, err := io.Copy(dst, io.LimitReader(src, size-offset))
+				offset += written
+				if err != nil {
+					return
+				}
+				if err := dst.Sync(); err != nil {
+					return
+				}
+			}
+
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+			}
+		}
+	}
+
+	followResumeLogFromEOF := func(srcPath string, out io.Writer, done <-chan struct{}, quiet bool, color bool) {
+		info, err := os.Stat(srcPath)
+		if err != nil {
+			followLog(srcPath, out, done, quiet, color)
+			return
+		}
+
+		tmp, err := os.CreateTemp("", "agentctl-resume-log-*")
+		if err != nil {
+			followLog(srcPath, out, done, quiet, color)
+			return
+		}
+		tmpPath := tmp.Name()
+		defer func() {
+			_ = tmp.Close()
+			_ = os.Remove(tmpPath)
+		}()
+
+		mirrorDone := make(chan struct{})
+		go func() {
+			defer close(mirrorDone)
+			mirrorResumeLogFromOffset(srcPath, tmp, info.Size(), done)
+		}()
+
+		followLog(tmpPath, out, done, quiet, color)
+		<-mirrorDone
+	}
+
 	logDone := make(chan struct{})
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		followLog(logPath, os.Stdout, logDone, quiet, true)
+		followResumeLogFromEOF(logPath, os.Stdout, logDone, quiet, true)
 	}()
 
 	sigCh := make(chan os.Signal, 1)
