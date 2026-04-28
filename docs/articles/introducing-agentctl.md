@@ -118,6 +118,32 @@ flowchart LR
     E --> F["agentctl cleanup 42"]
 ```
 
+## Configuring `.agentctl.yml`
+
+The `.agentctl.yml` file lives at the root of your repo. It is the single source of truth for per-repo agentctl settings. You only need to add it when you want a dev server; everything else works without it.
+
+| Field | Who writes it | Description |
+|---|---|---|
+| `dev_server` | Developer | Command to start the dev server. Use `{port}` as a placeholder — agentctl substitutes the allocated port. Example: `"uvicorn main:app --port {port}"` |
+| `port` | agentctl | The port allocated for the dev server. Written back automatically; treat it as read-only. |
+
+A minimal example that enables a dev server:
+
+```yaml
+# .agentctl.yml
+dev_server: "npm run dev -- --port {port}"
+```
+
+After `agentctl start 42` reserves a port, agentctl writes the value back:
+
+```yaml
+# .agentctl.yml (after agentctl start)
+dev_server: "npm run dev -- --port {port}"
+port: 3010
+```
+
+Both fields are optional. Omitting `dev_server` means agentctl skips port reservation and dev server startup entirely.
+
 ## Headless / batch mode
 
 The quick-start workflow keeps the agent attached to your terminal. For running several issues in parallel — or for CI-style automation — pass a comma-separated list of issue numbers and agentctl runs all of them headlessly:
