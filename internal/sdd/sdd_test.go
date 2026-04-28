@@ -372,6 +372,16 @@ func TestSkipPrompt_noPort_omitsDevServerLine(t *testing.T) {
 	assertPromptWithoutPortKeepsGuidance(t, "SkipPrompt", prompt)
 }
 
+func TestSkipPrompt_doesNotReferExclusivelyToClaudeMD(t *testing.T) {
+	prompt := sdd.SkipPrompt("42", "3010")
+	// CLAUDE.md is a Claude Code-specific file. The generic skip prompt must be
+	// agent-neutral so that Codex and other agents find their own convention
+	// files without hunting for a file that may not exist in the target repo.
+	if strings.Contains(prompt, "Read CLAUDE.md") {
+		t.Errorf("SkipPrompt must not use a Claude-specific file reference; got:\n%s", prompt)
+	}
+}
+
 func TestKickoffPrompt_noPort_omitsDevServerLine(t *testing.T) {
 	m, err := sdd.Get("speckit")
 	if err != nil {
