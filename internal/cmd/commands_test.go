@@ -2136,8 +2136,12 @@ func TestLinkPRToIssue_noPR(t *testing.T) {
 	callsFile := makeGHStub(t, stubDir, "", "", false)
 	prependPath(t, stubDir)
 
-	if err := linkPRToIssue(t.TempDir(), "42-my-feature", "42"); err != nil {
-		t.Errorf("expected nil for no-PR case, got: %v", err)
+	pr, err := linkPRToIssue(t.TempDir(), "42-my-feature", "42")
+	if err != nil {
+		t.Errorf("expected nil error for no-PR case, got: %v", err)
+	}
+	if pr != nil {
+		t.Errorf("expected nil prInfo for no-PR case, got: %+v", pr)
 	}
 
 	calls, _ := os.ReadFile(callsFile)
@@ -2168,7 +2172,7 @@ func TestLinkPRToIssue_alreadyLinked(t *testing.T) {
 			callsFile := makeGHStub(t, stubDir, viewJSON, "", false)
 			prependPath(t, stubDir)
 
-			if err := linkPRToIssue(t.TempDir(), "42-feature", "42"); err != nil {
+			if _, err := linkPRToIssue(t.TempDir(), "42-feature", "42"); err != nil {
 				t.Errorf("expected nil, got: %v", err)
 			}
 			calls, _ := os.ReadFile(callsFile)
@@ -2181,12 +2185,16 @@ func TestLinkPRToIssue_alreadyLinked(t *testing.T) {
 
 func TestLinkPRToIssue_addsLink(t *testing.T) {
 	stubDir := t.TempDir()
-	viewJSON := `{"number":7,"body":"some PR work"}`
+	viewJSON := `{"number":7,"body":"some PR work","url":"https://github.com/owner/repo/pull/7"}`
 	callsFile := makeGHStub(t, stubDir, viewJSON, "", false)
 	prependPath(t, stubDir)
 
-	if err := linkPRToIssue(t.TempDir(), "42-feature", "42"); err != nil {
+	pr, err := linkPRToIssue(t.TempDir(), "42-feature", "42")
+	if err != nil {
 		t.Fatalf("linkPRToIssue: %v", err)
+	}
+	if pr == nil || pr.URL != "https://github.com/owner/repo/pull/7" {
+		t.Errorf("expected PR URL to be returned, got: %+v", pr)
 	}
 
 	calls, _ := os.ReadFile(callsFile)
@@ -2201,11 +2209,11 @@ func TestLinkPRToIssue_addsLink(t *testing.T) {
 
 func TestLinkPRToIssue_addsLink_emptyBody(t *testing.T) {
 	stubDir := t.TempDir()
-	viewJSON := `{"number":3,"body":""}`
+	viewJSON := `{"number":3,"body":"","url":"https://github.com/owner/repo/pull/3"}`
 	callsFile := makeGHStub(t, stubDir, viewJSON, "", false)
 	prependPath(t, stubDir)
 
-	if err := linkPRToIssue(t.TempDir(), "42-feature", "42"); err != nil {
+	if _, err := linkPRToIssue(t.TempDir(), "42-feature", "42"); err != nil {
 		t.Fatalf("linkPRToIssue: %v", err)
 	}
 
@@ -2218,16 +2226,47 @@ func TestLinkPRToIssue_addsLink_emptyBody(t *testing.T) {
 
 func TestLinkPRToIssue_editError(t *testing.T) {
 	stubDir := t.TempDir()
-	viewJSON := `{"number":7,"body":"some work"}`
+	viewJSON := `{"number":7,"body":"some work","url":"https://github.com/owner/repo/pull/7"}`
 	makeGHStub(t, stubDir, viewJSON, "", true) // editFail=true
 	prependPath(t, stubDir)
 
-	err := linkPRToIssue(t.TempDir(), "42-feature", "42")
+	_, err := linkPRToIssue(t.TempDir(), "42-feature", "42")
 	if err == nil {
 		t.Error("expected error when gh pr edit fails")
 	}
 	if !strings.Contains(err.Error(), "gh pr edit") {
 		t.Errorf("expected 'gh pr edit' in error, got: %v", err)
+	}
+}
+
+func TestReportPRStatus_printsPRLink(t *testing.T) {
+	stubDir := t.TempDir()
+	viewJSON := `{"number":9,"body":"work","url":"https://github.com/owner/repo/pull/9"}`
+	makeGHStub(t, stubDir, viewJSON, "", false)
+	prependPath(t, stubDir)
+
+	var buf bytes.Buffer
+	reportPRStatus(&buf, t.TempDir(), "2-my-feature", "2")
+
+	out := buf.String()
+	if !strings.Contains(out, "PR: #9") {
+		t.Errorf("expected PR number in output, got: %q", out)
+	}
+	if !strings.Contains(out, "https://github.com/owner/repo/pull/9") {
+		t.Errorf("expected PR URL in output, got: %q", out)
+	}
+}
+
+func TestReportPRStatus_noPR_printsNothing(t *testing.T) {
+	stubDir := t.TempDir()
+	makeGHStub(t, stubDir, "", "", false) // no PR
+	prependPath(t, stubDir)
+
+	var buf bytes.Buffer
+	reportPRStatus(&buf, t.TempDir(), "2-my-feature", "2")
+
+	if buf.Len() > 0 {
+		t.Errorf("expected no output when no PR exists, got: %q", buf.String())
 	}
 }
 
