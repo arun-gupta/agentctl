@@ -907,13 +907,19 @@ func TestAgentResume_headless_success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read .agent: %v", err)
 	}
-	if !strings.Contains(string(agentState), "agent-pid:") {
+	if !strings.Contains(string(agentState), "agent-pid=") {
 		t.Fatalf(".agent missing agent-pid entry:\n%s", string(agentState))
 	}
 
-	logData, err := os.ReadFile(filepath.Join(dir, "agent.log"))
-	if err != nil {
-		t.Fatalf("read agent.log: %v", err)
+	// The background echo process may not have written yet; poll briefly.
+	var logData []byte
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		logData, _ = os.ReadFile(filepath.Join(dir, "agent.log"))
+		if strings.Contains(string(logData), "sess-123") {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 	if !strings.Contains(string(logData), "sess-123") {
 		t.Fatalf("agent.log missing resumed session output:\n%s", string(logData))
