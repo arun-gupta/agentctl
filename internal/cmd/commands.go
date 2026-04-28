@@ -2264,6 +2264,26 @@ func agentEnv(wtPath string) ([]string, error) {
 				}
 			}
 		}
+
+		// Expose only ~/.config/gh (the gh CLI credential store) rather than
+		// the entire ~/.config tree, to limit the host config surface accessible
+		// from the agent's isolated HOME.
+		ghConfigSrc := filepath.Join(realHome, ".config", "gh")
+		if _, srcErr := os.Lstat(ghConfigSrc); srcErr == nil {
+			agentConfigDir := filepath.Join(agentHome, ".config")
+			if mkdirErr := os.MkdirAll(agentConfigDir, 0o755); mkdirErr != nil {
+				fmt.Fprintf(os.Stderr, "agentctl: warning: mkdir %s: %v\n", agentConfigDir, mkdirErr)
+			} else {
+				ghConfigDst := filepath.Join(agentConfigDir, "gh")
+				if _, statErr := os.Lstat(ghConfigDst); os.IsNotExist(statErr) {
+					if symlinkErr := os.Symlink(ghConfigSrc, ghConfigDst); symlinkErr != nil {
+						fmt.Fprintf(os.Stderr, "agentctl: warning: symlink .config/gh: %v (gh credentials may not work)\n", symlinkErr)
+					}
+				}
+			}
+		} else if !os.IsNotExist(srcErr) {
+			fmt.Fprintf(os.Stderr, "agentctl: warning: stat %s: %v\n", ghConfigSrc, srcErr)
+		}
 	}
 
 	env := os.Environ()
