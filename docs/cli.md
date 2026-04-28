@@ -30,7 +30,7 @@ Side effects:
 - Seeds `.env.local` from the primary worktree when present and appends `PORT=<port>`.
 - Starts the dev server: if `.agentctl.yml` defines a `dev_server` command it is used (with `{port}` substituted); otherwise falls back to `npm install --silent && npm run dev -- -p <port>` when `package.json` exists; silently skipped for non-Node repos.
 - Launches the selected adapter.
-- When the agent exits, automatically appends `Closes #<issue>` to the PR body if the branch has an open PR and the link is not already present.
+- When the agent exits, automatically appends `Closes #<issue>` to the PR body returned by `gh pr view <branch>`, unless the body already contains `closes #<issue>` or `fixes #<issue>`.
 
 ### `agentctl resume`
 
