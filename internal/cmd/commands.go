@@ -41,7 +41,7 @@ func NewStartCmd() *cobra.Command {
 		sddName   string
 	)
 	c := &cobra.Command{
-		Use:   "start <issue-number-or-url> [slug]",
+		Use:   "start <issue-number-or-url>[,<issue>...] [slug]",
 		Short: "Start work on a GitHub issue in an isolated worktree",
 		Long: `Provision an isolated git worktree for a GitHub issue and launch a
 coding agent inside it. By default the agent works directly toward a PR
@@ -52,16 +52,36 @@ issue URL (e.g. https://github.com/owner/repo/issues/42). When a URL is
 given, agentctl locates or clones the target repository automatically so
 you do not need to cd into it first.
 
+Multiple issues may be given as a comma-separated list (e.g. 42,43,44).
+In that case all agents are started concurrently in headless mode and the
+command returns after all agents have been launched. A [slug] argument is
+not allowed in batch mode.
+
 Use --sdd <name> to opt into a spec-driven development (SDD) methodology
 (e.g. plain, speckit, or a custom methodology).`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			issue := args[0]
+			rawIssues := strings.Split(args[0], ",")
+			issues := make([]string, 0, len(rawIssues))
+			for _, iss := range rawIssues {
+				if s := strings.TrimSpace(iss); s != "" {
+					issues = append(issues, s)
+				}
+			}
+
 			slug := ""
 			if len(args) > 1 {
 				slug = args[1]
 			}
-			return runStart(issue, slug, agentName, sddName, headless, quiet)
+
+			if len(issues) > 1 {
+				if slug != "" {
+					return fmt.Errorf("[slug] argument is not supported when starting multiple issues")
+				}
+				return runBatch(issues, agentName, sddName, quiet, startOne, os.Stdout)
+			}
+
+			return startOne(issues[0], slug, agentName, sddName, headless, quiet, os.Stdout)
 		},
 	}
 	c.Flags().StringVar(&agentName, "agent", "claude", "Coding agent adapter to use")
@@ -71,7 +91,9 @@ Use --sdd <name> to opt into a spec-driven development (SDD) methodology
 	return c
 }
 
-func runStart(issue, slug, agentName, sddName string, headless, quiet bool) error {
+// startOne provisions a worktree for a single issue and launches the agent.
+// It is the per-issue unit used by both single-issue and batch invocations.
+func startOne(issue, slug, agentName, sddName string, headless, quiet bool, out io.Writer) error {
 	// Validate the adapter exists before doing any setup work.
 	if err := validateAdapter(agentName); err != nil {
 		return err
@@ -92,7 +114,7 @@ func runStart(issue, slug, agentName, sddName string, headless, quiet bool) erro
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Derived slug from issue title: %s\n", slug)
+		fmt.Fprintf(out, "Derived slug from issue title: %s\n", slug)
 	}
 
 	branch := issueNum + "-" + slug
@@ -144,7 +166,47 @@ func runStart(issue, slug, agentName, sddName string, headless, quiet bool) erro
 		kickoff = m.KickoffPrompt(issueNum, portStr)
 	}
 
-	return launchAgent(agentName, wtPath, issueNum, portStr, sessionID, kickoff, sddName, headless, quiet, os.Stdout)
+	return launchAgent(agentName, wtPath, issueNum, portStr, sessionID, kickoff, sddName, headless, quiet, out)
+}
+
+// runBatch provisions worktrees and launches agents for multiple issues
+// concurrently. Each issue is always started in headless mode. Results are
+// collected and printed in the original issue order. If any issue fails the
+// remaining issues are still attempted and a combined error is returned.
+func runBatch(issues []string, agentName, sddName string, quiet bool,
+	fn func(issue, slug, agentName, sddName string, headless, quiet bool, out io.Writer) error,
+	out io.Writer) error {
+
+	type batchResult struct {
+		output string
+		err    error
+	}
+	results := make([]batchResult, len(issues))
+
+	var wg sync.WaitGroup
+	for i, iss := range issues {
+		wg.Add(1)
+		go func(i int, iss string) {
+			defer wg.Done()
+			var buf strings.Builder
+			err := fn(iss, "", agentName, sddName, true, quiet, &buf)
+			results[i] = batchResult{output: buf.String(), err: err}
+		}(i, iss)
+	}
+	wg.Wait()
+
+	var hasErr bool
+	for _, r := range results {
+		fmt.Fprint(out, r.output)
+		if r.err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", r.err)
+			hasErr = true
+		}
+	}
+	if hasErr {
+		return fmt.Errorf("one or more issues failed to start")
+	}
+	return nil
 }
 
 // ─── resume ───────────────────────────────────────────────────────────────────
