@@ -73,3 +73,31 @@ func TestWrite_createsFileWhenAbsent(t *testing.T) {
 		t.Errorf("Port = %d, want 3010", got.Port)
 	}
 }
+
+func TestRead_parsesNotify(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"), []byte("notify: true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Read(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.Notify {
+		t.Errorf("Notify = false, want true")
+	}
+}
+
+func TestRead_notifyDefaultsFalse(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"), []byte("dev_server: \"uvicorn main:app --port {port}\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Read(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Notify {
+		t.Errorf("Notify = true, want false (default)")
+	}
+}

@@ -22,6 +22,13 @@ type AgentctlConfig struct {
 	// Port is written back by agentctl after it allocates a port for the dev
 	// server. Read-only for the developer.
 	Port int `yaml:"port,omitempty"`
+
+	// Notify enables native desktop notifications when a headless agent
+	// finishes. Only meaningful in headless mode; ignored for foreground runs.
+	// When true, agentctl fires an OS notification (macOS: osascript,
+	// Linux: notify-send) after each agent exits. Can also be enabled
+	// per-invocation with the --notify flag.
+	Notify bool `yaml:"notify,omitempty"`
 }
 
 // Read loads .agentctl.yml from dir. If the file does not exist, an empty
