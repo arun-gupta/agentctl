@@ -2228,7 +2228,8 @@ func agentEnv(wtPath string) ([]string, error) {
 	realHome, err := os.UserHomeDir()
 	if err == nil {
 		// Link config files/dirs so git, SSH, OpenHands, and gh CLI work with real credentials.
-		for _, name := range []string{".gitconfig", ".ssh", ".openhands", ".config"} {
+		// Use filepath.Join for nested paths to ensure correct separators on all platforms.
+		for _, name := range []string{".gitconfig", ".ssh", ".openhands", filepath.Join(".config", "gh")} {
 			src := filepath.Join(realHome, name)
 			dst := filepath.Join(agentHome, name)
 
@@ -2246,6 +2247,14 @@ func agentEnv(wtPath string) ([]string, error) {
 					fmt.Fprintf(os.Stderr, "agentctl: warning: stat %s: %v\n", src, srcErr)
 				}
 				continue
+			}
+
+			// Ensure parent directory exists (needed for nested paths like .config/gh).
+			if parentDir := filepath.Dir(dst); parentDir != agentHome {
+				if mkdirErr := os.MkdirAll(parentDir, 0o755); mkdirErr != nil {
+					fmt.Fprintf(os.Stderr, "agentctl: warning: mkdir %s: %v\n", parentDir, mkdirErr)
+					continue
+				}
 			}
 
 			if symlinkErr := os.Symlink(src, dst); symlinkErr != nil {

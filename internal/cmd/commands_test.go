@@ -1121,6 +1121,90 @@ func TestResumeCmd_quietFlag(t *testing.T) {
 	}
 }
 
+// ─── runReleasePausedSession gating ──────────────────────────────────────────
+
+// setupResumeWorktree creates a git repo with a linked worktree at a path
+// containing "-<issue>-" and writes an .agent file into it.
+func setupResumeWorktree(t *testing.T, issue string, af state.AgentFile) (repo, wtPath string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found in PATH")
+	}
+	repo = initGitRepoForStale(t)
+	wtPath = filepath.Join(t.TempDir(), "repo-"+issue+"-feature")
+	addWorktree(t, repo, wtPath, issue+"-feature")
+	if err := state.Write(wtPath, af); err != nil {
+		t.Fatal(err)
+	}
+	return repo, wtPath
+}
+
+// TestRunReleasePausedSession_nonSDD_noSpec asserts that a plain (non-SDD) run
+// is NOT blocked by the missing-spec guard and proceeds past it, failing only
+// at adapter validation.
+func TestRunReleasePausedSession_nonSDD_noSpec(t *testing.T) {
+	repo, _ := setupResumeWorktree(t, "42", state.AgentFile{
+		Agent:  "claude",
+		SDD:    "",   // non-SDD run
+		SDDSet: true, // sdd= key was present (new worktree created without --sdd)
+	})
+	chdirTemp(t, repo)
+
+	err := runReleasePausedSession("42", "", false, false)
+
+	// Must NOT block with "spec not yet generated" — the spec gate does not
+	// apply to non-SDD worktrees.
+	if err != nil && strings.Contains(err.Error(), "spec not yet generated") {
+		t.Errorf("non-SDD run should not be blocked by spec gate; got: %v", err)
+	}
+}
+
+// TestRunReleasePausedSession_SDD_noSpec asserts that an SDD run IS blocked
+// when no spec has been generated yet.
+func TestRunReleasePausedSession_SDD_noSpec(t *testing.T) {
+	repo, _ := setupResumeWorktree(t, "43", state.AgentFile{
+		Agent:  "claude",
+		SDD:    "plain", // SDD run with a methodology set
+		SDDSet: true,
+	})
+	chdirTemp(t, repo)
+
+	err := runReleasePausedSession("43", "", false, false)
+
+	if err == nil {
+		t.Fatal("expected 'spec not yet generated' error for SDD run without spec, got nil")
+	}
+	if !strings.Contains(err.Error(), "spec not yet generated") {
+		t.Errorf("expected 'spec not yet generated' in error; got: %v", err)
+	}
+}
+
+// TestRunReleasePausedSession_SDD_withSpec asserts that an SDD run is NOT
+// blocked once the spec pause checkpoint has been reached (spec file present).
+func TestRunReleasePausedSession_SDD_withSpec(t *testing.T) {
+	repo, wtPath := setupResumeWorktree(t, "44", state.AgentFile{
+		Agent:  "claude",
+		SDD:    "plain",
+		SDDSet: true,
+	})
+	// Create the spec file so computeSpecState returns "paused" or "in-progress".
+	specDir := filepath.Join(wtPath, "specs", "44-feature")
+	if err := os.MkdirAll(specDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(specDir, "spec.md"), []byte("# spec\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	chdirTemp(t, repo)
+
+	err := runReleasePausedSession("44", "", false, false)
+
+	// Must NOT block with "spec not yet generated" once spec exists.
+	if err != nil && strings.Contains(err.Error(), "spec not yet generated") {
+		t.Errorf("SDD run with spec should not be blocked by spec gate; got: %v", err)
+	}
+}
+
 // ─── agentResume ─────────────────────────────────────────────────────────────
 
 func TestLaunchAgent_nonZeroExitLogsToStderr(t *testing.T) {
