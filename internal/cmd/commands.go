@@ -144,7 +144,7 @@ func runStart(issue, slug, agentName, sddName string, headless, quiet bool) erro
 		kickoff = m.KickoffPrompt(issueNum, portStr)
 	}
 
-	return launchAgent(agentName, wtPath, issueNum, portStr, sessionID, kickoff, headless, quiet)
+	return launchAgent(agentName, wtPath, issueNum, portStr, sessionID, kickoff, headless, quiet, os.Stdout)
 }
 
 // ─── resume ───────────────────────────────────────────────────────────────────
@@ -1278,7 +1278,7 @@ func findWorktreePath(issue string) (string, error) {
 // then either returns immediately (headless) or streams agent.log to stdout
 // until the agent exits (non-headless). quiet suppresses log lines, showing
 // only the spinner/heartbeat.
-func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, headless, quiet bool) error {
+func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, headless, quiet bool, out io.Writer) error {
 	ad, err := adapters.Get(adapterName)
 	if err != nil {
 		return err
@@ -1398,11 +1398,11 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff string, he
 	}
 
 	if headless {
-		fmt.Printf("Agent PID %d — log: %s\n", pid, logPath)
-		fmt.Printf("Session ID: %s\n", sessionID)
-		fmt.Printf("Use \"agentctl resume %s [feedback]\" to continue the session.\n", issue)
-		fmt.Println("Without feedback, it sends approval (\"proceed\") and the agent begins implementation.")
-		fmt.Println("With feedback, it sends the revision text and the agent rewrites the spec.")
+		fmt.Fprintf(out, "Agent PID %d — log: %s\n", pid, logPath)
+		fmt.Fprintf(out, "Session ID: %s\n", sessionID)
+		fmt.Fprintf(out, "Use \"agentctl resume %s [feedback]\" to continue the session.\n", issue)
+		fmt.Fprintln(out, "Without feedback, it sends approval (\"proceed\") and the agent begins implementation.")
+		fmt.Fprintln(out, "With feedback, it sends the revision text and the agent rewrites the spec.")
 		return nil
 	}
 
