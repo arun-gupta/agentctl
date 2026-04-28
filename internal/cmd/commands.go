@@ -1769,13 +1769,11 @@ func sendCompletionNotification(issue, wtPath string, exitErr error) {
 	if exitErr != nil {
 		status = "failed"
 	}
-	var msg string
+	branchPart := ""
 	if branch != "" {
-		msg = fmt.Sprintf("Agent finished — issue #%s (%s): %s", issue, branch, status)
-	} else {
-		msg = fmt.Sprintf("Agent finished — issue #%s: %s", issue, status)
+		branchPart = " (" + branch + ")"
 	}
-	notify.Send("agentctl", msg)
+	notify.Send("agentctl", fmt.Sprintf("Agent finished — issue #%s%s: %s", issue, branchPart, status))
 }
 
 // convertStreamToLog reads Claude --output-format stream-json lines from r,
