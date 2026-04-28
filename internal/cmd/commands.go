@@ -36,11 +36,11 @@ import (
 // NewStartCmd creates the `start` subcommand.
 func NewStartCmd() *cobra.Command {
 	var (
-		agentName string
-		headless  bool
-		quiet     bool
-		sddName   string
-		notify    bool
+		agentName  string
+		headless   bool
+		quiet      bool
+		sddName    string
+		sendNotify bool
 	)
 	c := &cobra.Command{
 		Use:   "start <issue-number-or-url>[,<issue>...] [slug]",
@@ -84,17 +84,17 @@ Use --sdd <name> to opt into a spec-driven development (SDD) methodology
 				if slug != "" {
 					return fmt.Errorf("[slug] argument is not supported when starting multiple issues")
 				}
-				return runBatch(issues, agentName, sddName, quiet, notify, startOne, os.Stdout, os.Stderr)
+				return runBatch(issues, agentName, sddName, quiet, sendNotify, startOne, os.Stdout, os.Stderr)
 			}
 
-			return startOne(issues[0], slug, agentName, sddName, headless, quiet, notify, os.Stdout)
+			return startOne(issues[0], slug, agentName, sddName, headless, quiet, sendNotify, os.Stdout)
 		},
 	}
 	c.Flags().StringVar(&agentName, "agent", "claude", "Coding agent adapter to use")
 	c.Flags().BoolVar(&headless, "headless", false, "Run agent in background (log -> agent.log)")
 	c.Flags().BoolVar(&quiet, "quiet", false, "Suppress agent log output; show spinner/heartbeat only")
 	c.Flags().StringVar(&sddName, "sdd", "", "SDD methodology to use (e.g. plain, speckit, or custom); omit to skip SDD")
-	c.Flags().BoolVar(&notify, "notify", false, "Send a desktop notification when the headless agent finishes")
+	c.Flags().BoolVar(&sendNotify, "notify", false, "Send a desktop notification when the headless agent finishes")
 	return c
 }
 
@@ -125,7 +125,7 @@ func buildKickoff(issue, port string) string {
 
 // startOne provisions a worktree for a single issue and launches the agent.
 // It is the per-issue unit used by both single-issue and batch invocations.
-func startOne(issue, slug, agentName, sddName string, headless, quiet, notify bool, out io.Writer) error {
+func startOne(issue, slug, agentName, sddName string, headless, quiet, sendNotify bool, out io.Writer) error {
 	// Validate the adapter exists before doing any setup work.
 	if err := validateAdapter(agentName); err != nil {
 		return err
@@ -141,9 +141,10 @@ func startOne(issue, slug, agentName, sddName string, headless, quiet, notify bo
 	repoName := filepath.Base(repoRoot)
 
 	// Combine --notify flag with the per-repo config setting (either enables it).
-	if !notify {
+	// notify: true in .agentctl.yml is only meaningful in headless mode.
+	if !sendNotify {
 		if cfg, cfgErr := config.Read(repoRoot); cfgErr == nil && cfg.Notify {
-			notify = true
+			sendNotify = true
 		}
 	}
 
@@ -206,15 +207,15 @@ func startOne(issue, slug, agentName, sddName string, headless, quiet, notify bo
 		kickoff = m.KickoffPrompt(issueNum, portStr)
 	}
 
-	return launchAgent(agentName, wtPath, issueNum, portStr, sessionID, kickoff, sddName, headless, quiet, notify, out)
+	return launchAgent(agentName, wtPath, issueNum, portStr, sessionID, kickoff, sddName, headless, quiet, sendNotify, out)
 }
 
 // runBatch provisions worktrees and launches agents for multiple issues
 // concurrently. Each issue is always started in headless mode. Results are
 // collected and printed in the original issue order. If any issue fails the
 // remaining issues are still attempted and a combined error is returned.
-func runBatch(issues []string, agentName, sddName string, quiet, notify bool,
-	fn func(issue, slug, agentName, sddName string, headless, quiet, notify bool, out io.Writer) error,
+func runBatch(issues []string, agentName, sddName string, quiet, sendNotify bool,
+	fn func(issue, slug, agentName, sddName string, headless, quiet, sendNotify bool, out io.Writer) error,
 	out io.Writer, errOut io.Writer) error {
 
 	type batchResult struct {
@@ -230,7 +231,7 @@ func runBatch(issues []string, agentName, sddName string, quiet, notify bool,
 		go func(i int, iss string) {
 			defer wg.Done()
 			var buf strings.Builder
-			err := fn(iss, "", agentName, sddName, true, quiet, notify, &buf)
+			err := fn(iss, "", agentName, sddName, true, quiet, sendNotify, &buf)
 			results[i] = batchResult{issue: iss, output: buf.String(), err: err}
 		}(i, iss)
 	}
@@ -255,9 +256,9 @@ func runBatch(issues []string, agentName, sddName string, quiet, notify bool,
 // NewResumeCmd creates the `resume` subcommand.
 func NewResumeCmd() *cobra.Command {
 	var (
-		headless bool
-		quiet    bool
-		notify   bool
+		headless   bool
+		quiet      bool
+		sendNotify bool
 	)
 	c := &cobra.Command{
 		Use:   "resume <issue> [feedback]",
@@ -278,25 +279,26 @@ Use --headless to run it in the background and write output to agent.log.`,
 				}
 				prompt = args[1]
 			}
-			return runReleasePausedSession(args[0], prompt, headless, quiet, notify)
+			return runReleasePausedSession(args[0], prompt, headless, quiet, sendNotify)
 		},
 	}
 	c.Flags().BoolVar(&headless, "headless", false, "Run agent in background (log -> agent.log)")
 	c.Flags().BoolVar(&quiet, "quiet", false, "Suppress agent log output; show spinner/heartbeat only")
-	c.Flags().BoolVar(&notify, "notify", false, "Send a desktop notification when the headless agent finishes")
+	c.Flags().BoolVar(&sendNotify, "notify", false, "Send a desktop notification when the headless agent finishes")
 	return c
 }
 
-func runReleasePausedSession(issue, prompt string, headless, quiet, notify bool) error {
+func runReleasePausedSession(issue, prompt string, headless, quiet, sendNotify bool) error {
 	repoRoot, err := git.RepoRoot()
 	if err != nil {
 		return fmt.Errorf("cannot determine repo root: %w", err)
 	}
 
 	// Combine --notify flag with the per-repo config setting (either enables it).
-	if !notify {
+	// notify: true in .agentctl.yml is only meaningful in headless mode.
+	if !sendNotify {
 		if cfg, cfgErr := config.Read(repoRoot); cfgErr == nil && cfg.Notify {
-			notify = true
+			sendNotify = true
 		}
 	}
 
@@ -322,7 +324,7 @@ func runReleasePausedSession(issue, prompt string, headless, quiet, notify bool)
 		return fmt.Errorf("spec not yet generated for issue %s; paused state not reached.\nTail %s/agent.log to confirm and retry once the pause is reported.", issue, wt.Path)
 	}
 
-	return agentResume(af.Agent, wt.Path, issue, af.SessionID, prompt, headless, quiet, notify)
+	return agentResume(af.Agent, wt.Path, issue, af.SessionID, prompt, headless, quiet, sendNotify)
 }
 
 // ─── discard ──────────────────────────────────────────────────────────────────
@@ -1511,7 +1513,7 @@ func findWorktreePath(issue string) (string, error) {
 // then either returns immediately (headless) or streams agent.log to stdout
 // until the agent exits (non-headless). quiet suppresses log lines, showing
 // only the spinner/heartbeat.
-func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName string, headless, quiet, notify bool, out io.Writer) error {
+func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName string, headless, quiet, sendNotify bool, out io.Writer) error {
 	ad, err := adapters.Get(adapterName)
 	if err != nil {
 		return err
@@ -1674,6 +1676,10 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 	// Reap the child in a background goroutine and signal exitCh when done.
 	// Using Wait() instead of kill-0 polling is the reliable way to detect
 	// process exit regardless of session/launchd topology.
+	//
+	// Memory model note: agentExitErr is written before close(exitCh) and
+	// read after <-exitCh, so the channel close provides the necessary
+	// happens-before guarantee; no additional synchronization is needed.
 	var agentExitErr error
 	exitCh := make(chan struct{})
 	go func() {
@@ -1701,7 +1707,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			fmt.Fprintf(out, "agentctl attach %s    # stream live and wait\n", issue)
 			fmt.Fprintf(out, "agentctl discard %s   # abandon\n", issue)
 		}
-		if notify {
+		if sendNotify {
 			go func() {
 				<-exitCh
 				sendCompletionNotification(issue, wtPath, agentExitErr)
@@ -2427,7 +2433,7 @@ func writeClaudeSettings(wtPath string) error {
 // When headless is false (default) it streams agent.log to the terminal and
 // blocks until the agent exits. When headless is true it detaches immediately
 // and writes output to agent.log.
-func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless, quiet, notify bool) error {
+func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless, quiet, sendNotify bool) error {
 	ad, err := adapters.Get(adapterName)
 	if err != nil {
 		return err
@@ -2563,6 +2569,9 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 
 	pid := resumeCmd.Process.Pid
 
+	// Memory model note: resumeExitErr is written before close(exitCh) and
+	// read after <-exitCh, so the channel close provides the necessary
+	// happens-before guarantee; no additional synchronization is needed.
 	var resumeExitErr error
 	exitCh := make(chan struct{})
 	go func() {
@@ -2580,7 +2589,7 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 	if headless {
 		fmt.Printf("Released pause for issue %s; Stage 2 running in background.\n", issue)
 		fmt.Printf("Tail: %s\n", logPath)
-		if notify {
+		if sendNotify {
 			go func() {
 				<-exitCh
 				sendCompletionNotification(issue, wtPath, resumeExitErr)

@@ -24,9 +24,10 @@ type AgentctlConfig struct {
 	Port int `yaml:"port,omitempty"`
 
 	// Notify enables native desktop notifications when a headless agent
-	// finishes. When true, agentctl fires an OS notification (macOS:
-	// osascript, Linux: notify-send) after each agent exits. Can also be
-	// enabled per-invocation with the --notify flag.
+	// finishes. Only meaningful in headless mode; ignored for foreground runs.
+	// When true, agentctl fires an OS notification (macOS: osascript,
+	// Linux: notify-send) after each agent exits. Can also be enabled
+	// per-invocation with the --notify flag.
 	Notify bool `yaml:"notify,omitempty"`
 }
 

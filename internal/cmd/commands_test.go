@@ -1331,6 +1331,43 @@ func TestAgentResume_headless_success(t *testing.T) {
 	}
 }
 
+// TestAgentResume_headless_notify verifies that a desktop notification is
+// fired after the headless resume agent exits when sendNotify=true.
+func TestAgentResume_headless_notify(t *testing.T) {
+	dir := t.TempDir()
+	writeLocalAdapter(t, dir, "echoagent",
+		"binary: echo\nsession: --session\n")
+	chdirTemp(t, dir)
+
+	origFn := notify.SendFn
+	t.Cleanup(func() { notify.SendFn = origFn })
+
+	notified := make(chan [2]string, 1)
+	notify.SendFn = func(title, message string) {
+		select {
+		case notified <- [2]string{title, message}:
+		default:
+		}
+	}
+
+	if err := agentResume("echoagent", dir, "42", "sess-123", "my feedback", true, false, true); err != nil {
+		t.Fatalf("agentResume headless notify: %v", err)
+	}
+
+	// Wait for the background notification goroutine to fire.
+	select {
+	case got := <-notified:
+		if got[0] != "agentctl" {
+			t.Errorf("notification title = %q, want %q", got[0], "agentctl")
+		}
+		if !strings.Contains(got[1], "42") {
+			t.Errorf("notification message %q does not mention issue 42", got[1])
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for desktop notification from agentResume")
+	}
+}
+
 func TestAgentResume_nonHeadless_exitsWhenAgentDone(t *testing.T) {
 	dir := t.TempDir()
 	// Use `echo` as the resume binary — always on PATH, exits immediately.
@@ -3260,7 +3297,7 @@ func TestRunBatch_allSucceed(t *testing.T) {
 	var mu sync.Mutex
 	called := map[string]bool{}
 
-	mockFn := func(issue, slug, agentName, sddName string, headless, quiet, notify bool, out io.Writer) error {
+	mockFn := func(issue, slug, agentName, sddName string, headless, quiet, sendNotify bool, out io.Writer) error {
 		mu.Lock()
 		called[issue] = true
 		mu.Unlock()
@@ -3293,7 +3330,7 @@ func TestRunBatch_oneFailureContinuesOthers(t *testing.T) {
 	var mu sync.Mutex
 	called := map[string]bool{}
 
-	mockFn := func(issue, slug, agentName, sddName string, headless, quiet, notify bool, out io.Writer) error {
+	mockFn := func(issue, slug, agentName, sddName string, headless, quiet, sendNotify bool, out io.Writer) error {
 		mu.Lock()
 		called[issue] = true
 		mu.Unlock()
@@ -3341,7 +3378,7 @@ func TestRunBatch_oneFailureContinuesOthers(t *testing.T) {
 // TestRunBatch_resultsInOrder verifies that output is printed in the original
 // issue order even when goroutines finish out of order.
 func TestRunBatch_resultsInOrder(t *testing.T) {
-	mockFn := func(issue, slug, agentName, sddName string, headless, quiet, notify bool, out io.Writer) error {
+	mockFn := func(issue, slug, agentName, sddName string, headless, quiet, sendNotify bool, out io.Writer) error {
 		if issue == "42" {
 			time.Sleep(50 * time.Millisecond) // finish last
 		}

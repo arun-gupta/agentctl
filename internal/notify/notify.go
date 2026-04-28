@@ -20,7 +20,9 @@ func Send(title, message string) {
 	SendFn(title, message)
 }
 
-// defaultSend is the production notification sender.
+// defaultSend is the production notification sender. It blocks until the OS
+// tool exits, which is intentional — callers always invoke it from a goroutine
+// so the blocking call does not stall the agent monitor loop.
 func defaultSend(title, message string) {
 	switch runtime.GOOS {
 	case "darwin":
