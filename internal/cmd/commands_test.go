@@ -2096,9 +2096,13 @@ func TestWriteClaudeSettings_doesNotOverwrite(t *testing.T) {
 
 func TestLaunchAgent_claudeHeadlessWritesSettingsJson(t *testing.T) {
 	dir := t.TempDir()
-	argsFile := filepath.Join(dir, "argv.txt")
 	scriptPath := filepath.Join(dir, "claude-stub")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"" + argsFile + "\"\n"
+	// The stub exits immediately without writing any files to the temp dir.
+	// Previous versions wrote argv.txt here, but that file is never read by
+	// this test and its asynchronous creation caused a temp-dir cleanup race
+	// on Linux CI (shell started after RemoveAll, creating a file in a
+	// directory that was being concurrently removed).
+	script := "#!/bin/sh\n"
 	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

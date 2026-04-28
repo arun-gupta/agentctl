@@ -1530,6 +1530,10 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			convCmd := exec.Command(os.Args[0], "__stream-log", wtPath)
 			convCmd.Stdin = pr
 			convCmd.Stdout = logFile
+			// Set Dir to wtPath so the converter's CWD is outside any temp dir
+			// that the test may have set via chdirTemp, preventing any runtime
+			// exit hooks from creating files in a directory under cleanup.
+			convCmd.Dir = wtPath
 			detachProcess(convCmd)
 			if convErr := convCmd.Start(); convErr != nil {
 				pw.Close()
@@ -2084,6 +2088,7 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 			convCmd := exec.Command(os.Args[0], "__stream-log", wtPath)
 			convCmd.Stdin = pr
 			convCmd.Stdout = logFile
+			convCmd.Dir = wtPath
 			detachProcess(convCmd)
 			if convErr := convCmd.Start(); convErr != nil {
 				pw.Close()
