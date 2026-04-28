@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/arun-gupta/agentctl/internal/config"
+	"github.com/arun-gupta/agentctl/internal/notify"
 	"github.com/arun-gupta/agentctl/internal/sdd"
 	"github.com/arun-gupta/agentctl/internal/state"
 )
@@ -820,7 +821,7 @@ func writeLocalAdapter(t *testing.T, dir, name, content string) {
 
 func TestLaunchAgent_unknownAdapter(t *testing.T) {
 	dir := t.TempDir()
-	err := launchAgent("nonexistent-xyz-abc", dir, "42", "3010", "sess-123", "kickoff", "", true, false, &bytes.Buffer{})
+	err := launchAgent("nonexistent-xyz-abc", dir, "42", "3010", "sess-123", "kickoff", "", true, false, false, &bytes.Buffer{})
 	if err == nil {
 		t.Error("expected error for unknown adapter")
 	}
@@ -831,7 +832,7 @@ func TestLaunchAgent_binaryNotFound(t *testing.T) {
 	writeLocalAdapter(t, dir, "fakebinary", "binary: __nonexistent_binary_xyz__\n")
 	chdirTemp(t, dir)
 
-	err := launchAgent("fakebinary", dir, "42", "3010", "sess-123", "kickoff", "", true, false, &bytes.Buffer{})
+	err := launchAgent("fakebinary", dir, "42", "3010", "sess-123", "kickoff", "", true, false, false, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error when binary not found")
 	}
@@ -848,7 +849,7 @@ func TestLaunchAgent_headless(t *testing.T) {
 	chdirTemp(t, dir)
 
 	var out bytes.Buffer
-	err := launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", "", true, false, &out)
+	err := launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", "", true, false, false, &out)
 	if err != nil {
 		t.Fatalf("launchAgent headless: %v", err)
 	}
@@ -889,7 +890,7 @@ func TestLaunchAgent_headless_withSDD_showsResumeHint(t *testing.T) {
 	chdirTemp(t, dir)
 
 	var out bytes.Buffer
-	err := launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", "plain", true, false, &out)
+	err := launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", "plain", true, false, false, &out)
 	if err != nil {
 		t.Fatalf("launchAgent headless SDD: %v", err)
 	}
@@ -907,6 +908,47 @@ func TestLaunchAgent_headless_withSDD_showsResumeHint(t *testing.T) {
 	}
 }
 
+// TestLaunchAgent_headless_notify verifies that a desktop notification is
+// fired after the headless agent exits when notify=true.
+func TestLaunchAgent_headless_notify(t *testing.T) {
+	dir := t.TempDir()
+	writeLocalAdapter(t, dir, "echoagent",
+		"binary: echo\nsession: --session\n")
+	chdirTemp(t, dir)
+
+	// Replace the notification sender so we can capture the call without
+	// requiring OS notification tools.
+	origFn := notify.SendFn
+	t.Cleanup(func() { notify.SendFn = origFn })
+
+	notified := make(chan [2]string, 1)
+	notify.SendFn = func(title, message string) {
+		select {
+		case notified <- [2]string{title, message}:
+		default:
+		}
+	}
+
+	var out bytes.Buffer
+	err := launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", "", true, false, true, &out)
+	if err != nil {
+		t.Fatalf("launchAgent headless notify: %v", err)
+	}
+
+	// Wait for the background notification goroutine to fire.
+	select {
+	case got := <-notified:
+		if got[0] != "agentctl" {
+			t.Errorf("notification title = %q, want %q", got[0], "agentctl")
+		}
+		if !strings.Contains(got[1], "42") {
+			t.Errorf("notification message %q does not mention issue 42", got[1])
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for desktop notification")
+	}
+}
+
 func TestLaunchAgent_nonHeadless_exitsWhenAgentDone(t *testing.T) {
 	dir := t.TempDir()
 	// Use `echo` as the agent binary — always on PATH, exits immediately.
@@ -919,7 +961,7 @@ func TestLaunchAgent_nonHeadless_exitsWhenAgentDone(t *testing.T) {
 	// Ctrl+C or any other intervention.
 	done := make(chan error, 1)
 	go func() {
-		done <- launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", "", false, false, &bytes.Buffer{})
+		done <- launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", "", false, false, false, &bytes.Buffer{})
 	}()
 
 	select {
@@ -969,7 +1011,7 @@ func TestLaunchAgent_claudeNonHeadlessInjectsStreamJsonAndVerbose(t *testing.T) 
 
 	done := make(chan error, 1)
 	go func() {
-		done <- launchAgent("claude", dir, "42", "3010", "sess-abc", "kickoff text", "", false, false, &bytes.Buffer{})
+		done <- launchAgent("claude", dir, "42", "3010", "sess-abc", "kickoff text", "", false, false, false, &bytes.Buffer{})
 	}()
 
 	select {
@@ -1020,7 +1062,7 @@ func TestLaunchAgent_claudeHeadlessUsesStreamJson(t *testing.T) {
 	writeLocalAdapter(t, dir, "claude", "binary: "+scriptPath+"\nsession: --session\n")
 	chdirTemp(t, dir)
 
-	if err := launchAgent("claude", dir, "42", "3010", "sess-abc", "kickoff text", "", true, false, &bytes.Buffer{}); err != nil {
+	if err := launchAgent("claude", dir, "42", "3010", "sess-abc", "kickoff text", "", true, false, false, &bytes.Buffer{}); err != nil {
 		t.Fatalf("launchAgent headless: %v", err)
 	}
 
@@ -1064,7 +1106,7 @@ func TestLaunchAgent_nonHeadless_sigintPrintsHints(t *testing.T) {
 	var outBuf bytes.Buffer
 	done := make(chan error, 1)
 	go func() {
-		done <- launchAgent("sleepagent", dir, "42", "3010", "sess-abc", "do the thing", "", false, false, &outBuf)
+		done <- launchAgent("sleepagent", dir, "42", "3010", "sess-abc", "do the thing", "", false, false, false, &outBuf)
 	}()
 
 	// Give launchAgent time to start the agent process and register its signal
@@ -1150,7 +1192,7 @@ func TestRunReleasePausedSession_nonSDD_noSpec(t *testing.T) {
 	})
 	chdirTemp(t, repo)
 
-	err := runReleasePausedSession("42", "", false, false)
+	err := runReleasePausedSession("42", "", false, false, false)
 
 	// Must NOT block with "spec not yet generated" — the spec gate does not
 	// apply to non-SDD worktrees.
@@ -1169,7 +1211,7 @@ func TestRunReleasePausedSession_SDD_noSpec(t *testing.T) {
 	})
 	chdirTemp(t, repo)
 
-	err := runReleasePausedSession("43", "", false, false)
+	err := runReleasePausedSession("43", "", false, false, false)
 
 	if err == nil {
 		t.Fatal("expected 'spec not yet generated' error for SDD run without spec, got nil")
@@ -1197,7 +1239,7 @@ func TestRunReleasePausedSession_SDD_withSpec(t *testing.T) {
 	}
 	chdirTemp(t, repo)
 
-	err := runReleasePausedSession("44", "", false, false)
+	err := runReleasePausedSession("44", "", false, false, false)
 
 	// Must NOT block with "spec not yet generated" once spec exists.
 	if err != nil && strings.Contains(err.Error(), "spec not yet generated") {
@@ -1226,7 +1268,7 @@ func TestLaunchAgent_nonZeroExitLogsToStderr(t *testing.T) {
 	// closed, which happens after fmt.Fprintf(os.Stderr, ...) in the reaper
 	// goroutine — so by the time launchAgent returns, the message is already
 	// captured in the pipe.
-	launchErr := launchAgent("falseagent", dir, "42", "3010", "sess-abc", "do the thing", "", false, false, &bytes.Buffer{})
+	launchErr := launchAgent("falseagent", dir, "42", "3010", "sess-abc", "do the thing", "", false, false, false, &bytes.Buffer{})
 
 	// Close the write end and restore stderr before reading.
 	w.Close()
@@ -1249,7 +1291,7 @@ func TestLaunchAgent_nonZeroExitLogsToStderr(t *testing.T) {
 
 func TestAgentResume_unknownAdapter(t *testing.T) {
 	dir := t.TempDir()
-	err := agentResume("nonexistent-xyz-abc", dir, "42", "sess-123", "my feedback", true, false)
+	err := agentResume("nonexistent-xyz-abc", dir, "42", "sess-123", "my feedback", true, false, false)
 	if err == nil {
 		t.Error("expected error for unknown adapter")
 	}
@@ -1262,7 +1304,7 @@ func TestAgentResume_headless_success(t *testing.T) {
 		"binary: echo\nsession: --session\n")
 	chdirTemp(t, dir)
 
-	if err := agentResume("echoagent", dir, "42", "sess-123", "my feedback", true, false); err != nil {
+	if err := agentResume("echoagent", dir, "42", "sess-123", "my feedback", true, false, false); err != nil {
 		t.Fatalf("agentResume headless: %v", err)
 	}
 
@@ -1298,7 +1340,7 @@ func TestAgentResume_nonHeadless_exitsWhenAgentDone(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- agentResume("echoagent", dir, "42", "sess-123", "my feedback", false, false)
+		done <- agentResume("echoagent", dir, "42", "sess-123", "my feedback", false, false, false)
 	}()
 
 	select {
@@ -1343,7 +1385,7 @@ func TestAgentResume_nonHeadless_sigintPrintsHints(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- agentResume("sleepagent", dir, "42", "sess-123", "feedback", false, false)
+		done <- agentResume("sleepagent", dir, "42", "sess-123", "feedback", false, false, false)
 	}()
 
 	time.Sleep(500 * time.Millisecond)
@@ -1401,7 +1443,7 @@ func TestLaunchAgent_homeIsolation(t *testing.T) {
 	writeLocalAdapter(t, dir, "envagent", "binary: "+scriptPath+"\nsession: --session\n")
 	chdirTemp(t, dir)
 
-	if err := launchAgent("envagent", dir, "42", "3010", "sess-abc", "do the thing", "", true, false, &bytes.Buffer{}); err != nil {
+	if err := launchAgent("envagent", dir, "42", "3010", "sess-abc", "do the thing", "", true, false, false, &bytes.Buffer{}); err != nil {
 		t.Fatalf("launchAgent headless: %v", err)
 	}
 
@@ -1440,7 +1482,7 @@ func TestAgentResume_homeIsolation(t *testing.T) {
 	writeLocalAdapter(t, dir, "envagent", "binary: "+scriptPath+"\nsession: --session\n")
 	chdirTemp(t, dir)
 
-	if err := agentResume("envagent", dir, "42", "sess-abc", "feedback", true, false); err != nil {
+	if err := agentResume("envagent", dir, "42", "sess-abc", "feedback", true, false, false); err != nil {
 		t.Fatalf("agentResume headless: %v", err)
 	}
 
@@ -2574,7 +2616,7 @@ func TestLaunchAgent_claudeHeadlessWritesSettingsJson(t *testing.T) {
 	writeLocalAdapter(t, dir, "claude", "binary: "+scriptPath+"\nsession: --session\n")
 	chdirTemp(t, dir)
 
-	if err := launchAgent("claude", dir, "42", "3010", "sess-abc", "kickoff text", "", true, false, &bytes.Buffer{}); err != nil {
+	if err := launchAgent("claude", dir, "42", "3010", "sess-abc", "kickoff text", "", true, false, false, &bytes.Buffer{}); err != nil {
 		t.Fatalf("launchAgent headless: %v", err)
 	}
 
@@ -2602,7 +2644,7 @@ func TestLaunchAgent_nonClaudeDoesNotWriteSettingsJson(t *testing.T) {
 	writeLocalAdapter(t, dir, "echoagent", "binary: echo\nsession: --session\n")
 	chdirTemp(t, dir)
 
-	if err := launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", "", true, false, &bytes.Buffer{}); err != nil {
+	if err := launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", "", true, false, false, &bytes.Buffer{}); err != nil {
 		t.Fatalf("launchAgent headless: %v", err)
 	}
 
@@ -3218,7 +3260,7 @@ func TestRunBatch_allSucceed(t *testing.T) {
 	var mu sync.Mutex
 	called := map[string]bool{}
 
-	mockFn := func(issue, slug, agentName, sddName string, headless, quiet bool, out io.Writer) error {
+	mockFn := func(issue, slug, agentName, sddName string, headless, quiet, notify bool, out io.Writer) error {
 		mu.Lock()
 		called[issue] = true
 		mu.Unlock()
@@ -3227,7 +3269,7 @@ func TestRunBatch_allSucceed(t *testing.T) {
 	}
 
 	var out, errOut bytes.Buffer
-	if err := runBatch([]string{"42", "43", "44"}, "claude", "", false, mockFn, &out, &errOut); err != nil {
+	if err := runBatch([]string{"42", "43", "44"}, "claude", "", false, false, mockFn, &out, &errOut); err != nil {
 		t.Fatalf("runBatch: %v", err)
 	}
 
@@ -3251,7 +3293,7 @@ func TestRunBatch_oneFailureContinuesOthers(t *testing.T) {
 	var mu sync.Mutex
 	called := map[string]bool{}
 
-	mockFn := func(issue, slug, agentName, sddName string, headless, quiet bool, out io.Writer) error {
+	mockFn := func(issue, slug, agentName, sddName string, headless, quiet, notify bool, out io.Writer) error {
 		mu.Lock()
 		called[issue] = true
 		mu.Unlock()
@@ -3263,7 +3305,7 @@ func TestRunBatch_oneFailureContinuesOthers(t *testing.T) {
 	}
 
 	var out, errOut bytes.Buffer
-	err := runBatch([]string{"42", "43", "44"}, "claude", "", false, mockFn, &out, &errOut)
+	err := runBatch([]string{"42", "43", "44"}, "claude", "", false, false, mockFn, &out, &errOut)
 	if err == nil {
 		t.Fatal("expected error when one issue fails")
 	}
@@ -3299,7 +3341,7 @@ func TestRunBatch_oneFailureContinuesOthers(t *testing.T) {
 // TestRunBatch_resultsInOrder verifies that output is printed in the original
 // issue order even when goroutines finish out of order.
 func TestRunBatch_resultsInOrder(t *testing.T) {
-	mockFn := func(issue, slug, agentName, sddName string, headless, quiet bool, out io.Writer) error {
+	mockFn := func(issue, slug, agentName, sddName string, headless, quiet, notify bool, out io.Writer) error {
 		if issue == "42" {
 			time.Sleep(50 * time.Millisecond) // finish last
 		}
@@ -3308,7 +3350,7 @@ func TestRunBatch_resultsInOrder(t *testing.T) {
 	}
 
 	var out, errOut bytes.Buffer
-	if err := runBatch([]string{"42", "43", "44"}, "claude", "", false, mockFn, &out, &errOut); err != nil {
+	if err := runBatch([]string{"42", "43", "44"}, "claude", "", false, false, mockFn, &out, &errOut); err != nil {
 		t.Fatalf("runBatch: %v", err)
 	}
 
