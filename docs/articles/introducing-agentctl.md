@@ -258,59 +258,7 @@ To send revision feedback instead:
 agentctl resume 42 "Narrow scope to the API layer; avoid UI changes."
 ```
 
-### Example: plain SDD on a real issue
-
-Here is what this looks like end-to-end on [agentctl-test issue #15](https://github.com/arun-gupta/agentctl-test/issues/15) — a Python Flask API that needed a `GET /tasks/stats` endpoint.
-
-**The issue asked for:**
-
-```json
-{
-  "total": 5,
-  "completed": 2,
-  "incomplete": 3,
-  "by_priority": { "low": 1, "medium": 3, "high": 1 }
-}
-```
-
-**Start:**
-
-```bash
-agentctl start 15 --sdd=plain
-```
-
-The agent explored the repo (`app.py`, `tests/test_app.py`, `requirements.txt`) and wrote `specs/spec.md`. Key excerpts:
-
-> **Problem** — There is no way to get aggregate information about tasks. Callers must fetch all tasks and compute counts themselves.
->
-> **Approach** — Add a single new route `GET /tasks/stats` that runs two SQL queries against the existing `tasks` table: a `COUNT(*)` grouped by `completed`, and a `COUNT(*)` grouped by `priority`. All three known priority levels (`low`, `medium`, `high`) are always present in the response, defaulting to `0` if no tasks of that priority exist.
->
-> **Out of Scope** — Filtering by date range, assignee, or any other dimension. Caching.
-
-The agent paused and returned control:
-
-> _No new files, no schema changes, no new dependencies. Please review and approve to proceed with implementation._
-
-**Check status:**
-
-```text
-ISSUE  BRANCH                           AGENT   PORT  SPEC    PR
-15     15-add-get-tasks-stats-endpoint  claude  -     paused  none
-```
-
-`SPEC` now shows `paused` — the spec has been written and is waiting for review.
-
-**Resume with feedback:**
-
-```bash
-agentctl resume 15 "can you add one more test case"
-```
-
-The agent added a fourth test case (`test_stats_all_completed`) to the spec, confirmed the change, and moved on to implementation — adding the new route to `app.py` and all four test functions to `tests/test_app.py`. No code had been written before this approval.
-
----
-
-The two-checkpoint model — spec review before code, PR review after — is the key value of plain SDD: the agent does the exploration and writes the plan, you spend thirty seconds reviewing rather than thirty minutes auditing a diff, and you redirect before any code is written.
+For a real example of this flow, see [agentctl-test issue #15](https://github.com/arun-gupta/agentctl-test/issues/15).
 
 ### Other SDD methodologies
 
