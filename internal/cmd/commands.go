@@ -249,8 +249,15 @@ Use --stale to discard all worktrees that have no running agent and no open PR.`
 }
 
 // isAgentRunning returns true when the agent PID recorded in wtPath is alive.
+//
+// If the agent state cannot be read, treat the worktree conservatively as having
+// a running agent so stale-discard does not remove it based on unreadable or
+// corrupt state.
 func isAgentRunning(wtPath string) bool {
-	af, _ := state.Read(wtPath)
+	af, err := state.Read(wtPath)
+	if err != nil {
+		return true
+	}
 	return af.AgentPID != "" && process.IsAlive(af.AgentPID)
 }
 
