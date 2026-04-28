@@ -27,27 +27,22 @@ Side effects:
 - Creates a worktree at `../<repo>-<issue>-<slug>/`.
 - Reserves a dev-server port in the `3010-3100` range.
 - Writes `.agent` metadata in the worktree.
-- Seeds `.env.local` from the primary worktree when present and appends `PORT=<port>`.
-- Starts the dev server: if `.agentctl.yml` defines a `dev_server` command it is used (with `{port}` substituted); otherwise falls back to `npm install --silent && npm run dev -- -p <port>` when `package.json` exists; silently skipped for non-Node repos.
+- Seeds `.env.local` from the primary worktree when present, stripping any existing `PORT=` lines (does not inject `PORT=<port>` itself).
+- Starts the dev server: if `.agentctl.yml` defines a `dev_server` command it is used (with `{port}` substituted); otherwise falls back to `npm install --loglevel=error && npm run dev -- -p <port>` when `package.json` exists; silently skipped for non-Node repos.
 - Launches the selected adapter.
-- When the agent exits, automatically appends `Closes #<issue>` to the PR body returned by `gh pr view <branch>`, unless the body already contains `closes #<issue>` or `fixes #<issue>`.
+- When the agent exits, appends `Closes #<issue>` to the PR body retrieved via `gh pr view <branch>`, unless the body already contains `closes #<issue>` or `fixes #<issue>` (case-insensitive). Other closing keywords such as `resolves #<issue>` do not suppress the append.
 
 ### `agentctl resume`
 
 ```bash
-agentctl resume [--headless] [--quiet] <issue-number>
-agentctl resume [--headless] [--quiet] <issue-number> [feedback]
+agentctl resume <issue-number>
+agentctl resume <issue-number> [feedback]
 ```
 
-Resumes a paused agent after the spec-review checkpoint.
+Resumes a paused agent after the spec-review checkpoint. The resumed agent always runs in the background and writes output to `agent.log`.
 
 - Without feedback: approves the spec and the agent begins implementation.
 - With feedback: sends the revision text and the agent rewrites the spec.
-
-By default the resumed agent streams its output to the terminal (foreground mode), identical to `agentctl start` without `--headless`. Press Ctrl+C to detach without stopping the agent.
-
-- `--headless`: run the resumed agent in the background and write output to `agent.log`.
-- `--quiet`: suppress agent log output in the terminal; show only the spinner (TTY) or heartbeat lines (non-TTY/CI). Has no effect with `--headless`.
 
 The command requires:
 
@@ -242,7 +237,7 @@ done
 
 # Review generated specs, then approve each one in background (batch-friendly)
 for i in 210 211 212; do
-  agentctl resume --headless "$i"
+  agentctl resume "$i"
 done
 
 # Monitor all worktrees
