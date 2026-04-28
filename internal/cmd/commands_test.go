@@ -2230,3 +2230,184 @@ exit 0`
 		t.Error("expected isStaleWorktree=false when gh returns an error (conservative)")
 	}
 }
+
+// ─── runDiscardStale integration ─────────────────────────────────────────────
+
+// initGitRepoForStale creates a temporary git repository with an initial
+// commit and returns its path. Tests that need this are skipped when git is
+// not available.
+func initGitRepoForStale(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found in PATH")
+	}
+	dir := t.TempDir()
+	gitRun := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	gitRun("init")
+	gitRun("config", "user.email", "test@example.com")
+	gitRun("config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(dir, "README"), []byte("test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun("add", ".")
+	gitRun("commit", "-m", "init")
+	return dir
+}
+
+// pipeStdin replaces os.Stdin with a pipe that delivers text for the duration
+// of the test, then restores the original os.Stdin via t.Cleanup.
+func pipeStdin(t *testing.T, text string) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() {
+		os.Stdin = old
+		r.Close()
+	})
+	if _, err := fmt.Fprintln(w, text); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+}
+
+// addWorktree creates a linked worktree at wtPath on branch branchName.
+func addWorktree(t *testing.T, repo, wtPath, branchName string) {
+	t.Helper()
+	cmd := exec.Command("git", "-C", repo, "worktree", "add", wtPath, "-b", branchName)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add: %v\n%s", err, out)
+	}
+}
+
+func TestRunDiscardStale_noStaleWorktrees_agentRunning(t *testing.T) {
+	repo := initGitRepoForStale(t)
+	wtPath := filepath.Join(t.TempDir(), "42-my-feature")
+	addWorktree(t, repo, wtPath, "42-my-feature")
+
+	// Write .agent file with current PID so agent appears running.
+	pid := strconv.Itoa(os.Getpid())
+	if err := state.Write(wtPath, state.AgentFile{Agent: "claude", AgentPID: pid}); err != nil {
+		t.Fatal(err)
+	}
+
+	// gh stub: no PRs — but agent is running, so worktree is not stale.
+	stubDir := t.TempDir()
+	makeGHStub(t, stubDir, "", "", false)
+	prependPath(t, stubDir)
+
+	chdirTemp(t, repo)
+	if err := runDiscardStale(); err != nil {
+		t.Fatalf("expected nil, got: %v", err)
+	}
+
+	// Worktree must still exist.
+	if _, err := os.Stat(wtPath); err != nil {
+		t.Errorf("worktree should still exist when agent is running: %v", err)
+	}
+}
+
+func TestRunDiscardStale_noStaleWorktrees_hasPR(t *testing.T) {
+	repo := initGitRepoForStale(t)
+	wtPath := filepath.Join(t.TempDir(), "42-my-feature")
+	addWorktree(t, repo, wtPath, "42-my-feature")
+
+	// gh stub: pr list returns a PR → not stale.
+	stubDir := t.TempDir()
+	makeGHStub(t, stubDir, "", `[{"number":7}]`, false)
+	prependPath(t, stubDir)
+
+	chdirTemp(t, repo)
+	if err := runDiscardStale(); err != nil {
+		t.Fatalf("expected nil, got: %v", err)
+	}
+
+	// Worktree must still exist.
+	if _, err := os.Stat(wtPath); err != nil {
+		t.Errorf("worktree should still exist when PR exists: %v", err)
+	}
+}
+
+func TestRunDiscardStale_confirmationAbort(t *testing.T) {
+	repo := initGitRepoForStale(t)
+	wtPath := filepath.Join(t.TempDir(), "42-my-feature")
+	addWorktree(t, repo, wtPath, "42-my-feature")
+
+	// gh stub: no PRs → stale.
+	stubDir := t.TempDir()
+	makeGHStub(t, stubDir, "", "", false)
+	prependPath(t, stubDir)
+
+	chdirTemp(t, repo)
+	pipeStdin(t, "n")
+
+	err := runDiscardStale()
+	if err == nil {
+		t.Fatal("expected aborted error when user declines confirmation")
+	}
+	if !strings.Contains(err.Error(), "aborted") {
+		t.Errorf("expected 'aborted' in error, got: %v", err)
+	}
+
+	// Worktree must still exist — nothing should have been removed.
+	if _, err := os.Stat(wtPath); err != nil {
+		t.Errorf("worktree should still exist after abort: %v", err)
+	}
+}
+
+func TestRunDiscardStale_confirmationYES_removesWorktreeAndBranch(t *testing.T) {
+	repo := initGitRepoForStale(t)
+
+	// Create a bare repo as origin. The branch has not been pushed, so
+	// git push origin --delete will report "remote ref does not exist",
+	// which discardStaleEntry treats as "already removed" (success).
+	originDir := filepath.Join(t.TempDir(), "origin.git")
+	if err := os.MkdirAll(originDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("git", "init", "--bare")
+	cmd.Dir = originDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init --bare: %v\n%s", err, out)
+	}
+	cmd = exec.Command("git", "-C", repo, "remote", "add", "origin", originDir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git remote add: %v\n%s", err, out)
+	}
+
+	wtPath := filepath.Join(t.TempDir(), "42-my-feature")
+	addWorktree(t, repo, wtPath, "42-my-feature")
+
+	// gh stub: no PRs → stale.
+	stubDir := t.TempDir()
+	makeGHStub(t, stubDir, "", "", false)
+	prependPath(t, stubDir)
+
+	chdirTemp(t, repo)
+	pipeStdin(t, "YES")
+
+	if err := runDiscardStale(); err != nil {
+		t.Fatalf("runDiscardStale: %v", err)
+	}
+
+	// Worktree directory must be gone.
+	if _, err := os.Stat(wtPath); !os.IsNotExist(err) {
+		t.Error("worktree dir should be removed after YES confirmation")
+	}
+
+	// Local branch must be gone.
+	cmd = exec.Command("git", "-C", repo, "show-ref", "--verify", "--quiet", "refs/heads/42-my-feature")
+	if err := cmd.Run(); err == nil {
+		t.Error("local branch should be deleted after YES confirmation")
+	}
+}
