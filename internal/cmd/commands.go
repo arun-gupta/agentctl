@@ -2230,8 +2230,8 @@ func agentEnv(wtPath string) ([]string, error) {
 
 	realHome, err := os.UserHomeDir()
 	if err == nil {
-		// Link .gitconfig and .ssh so git operations and SSH key auth work.
-		for _, name := range []string{".gitconfig", ".ssh"} {
+		// Link config files/dirs so git, SSH, and OpenHands work with real credentials/settings.
+		for _, name := range []string{".gitconfig", ".ssh", ".openhands"} {
 			src := filepath.Join(realHome, name)
 			dst := filepath.Join(agentHome, name)
 
@@ -2260,7 +2260,7 @@ func agentEnv(wtPath string) ([]string, error) {
 						fmt.Fprintf(os.Stderr, "agentctl: warning: copy %s: %v\n", name, copyErr)
 					}
 				} else {
-					fmt.Fprintf(os.Stderr, "agentctl: warning: symlink %s: %v (git/SSH may not work)\n", name, symlinkErr)
+					fmt.Fprintf(os.Stderr, "agentctl: warning: symlink %s: %v (agent config may not work)\n", name, symlinkErr)
 				}
 			}
 		}
