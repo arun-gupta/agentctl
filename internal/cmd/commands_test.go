@@ -161,6 +161,105 @@ func TestComputeSpecState_plainStyle(t *testing.T) {
 	}
 }
 
+// ─── OpenHands streaming ──────────────────────────────────────────────────────
+
+func TestExtractOpenHandsBlock_agentMessage(t *testing.T) {
+	block := `{
+  "kind": "MessageEvent",
+  "source": "agent",
+  "llm_message": {
+    "content": [{"type": "text", "text": "Hello! How can I help?"}]
+  }
+}`
+	got := extractOpenHandsBlock(block)
+	if got != "Hello! How can I help?" {
+		t.Errorf("extractOpenHandsBlock agent message = %q, want %q", got, "Hello! How can I help?")
+	}
+}
+
+func TestExtractOpenHandsBlock_userMessageSkipped(t *testing.T) {
+	block := `{
+  "kind": "MessageEvent",
+  "source": "user",
+  "llm_message": {
+    "content": [{"type": "text", "text": "say hello"}]
+  }
+}`
+	if got := extractOpenHandsBlock(block); got != "" {
+		t.Errorf("extractOpenHandsBlock user message should be empty, got %q", got)
+	}
+}
+
+func TestExtractOpenHandsBlock_actionEvent(t *testing.T) {
+	block := `{
+  "kind": "ActionEvent",
+  "source": "agent",
+  "tool_name": "bash",
+  "summary": "Run the test suite"
+}`
+	got := extractOpenHandsBlock(block)
+	if got != "[bash] Run the test suite" {
+		t.Errorf("extractOpenHandsBlock action = %q, want %q", got, "[bash] Run the test suite")
+	}
+}
+
+func TestExtractOpenHandsBlock_unknownKindSkipped(t *testing.T) {
+	block := `{"kind": "SystemPromptEvent", "source": "agent"}`
+	if got := extractOpenHandsBlock(block); got != "" {
+		t.Errorf("extractOpenHandsBlock unknown kind should be empty, got %q", got)
+	}
+}
+
+func TestConvertOpenHandsStream_extractsAgentMessage(t *testing.T) {
+	input := `Initializing agent...
+--JSON Event--
+{
+  "kind": "MessageEvent",
+  "source": "user",
+  "llm_message": {"content": [{"type": "text", "text": "say hello"}]}
+}
+Agent is working
+--JSON Event--
+{
+  "kind": "MessageEvent",
+  "source": "agent",
+  "llm_message": {"content": [{"type": "text", "text": "Hello! How can I assist?"}]}
+}
+Agent finished
+`
+	var out strings.Builder
+	convertOpenHandsStream(strings.NewReader(input), &out)
+	result := out.String()
+	if !strings.Contains(result, "Hello! How can I assist?") {
+		t.Errorf("convertOpenHandsStream missing agent message; got:\n%s", result)
+	}
+	if strings.Contains(result, "say hello") {
+		t.Errorf("convertOpenHandsStream should skip user message; got:\n%s", result)
+	}
+	if !strings.Contains(result, "Initializing agent...") {
+		t.Errorf("convertOpenHandsStream should pass through non-event lines; got:\n%s", result)
+	}
+	if !strings.Contains(result, "Agent is working") {
+		t.Errorf("convertOpenHandsStream should pass through 'Agent is working'; got:\n%s", result)
+	}
+}
+
+func TestConvertOpenHandsStream_suppressesNoise(t *testing.T) {
+	input := `Rich detected a non-interactive or unsupported terminal; interactive UI may not render correctly
+To override Rich's detection, you can set TTY_INTERACTIVE=1
+Initializing agent...
+`
+	var out strings.Builder
+	convertOpenHandsStream(strings.NewReader(input), &out)
+	result := out.String()
+	if strings.Contains(result, "Rich detected") {
+		t.Errorf("convertOpenHandsStream should suppress Rich noise; got:\n%s", result)
+	}
+	if !strings.Contains(result, "Initializing agent...") {
+		t.Errorf("convertOpenHandsStream should pass through init line; got:\n%s", result)
+	}
+}
+
 func TestSkipPrompt_noSDDFlag(t *testing.T) {
 	kickoff := sdd.SkipPrompt("42", "3010")
 	if !contains(kickoff, "Skip the SDD lifecycle") {

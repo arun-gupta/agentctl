@@ -183,12 +183,12 @@ Ready-to-use YAML files for agents not included as built-ins. Save any of these 
 
 ### OpenHands
 
-[OpenHands](https://openhands.dev/) is an open-source AI agent platform with a headless CLI. It generates its own conversation IDs, so `session_type: directory` is used and resume targets the most recent conversation in the worktree:
+[OpenHands](https://openhands.dev/) is an open-source AI agent platform with a CLI. It generates its own conversation IDs, so `session_type: directory` is used; `--json` enables structured streaming output and resume targets the most recent conversation in the worktree:
 
 ```yaml
 binary: openhands
-launch: openhands --headless --always-approve -t {kickoff}
-resume_cmd: openhands --headless --always-approve --resume --last -t {prompt}
+launch: openhands --always-approve --json -t {kickoff}
+resume_cmd: openhands --always-approve --json --resume --last -t {prompt}
 session_type: directory
 install: uv tool install openhands --python 3.12
 ```
