@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -340,7 +342,7 @@ func TestLocateOrCloneRepo_cwdMatch(t *testing.T) {
 	dir := initGitRepoWithOrigin(t, "https://github.com/myorg/myrepo.git")
 	chdirTemp(t, dir)
 
-	got, err := locateOrCloneRepo("myorg", "myrepo")
+	got, err := locateOrCloneRepo("myorg", "myrepo", io.Discard)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -379,7 +381,7 @@ func TestLocateOrCloneRepo_siblingMatch(t *testing.T) {
 		}
 	}
 
-	got, err := locateOrCloneRepo("myorg", "myrepo")
+	got, err := locateOrCloneRepo("myorg", "myrepo", io.Discard)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -411,7 +413,7 @@ func TestLocateOrCloneRepo_siblingWrongOrigin(t *testing.T) {
 		}
 	}
 
-	_, err := locateOrCloneRepo("myorg", "myrepo")
+	_, err := locateOrCloneRepo("myorg", "myrepo", io.Discard)
 	if err == nil {
 		t.Fatal("expected error when sibling has wrong origin")
 	}
@@ -426,7 +428,7 @@ func TestRepoRootForIssue_bareNumber(t *testing.T) {
 	dir := initGitRepoWithOrigin(t, "https://github.com/myorg/myrepo.git")
 	chdirTemp(t, dir)
 
-	root, issueNum, ghArg, err := repoRootForIssue("42")
+	root, issueNum, ghArg, err := repoRootForIssue("42", io.Discard)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -446,7 +448,7 @@ func TestRepoRootForIssue_urlCwdMatch(t *testing.T) {
 	chdirTemp(t, dir)
 
 	const rawURL = "https://github.com/myorg/myrepo/issues/99"
-	root, issueNum, ghArg, err := repoRootForIssue(rawURL)
+	root, issueNum, ghArg, err := repoRootForIssue(rawURL, io.Discard)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1775,7 +1777,7 @@ func TestRunNpmInstall_errorIncludesDebugHint(t *testing.T) {
 
 func TestStartDevServer_noPackageJSON_returnsEmptyPort(t *testing.T) {
 	dir := t.TempDir() // no package.json
-	pid, port, err := startDevServer(dir)
+	pid, port, err := startDevServer(dir, io.Discard)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1963,7 +1965,7 @@ func TestStartDevServer_agentctlYml_writesPortBack(t *testing.T) {
 		[]byte("dev_server: \"echo ok\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	pidStr, portStr, err := startDevServer(dir)
+	pidStr, portStr, err := startDevServer(dir, io.Discard)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2672,5 +2674,162 @@ func TestRunDiscardStale_confirmationYES_removesWorktreeAndBranch(t *testing.T) 
 	cmd = exec.Command("git", "-C", repo, "show-ref", "--verify", "--quiet", "refs/heads/42-my-feature")
 	if err := cmd.Run(); err == nil {
 		t.Error("local branch should be deleted after YES confirmation")
+	}
+}
+
+// ─── batch start ──────────────────────────────────────────────────────────────
+
+// TestStartCmd_slugWithMultipleIssues verifies that providing a [slug] argument
+// together with a comma-separated issue list returns an error immediately,
+// before any provisioning takes place.
+func TestStartCmd_slugWithMultipleIssues(t *testing.T) {
+	c := NewStartCmd()
+	c.SilenceUsage = true
+	c.SetArgs([]string{"42,43,44", "my-slug"})
+	err := c.Execute()
+	if err == nil {
+		t.Fatal("expected error when slug given with multiple issues")
+	}
+	if !strings.Contains(err.Error(), "[slug] argument is not supported when starting multiple issues") {
+		t.Errorf("wrong error message: %v", err)
+	}
+}
+
+// TestRunBatch_allSucceed verifies that runBatch calls startOne for every issue
+// and returns nil when all succeed.
+func TestRunBatch_allSucceed(t *testing.T) {
+	var mu sync.Mutex
+	called := map[string]bool{}
+
+	mockFn := func(issue, slug, agentName, sddName string, headless, quiet bool, out io.Writer) error {
+		mu.Lock()
+		called[issue] = true
+		mu.Unlock()
+		fmt.Fprintf(out, "started %s\n", issue)
+		return nil
+	}
+
+	var out, errOut bytes.Buffer
+	if err := runBatch([]string{"42", "43", "44"}, "claude", "", false, mockFn, &out, &errOut); err != nil {
+		t.Fatalf("runBatch: %v", err)
+	}
+
+	for _, iss := range []string{"42", "43", "44"} {
+		if !called[iss] {
+			t.Errorf("issue %s was not started", iss)
+		}
+	}
+	outStr := out.String()
+	for _, iss := range []string{"42", "43", "44"} {
+		if !strings.Contains(outStr, "started "+iss) {
+			t.Errorf("output missing 'started %s'; got: %q", iss, outStr)
+		}
+	}
+}
+
+// TestRunBatch_oneFailureContinuesOthers verifies that a failure provisioning
+// one issue does not prevent the remaining issues from being started, and that
+// the overall error message mentions all failures.
+func TestRunBatch_oneFailureContinuesOthers(t *testing.T) {
+	var mu sync.Mutex
+	called := map[string]bool{}
+
+	mockFn := func(issue, slug, agentName, sddName string, headless, quiet bool, out io.Writer) error {
+		mu.Lock()
+		called[issue] = true
+		mu.Unlock()
+		if issue == "43" {
+			return fmt.Errorf("worktree already exists for issue 43")
+		}
+		fmt.Fprintf(out, "started %s\n", issue)
+		return nil
+	}
+
+	var out, errOut bytes.Buffer
+	err := runBatch([]string{"42", "43", "44"}, "claude", "", false, mockFn, &out, &errOut)
+	if err == nil {
+		t.Fatal("expected error when one issue fails")
+	}
+	if !strings.Contains(err.Error(), "one or more issues failed to start") {
+		t.Errorf("wrong error: %v", err)
+	}
+
+	// All three issues must have been attempted.
+	for _, iss := range []string{"42", "43", "44"} {
+		if !called[iss] {
+			t.Errorf("issue %s was not attempted", iss)
+		}
+	}
+
+	// Successful issues must appear in combined output.
+	outStr := out.String()
+	for _, iss := range []string{"42", "44"} {
+		if !strings.Contains(outStr, "started "+iss) {
+			t.Errorf("output missing 'started %s'; got: %q", iss, outStr)
+		}
+	}
+
+	// The failed issue's error must be prefixed with the issue number.
+	errStr := errOut.String()
+	if !strings.Contains(errStr, "[43] error:") {
+		t.Errorf("error output must include '[43] error:' prefix; got: %q", errStr)
+	}
+	if !strings.Contains(errStr, "worktree already exists for issue 43") {
+		t.Errorf("error output must include the original error message; got: %q", errStr)
+	}
+}
+
+// TestRunBatch_resultsInOrder verifies that output is printed in the original
+// issue order even when goroutines finish out of order.
+func TestRunBatch_resultsInOrder(t *testing.T) {
+	mockFn := func(issue, slug, agentName, sddName string, headless, quiet bool, out io.Writer) error {
+		if issue == "42" {
+			time.Sleep(50 * time.Millisecond) // finish last
+		}
+		fmt.Fprintf(out, "[%s]", issue)
+		return nil
+	}
+
+	var out, errOut bytes.Buffer
+	if err := runBatch([]string{"42", "43", "44"}, "claude", "", false, mockFn, &out, &errOut); err != nil {
+		t.Fatalf("runBatch: %v", err)
+	}
+
+	outStr := out.String()
+	idx42 := strings.Index(outStr, "[42]")
+	idx43 := strings.Index(outStr, "[43]")
+	idx44 := strings.Index(outStr, "[44]")
+	if idx42 < 0 || idx43 < 0 || idx44 < 0 {
+		t.Fatalf("missing issue in output: %q", outStr)
+	}
+	if !(idx42 < idx43 && idx43 < idx44) {
+		t.Errorf("output not in issue order; got: %q", outStr)
+	}
+}
+
+// TestStartCmd_emptyIssueTokens verifies that a comma-only or whitespace-only
+// issue argument returns a user-facing error instead of panicking.
+func TestStartCmd_emptyIssueTokens(t *testing.T) {
+	tests := []struct {
+		name string
+		arg  string
+	}{
+		{"comma only", ","},
+		{"spaced commas", " , "},
+		{"multiple commas", ",,"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := NewStartCmd()
+			c.SilenceUsage = true
+			c.SetArgs([]string{tt.arg})
+			err := c.Execute()
+			if err == nil {
+				t.Fatal("expected error for empty issue tokens, got nil")
+			}
+			if !strings.Contains(err.Error(), "no valid issue tokens found") {
+				t.Errorf("wrong error message: %v", err)
+			}
+		})
 	}
 }
