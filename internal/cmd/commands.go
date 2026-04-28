@@ -323,39 +323,45 @@ func runDiscardStale() error {
 		return fmt.Errorf("aborted")
 	}
 
-	discarded := 0
-	for _, e := range stale {
-		if e.wtPath != "" {
-			af, _ := state.Read(e.wtPath)
+	discardStaleEntry := func(wtPath, branch string) error {
+		if wtPath != "" {
+			af, _ := state.Read(wtPath)
 			process.Kill(af.DevPID)
 			process.Kill(af.AgentPID)
-			if err := git.RemoveWorktree(repoRoot, e.wtPath); err != nil {
-				fmt.Fprintf(os.Stderr, "FAILED to remove worktree %s: %v\n", e.wtPath, err)
-				continue
+			if err := git.RemoveWorktree(repoRoot, wtPath); err != nil {
+				return fmt.Errorf("remove worktree %s: %w", wtPath, err)
 			}
-			fmt.Printf("Removed %s\n", e.wtPath)
+			fmt.Printf("Removed %s\n", wtPath)
 		}
 
-		if e.branch != "" && e.branch != "HEAD" {
-			if git.BranchExists(repoRoot, e.branch) {
-				if err := git.DeleteLocalBranch(repoRoot, e.branch); err != nil {
-					fmt.Fprintf(os.Stderr, "WARNING: could not delete local branch %s: %v\n", e.branch, err)
+		if branch != "" && branch != "HEAD" {
+			if git.BranchExists(repoRoot, branch) {
+				if err := git.DeleteLocalBranch(repoRoot, branch); err != nil {
+					return fmt.Errorf("delete local branch %s: %w", branch, err)
 				}
 			} else {
-				fmt.Printf("Local branch %s already removed\n", e.branch)
+				fmt.Printf("Local branch %s already removed\n", branch)
 			}
-			msg, err := git.DeleteRemoteBranch(repoRoot, e.branch)
+
+			msg, err := git.DeleteRemoteBranch(repoRoot, branch)
 			if err != nil {
 				if strings.Contains(msg, "remote ref does not exist") {
-					fmt.Printf("Remote branch %s already removed\n", e.branch)
+					fmt.Printf("Remote branch %s already removed\n", branch)
 				} else {
-					fmt.Fprintf(os.Stderr, "WARNING: could not delete remote branch %s\n", e.branch)
-					fmt.Fprintln(os.Stderr, msg)
-					fmt.Fprintf(os.Stderr, "Delete the remote manually with:\n  git push origin --delete %s\n", e.branch)
+					return fmt.Errorf("delete remote branch %s: %s\nDelete the remote manually with:\n  git push origin --delete %s", branch, strings.TrimSpace(msg), branch)
 				}
 			} else {
-				fmt.Printf("Deleted remote branch origin/%s\n", e.branch)
+				fmt.Printf("Deleted remote branch origin/%s\n", branch)
 			}
+		}
+
+		return nil
+	}
+
+	discarded := 0
+	for _, e := range stale {
+		if err := discardStaleEntry(e.wtPath, e.branch); err != nil {
+			return err
 		}
 		discarded++
 	}
