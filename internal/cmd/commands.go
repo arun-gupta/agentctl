@@ -272,18 +272,11 @@ func runReleasePausedSession(issue, prompt string, headless, quiet bool) error {
 	}
 
 	// Check that a spec exists (paused state reached).
-	if !specExists(wt.Path) {
+	if computeSpecState(wt.Path, issue) == "no-spec" {
 		return fmt.Errorf("spec not yet generated for issue %s; paused state not reached.\nTail %s/agent.log to confirm and retry once the pause is reported.", issue, wt.Path)
 	}
 
 	return agentResume(af.Agent, wt.Path, issue, af.SessionID, prompt, headless, quiet)
-}
-
-// specExists checks whether a spec.md file exists anywhere under
-// <worktreePath>/specs/*/spec.md.
-func specExists(wtPath string) bool {
-	matches, err := filepath.Glob(filepath.Join(wtPath, "specs", "*", "spec.md"))
-	return err == nil && len(matches) > 0
 }
 
 // ─── discard ──────────────────────────────────────────────────────────────────
@@ -1036,13 +1029,19 @@ func pidStatus(pid string) string {
 	return pid + "(dead)"
 }
 
-// computeSpecState derives the SpecKit lifecycle state from filesystem
-// artifacts under <wtPath>/specs/<issue>-*/.
-// Spec pause state from SpecKit-style artefacts on disk.
+// computeSpecState derives the spec lifecycle state from filesystem artifacts.
+// It recognises two layouts:
+//   - plain-style:   specs/spec.md (flat); always "paused" — no lifecycle files
+//   - speckit-style: specs/<issue>-*/spec.md with optional plan.md / tasks.md
 func computeSpecState(wtPath, issue string) string {
 	if issue == "" {
 		return "no-spec"
 	}
+	// Plain-style: flat specs/spec.md with no lifecycle subdirectory.
+	if _, err := os.Stat(filepath.Join(wtPath, "specs", "spec.md")); err == nil {
+		return "paused"
+	}
+	// Speckit-style: specs/<issue>-<slug>/ with lifecycle artefacts.
 	specGlob := filepath.Join(wtPath, "specs", issue+"-*", "spec.md")
 	specs, err := filepath.Glob(specGlob)
 	if err != nil || len(specs) == 0 {
