@@ -243,7 +243,7 @@ agentctl start 42 --sdd=plain
 
 The agent's work now has two stages:
 
-1. **Stage 1 — spec.** The agent writes `specs/spec.md` describing its intended approach, then pauses and waits for your review. A good plain spec covers: the problem being solved, the planned approach and changes, and anything explicitly out of scope. **This is human-in-the-loop checkpoint #1.**
+1. **Stage 1 — spec.** The agent writes `specs/spec.md` describing its intended approach, then pauses and waits for your review. A good plain spec covers: the problem being solved, the planned approach and changes, and anything explicitly out of scope — see the [spec template](../spec-template.md) for the full prescribed format. **This is human-in-the-loop checkpoint #1.**
 2. **Stage 2 — implementation.** After your review and approval, the agent continues to a PR. **The PR review itself is human-in-the-loop checkpoint #2.**
 
 To approve and let the agent proceed:
