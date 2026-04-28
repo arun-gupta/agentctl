@@ -18,7 +18,7 @@ var builtinFS embed.FS
 
 // genericSkipPrompt is the hardcoded prompt used when --no-sdd is set.
 // It never varies by methodology.
-const genericSkipPrompt = `Work on GitHub issue #{issue}. Read CLAUDE.md for project conventions.
+const genericSkipPrompt = `Work on GitHub issue #{issue}. Read project conventions from AGENTS.md, CLAUDE.md, or README.md if present.
 Skip the SDD lifecycle — make the changes directly, push the branch,
 and open a PR. Do not merge.
 Dev server is running on port {port}.`
