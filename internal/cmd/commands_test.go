@@ -764,7 +764,7 @@ func TestLaunchAgent_claudeHeadlessInjectsVerboseOnly(t *testing.T) {
 
 // TestLaunchAgent_nonHeadless_sigintPrintsHints verifies that pressing Ctrl+C
 // while launchAgent is streaming output in non-headless mode prints the
-// expected reconnection hints (logs, attach, discard) to stdout.
+// expected reconnection hints (logs, attach, discard) to the provided writer.
 func TestLaunchAgent_nonHeadless_sigintPrintsHints(t *testing.T) {
 	dir := t.TempDir()
 
@@ -777,18 +777,10 @@ func TestLaunchAgent_nonHeadless_sigintPrintsHints(t *testing.T) {
 	writeLocalAdapter(t, dir, "sleepagent", "binary: "+scriptPath+"\n")
 	chdirTemp(t, dir)
 
-	// Redirect os.Stdout to a pipe so we can capture the hint output.
-	oldStdout := os.Stdout
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("os.Pipe: %v", err)
-	}
-	os.Stdout = w
-	t.Cleanup(func() { os.Stdout = oldStdout })
-
+	var outBuf bytes.Buffer
 	done := make(chan error, 1)
 	go func() {
-		done <- launchAgent("sleepagent", dir, "42", "3010", "sess-abc", "do the thing", false, false, &bytes.Buffer{})
+		done <- launchAgent("sleepagent", dir, "42", "3010", "sess-abc", "do the thing", false, false, &outBuf)
 	}()
 
 	// Give launchAgent time to start the agent process and register its signal
@@ -808,17 +800,7 @@ func TestLaunchAgent_nonHeadless_sigintPrintsHints(t *testing.T) {
 		t.Fatal("launchAgent did not return after SIGINT")
 	}
 
-	// Close the write end and restore stdout before reading captured output.
-	w.Close()
-	os.Stdout = oldStdout
-
-	var buf bytes.Buffer
-	if _, err := buf.ReadFrom(r); err != nil {
-		t.Fatalf("reading captured stdout: %v", err)
-	}
-	r.Close()
-
-	out := buf.String()
+	out := outBuf.String()
 	for _, want := range []string{
 		"agent still running in background",
 		"agentctl logs 42",
@@ -826,7 +808,7 @@ func TestLaunchAgent_nonHeadless_sigintPrintsHints(t *testing.T) {
 		"agentctl discard 42",
 	} {
 		if !strings.Contains(out, want) {
-			t.Errorf("missing %q in stdout after Ctrl+C, got:\n%s", want, out)
+			t.Errorf("missing %q in out after Ctrl+C, got:\n%s", want, out)
 		}
 	}
 }
