@@ -949,6 +949,50 @@ func TestLaunchAgent_nonHeadless_exitsWhenAgentDone(t *testing.T) {
 	}
 }
 
+func TestLaunchAgent_nonHeadless_exitPrintsResumeHint(t *testing.T) {
+	dir := t.TempDir()
+	writeLocalAdapter(t, dir, "echoagent",
+		"binary: echo\nsession: --session\n")
+	chdirTemp(t, dir)
+
+	var out bytes.Buffer
+	done := make(chan error, 1)
+	go func() {
+		done <- launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", "", false, false, &out)
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("launchAgent non-headless: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		if p, err := os.FindProcess(os.Getpid()); err == nil {
+			_ = p.Signal(os.Interrupt)
+		}
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("launchAgent did not return after agent process exited: %v", err)
+			}
+			t.Fatal("launchAgent did not return after agent process exited")
+		case <-time.After(2 * time.Second):
+			t.Fatal("launchAgent hung even after interrupt")
+		}
+	}
+
+	outStr := out.String()
+	want := "agentctl resume 42 [feedback]   # no feedback approves; add feedback to request changes"
+	if !strings.Contains(outStr, want) {
+		t.Errorf("missing resume hint %q in foreground-exit output:\n%s", want, outStr)
+	}
+	for _, unwanted := range []string{"agentctl logs", "agentctl attach", "agentctl discard"} {
+		if strings.Contains(outStr, unwanted) {
+			t.Errorf("foreground-exit output must not contain %q:\n%s", unwanted, outStr)
+		}
+	}
+}
+
 // TestLaunchAgent_claudeNonHeadlessInjectsStreamJsonAndVerbose verifies that
 // launchAgent appends --output-format, stream-json, and --verbose to the
 // command line when adapterName is "claude" and headless is false.
@@ -1318,6 +1362,66 @@ func TestAgentResume_nonHeadless_exitsWhenAgentDone(t *testing.T) {
 			t.Fatal("agentResume did not return after agent process exited — required interrupt-driven cleanup before failing")
 		case <-time.After(2 * time.Second):
 			t.Fatal("agentResume hung even after interrupt")
+		}
+	}
+}
+
+func TestAgentResume_nonHeadless_exitPrintsResumeHint(t *testing.T) {
+	dir := t.TempDir()
+	writeLocalAdapter(t, dir, "echoagent",
+		"binary: echo\nsession: --session\n")
+	chdirTemp(t, dir)
+
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stdout = w
+	t.Cleanup(func() { os.Stdout = oldStdout })
+
+	done := make(chan error, 1)
+	go func() {
+		done <- agentResume("echoagent", dir, "42", "sess-123", "my feedback", false, false)
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("agentResume non-headless: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		if p, err := os.FindProcess(os.Getpid()); err == nil {
+			_ = p.Signal(os.Interrupt)
+		}
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("agentResume did not return after agent exit: %v", err)
+			}
+			t.Fatal("agentResume did not return after agent process exited")
+		case <-time.After(2 * time.Second):
+			t.Fatal("agentResume hung even after interrupt")
+		}
+	}
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatalf("reading captured stdout: %v", err)
+	}
+	r.Close()
+
+	out := buf.String()
+	want := "agentctl resume 42 [feedback]   # send follow-up feedback; omit [feedback] to use the default proceed approval"
+	if !strings.Contains(out, want) {
+		t.Errorf("missing resume hint %q in foreground-exit output:\n%s", want, out)
+	}
+	for _, unwanted := range []string{"agentctl logs", "agentctl attach", "agentctl discard"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("foreground-exit output must not contain %q:\n%s", unwanted, out)
 		}
 	}
 }
