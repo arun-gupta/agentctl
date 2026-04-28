@@ -22,11 +22,11 @@ import (
 // test suite instead of running the converter.
 func TestMain(m *testing.M) {
 	if len(os.Args) > 1 && os.Args[1] == "__stream-log" {
-		if len(os.Args) < 4 {
-			fmt.Fprintln(os.Stderr, "usage: __stream-log <logPath> <wtDir>")
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: __stream-log <wtDir>")
 			os.Exit(1)
 		}
-		if err := convertStreamToLog(os.Stdin, os.Args[2], os.Args[3]); err != nil {
+		if err := runStreamLog(os.Args[2]); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

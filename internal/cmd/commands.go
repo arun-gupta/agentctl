@@ -1524,11 +1524,12 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 	var convWg sync.WaitGroup
 	if headless {
 		if pw != nil {
-			// Claude headless: spawn a detached __stream-log process that reads
-			// the stream-json pipe and writes human-readable text to agent.log,
-			// running until the agent exits (pipe EOF).
-			convCmd := exec.Command(os.Args[0], "__stream-log", logPath, wtPath)
+			// Claude headless: spawn a detached __stream-log process. Its stdout
+			// is the already-open logFile fd so it never opens files by path
+			// (avoids race with test cleanup removing the temp dir).
+			convCmd := exec.Command(os.Args[0], "__stream-log", wtPath)
 			convCmd.Stdin = pr
+			convCmd.Stdout = logFile
 			detachProcess(convCmd)
 			if convErr := convCmd.Start(); convErr != nil {
 				pw.Close()
@@ -1684,17 +1685,42 @@ func convertStreamToLog(r io.Reader, logPath, wtDir string) error {
 	return nil
 }
 
+// runStreamLog reads Claude --output-format stream-json lines from stdin,
+// converts each event to human-readable text, and writes to stdout. The caller
+// (agentctl headless launcher) sets the subprocess stdout to an already-open
+// log file fd so no file-path lookup is needed.
+func runStreamLog(wtDir string) error {
+	w := bufio.NewWriter(os.Stdout)
+	defer w.Flush() //nolint:errcheck
+	r := bufio.NewReader(os.Stdin)
+	for {
+		line, readErr := r.ReadString('\n')
+		if line != "" {
+			if text := extractStreamText(strings.TrimSuffix(line, "\n"), wtDir); text != "" {
+				fmt.Fprintln(w, text)
+			}
+		}
+		if readErr != nil {
+			if !errors.Is(readErr, io.EOF) {
+				fmt.Fprintf(w, "stream-log read error: %v\n", readErr)
+			}
+			break
+		}
+	}
+	return nil
+}
+
 // NewStreamLogCmd returns a hidden cobra command that agentctl spawns as a
 // detached background process in headless mode. It reads Claude
-// --output-format stream-json from stdin and appends human-readable text to
-// <logPath>, then exits when stdin reaches EOF (i.e., when the agent exits).
+// --output-format stream-json from stdin and writes human-readable text to
+// stdout (which is the inherited agent.log file descriptor).
 func NewStreamLogCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:    "__stream-log <logPath> <wtDir>",
+		Use:    "__stream-log <wtDir>",
 		Hidden: true,
-		Args:   cobra.ExactArgs(2),
+		Args:   cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			return convertStreamToLog(os.Stdin, args[0], args[1])
+			return runStreamLog(args[0])
 		},
 	}
 }
@@ -2055,8 +2081,9 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 	var convWg sync.WaitGroup
 	if headless {
 		if pw != nil {
-			convCmd := exec.Command(os.Args[0], "__stream-log", logPath, wtPath)
+			convCmd := exec.Command(os.Args[0], "__stream-log", wtPath)
 			convCmd.Stdin = pr
+			convCmd.Stdout = logFile
 			detachProcess(convCmd)
 			if convErr := convCmd.Start(); convErr != nil {
 				pw.Close()
