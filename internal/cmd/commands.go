@@ -69,6 +69,10 @@ Use --sdd <name> to opt into a spec-driven development (SDD) methodology
 				}
 			}
 
+			if len(issues) == 0 {
+				return fmt.Errorf("no valid issue tokens found in %q", args[0])
+			}
+
 			slug := ""
 			if len(args) > 1 {
 				slug = args[1]
@@ -78,7 +82,7 @@ Use --sdd <name> to opt into a spec-driven development (SDD) methodology
 				if slug != "" {
 					return fmt.Errorf("[slug] argument is not supported when starting multiple issues")
 				}
-				return runBatch(issues, agentName, sddName, quiet, startOne, os.Stdout)
+				return runBatch(issues, agentName, sddName, quiet, startOne, os.Stdout, os.Stderr)
 			}
 
 			return startOne(issues[0], slug, agentName, sddName, headless, quiet, os.Stdout)
@@ -101,7 +105,7 @@ func startOne(issue, slug, agentName, sddName string, headless, quiet bool, out 
 
 	// Resolve the repo root and issue number.  issue may be a bare number
 	// ("42") or a full GitHub issue URL ("https://github.com/owner/repo/issues/42").
-	repoRoot, issueNum, ghIssueArg, err := repoRootForIssue(issue)
+	repoRoot, issueNum, ghIssueArg, err := repoRootForIssue(issue, out)
 	if err != nil {
 		return err
 	}
@@ -134,7 +138,7 @@ func startOne(issue, slug, agentName, sddName string, headless, quiet bool, out 
 	}
 
 	// Start dev server if the project supports it; returns empty strings when skipped.
-	devPID, portStr, err := startDevServer(wtPath)
+	devPID, portStr, err := startDevServer(wtPath, out)
 	if err != nil {
 		return err
 	}
@@ -175,9 +179,10 @@ func startOne(issue, slug, agentName, sddName string, headless, quiet bool, out 
 // remaining issues are still attempted and a combined error is returned.
 func runBatch(issues []string, agentName, sddName string, quiet bool,
 	fn func(issue, slug, agentName, sddName string, headless, quiet bool, out io.Writer) error,
-	out io.Writer) error {
+	out io.Writer, errOut io.Writer) error {
 
 	type batchResult struct {
+		issue  string
 		output string
 		err    error
 	}
@@ -190,7 +195,7 @@ func runBatch(issues []string, agentName, sddName string, quiet bool,
 			defer wg.Done()
 			var buf strings.Builder
 			err := fn(iss, "", agentName, sddName, true, quiet, &buf)
-			results[i] = batchResult{output: buf.String(), err: err}
+			results[i] = batchResult{issue: iss, output: buf.String(), err: err}
 		}(i, iss)
 	}
 	wg.Wait()
@@ -199,7 +204,7 @@ func runBatch(issues []string, agentName, sddName string, quiet bool,
 	for _, r := range results {
 		fmt.Fprint(out, r.output)
 		if r.err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", r.err)
+			fmt.Fprintf(errOut, "[%s] error: %v\n", r.issue, r.err)
 			hasErr = true
 		}
 	}
@@ -1190,7 +1195,7 @@ func matchesGitHubOrigin(repoRoot, owner, repoName string) bool {
 //  1. The repo that contains the current working directory.
 //  2. A sibling directory named <repoName> (i.e. "../<repoName>").
 //  3. Clones the repo into "../<repoName>" via `gh repo clone`.
-func locateOrCloneRepo(owner, repoName string) (string, error) {
+func locateOrCloneRepo(owner, repoName string, out io.Writer) (string, error) {
 	// 1. Current working directory.
 	if root, err := git.RepoRoot(); err == nil && matchesGitHubOrigin(root, owner, repoName) {
 		return root, nil
@@ -1212,10 +1217,10 @@ func locateOrCloneRepo(owner, repoName string) (string, error) {
 
 	// 3. Clone via gh repo clone.
 	target := filepath.Join(filepath.Dir(cwd), repoName)
-	fmt.Fprintf(os.Stdout, "Cloning %s/%s into %s ...\n", owner, repoName, target)
+	fmt.Fprintf(out, "Cloning %s/%s into %s ...\n", owner, repoName, target)
 	cloneCmd := exec.Command("gh", "repo", "clone", owner+"/"+repoName, target)
-	cloneCmd.Stdout = os.Stdout
-	cloneCmd.Stderr = os.Stderr
+	cloneCmd.Stdout = out
+	cloneCmd.Stderr = out
 	if err := cloneCmd.Run(); err != nil {
 		return "", fmt.Errorf("gh repo clone %s/%s: %w", owner, repoName, err)
 	}
@@ -1229,7 +1234,7 @@ func locateOrCloneRepo(owner, repoName string) (string, error) {
 // working directory (existing behaviour). When arg is a full GitHub issue URL
 // (https://github.com/<owner>/<repo>/issues/<number>) the target repository is
 // located or cloned automatically, so the caller does not need to cd first.
-func repoRootForIssue(arg string) (repoRoot, issueNum, ghIssueArg string, err error) {
+func repoRootForIssue(arg string, out io.Writer) (repoRoot, issueNum, ghIssueArg string, err error) {
 	owner, repoName, issueNum, isURL := parseIssueURL(arg)
 	if !isURL {
 		root, err := git.RepoRoot()
@@ -1238,7 +1243,7 @@ func repoRootForIssue(arg string) (repoRoot, issueNum, ghIssueArg string, err er
 		}
 		return root, arg, arg, nil
 	}
-	root, err := locateOrCloneRepo(owner, repoName)
+	root, err := locateOrCloneRepo(owner, repoName, out)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -1333,7 +1338,7 @@ func seedEnvLocal(src, dst string) error {
 //
 // On success the allocated port is written back to .agentctl.yml so it serves
 // as the single source of truth for all agentctl repo config.
-func startDevServer(dir string) (devPID, portStr string, err error) {
+func startDevServer(dir string, out io.Writer) (devPID, portStr string, err error) {
 	cfg, err := config.Read(dir)
 	if err != nil {
 		return "", "", fmt.Errorf("reading .agentctl.yml: %w", err)
@@ -1341,19 +1346,19 @@ func startDevServer(dir string) (devPID, portStr string, err error) {
 
 	// Case 1: explicit dev_server in .agentctl.yml
 	if cfg.DevServer != "" {
-		return startCustomDevServer(dir, cfg)
+		return startCustomDevServer(dir, cfg, out)
 	}
 
 	// Case 2: Node.js project
 	if _, statErr := os.Stat(filepath.Join(dir, "package.json")); statErr == nil {
-		return startNodeDevServer(dir, cfg)
+		return startNodeDevServer(dir, cfg, out)
 	}
 
 	// Case 3: no dev server configured — silently skip
 	return "", "", nil
 }
 
-func startCustomDevServer(dir string, cfg *config.AgentctlConfig) (devPID, portStr string, err error) {
+func startCustomDevServer(dir string, cfg *config.AgentctlConfig, out io.Writer) (devPID, portStr string, err error) {
 	port, err := findFreePort(3010, 3100)
 	if err != nil {
 		return "", "", err
@@ -1377,18 +1382,18 @@ func startCustomDevServer(dir string, cfg *config.AgentctlConfig) (devPID, portS
 		return "", "", fmt.Errorf("start dev server: %w", err)
 	}
 	if err := devLog.Close(); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: close dev log: %v\n", err)
+		fmt.Fprintf(out, "warning: close dev log: %v\n", err)
 	}
-	fmt.Printf("Dev server: http://localhost:%s (log: %s/dev.log)\n", portStr, dir)
+	fmt.Fprintf(out, "Dev server: http://localhost:%s (log: %s/dev.log)\n", portStr, dir)
 
 	cfg.Port = port
 	if err := config.Write(dir, cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not persist port to .agentctl.yml: %v\n", err)
+		fmt.Fprintf(out, "warning: could not persist port to .agentctl.yml: %v\n", err)
 	}
 	return fmt.Sprintf("%d", devCmd.Process.Pid), portStr, nil
 }
 
-func startNodeDevServer(dir string, cfg *config.AgentctlConfig) (devPID, portStr string, err error) {
+func startNodeDevServer(dir string, cfg *config.AgentctlConfig, out io.Writer) (devPID, portStr string, err error) {
 	if err := runNpmInstall(dir); err != nil {
 		return "", "", err
 	}
@@ -1412,13 +1417,13 @@ func startNodeDevServer(dir string, cfg *config.AgentctlConfig) (devPID, portStr
 		return "", "", fmt.Errorf("start dev server: %w", err)
 	}
 	if err := devLog.Close(); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: close dev log: %v\n", err)
+		fmt.Fprintf(out, "warning: close dev log: %v\n", err)
 	}
-	fmt.Printf("Dev server: http://localhost:%s (log: %s/dev.log)\n", portStr, dir)
+	fmt.Fprintf(out, "Dev server: http://localhost:%s (log: %s/dev.log)\n", portStr, dir)
 
 	cfg.Port = port
 	if err := config.Write(dir, cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not persist port to .agentctl.yml: %v\n", err)
+		fmt.Fprintf(out, "warning: could not persist port to .agentctl.yml: %v\n", err)
 	}
 	return fmt.Sprintf("%d", devCmd.Process.Pid), portStr, nil
 }

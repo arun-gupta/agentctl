@@ -342,7 +342,7 @@ func TestLocateOrCloneRepo_cwdMatch(t *testing.T) {
 	dir := initGitRepoWithOrigin(t, "https://github.com/myorg/myrepo.git")
 	chdirTemp(t, dir)
 
-	got, err := locateOrCloneRepo("myorg", "myrepo")
+	got, err := locateOrCloneRepo("myorg", "myrepo", io.Discard)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -381,7 +381,7 @@ func TestLocateOrCloneRepo_siblingMatch(t *testing.T) {
 		}
 	}
 
-	got, err := locateOrCloneRepo("myorg", "myrepo")
+	got, err := locateOrCloneRepo("myorg", "myrepo", io.Discard)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -413,7 +413,7 @@ func TestLocateOrCloneRepo_siblingWrongOrigin(t *testing.T) {
 		}
 	}
 
-	_, err := locateOrCloneRepo("myorg", "myrepo")
+	_, err := locateOrCloneRepo("myorg", "myrepo", io.Discard)
 	if err == nil {
 		t.Fatal("expected error when sibling has wrong origin")
 	}
@@ -428,7 +428,7 @@ func TestRepoRootForIssue_bareNumber(t *testing.T) {
 	dir := initGitRepoWithOrigin(t, "https://github.com/myorg/myrepo.git")
 	chdirTemp(t, dir)
 
-	root, issueNum, ghArg, err := repoRootForIssue("42")
+	root, issueNum, ghArg, err := repoRootForIssue("42", io.Discard)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -448,7 +448,7 @@ func TestRepoRootForIssue_urlCwdMatch(t *testing.T) {
 	chdirTemp(t, dir)
 
 	const rawURL = "https://github.com/myorg/myrepo/issues/99"
-	root, issueNum, ghArg, err := repoRootForIssue(rawURL)
+	root, issueNum, ghArg, err := repoRootForIssue(rawURL, io.Discard)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1777,7 +1777,7 @@ func TestRunNpmInstall_errorIncludesDebugHint(t *testing.T) {
 
 func TestStartDevServer_noPackageJSON_returnsEmptyPort(t *testing.T) {
 	dir := t.TempDir() // no package.json
-	pid, port, err := startDevServer(dir)
+	pid, port, err := startDevServer(dir, io.Discard)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1965,7 +1965,7 @@ func TestStartDevServer_agentctlYml_writesPortBack(t *testing.T) {
 		[]byte("dev_server: \"echo ok\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	pidStr, portStr, err := startDevServer(dir)
+	pidStr, portStr, err := startDevServer(dir, io.Discard)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2709,8 +2709,8 @@ func TestRunBatch_allSucceed(t *testing.T) {
 		return nil
 	}
 
-	var out bytes.Buffer
-	if err := runBatch([]string{"42", "43", "44"}, "claude", "", false, mockFn, &out); err != nil {
+	var out, errOut bytes.Buffer
+	if err := runBatch([]string{"42", "43", "44"}, "claude", "", false, mockFn, &out, &errOut); err != nil {
 		t.Fatalf("runBatch: %v", err)
 	}
 
@@ -2745,8 +2745,8 @@ func TestRunBatch_oneFailureContinuesOthers(t *testing.T) {
 		return nil
 	}
 
-	var out bytes.Buffer
-	err := runBatch([]string{"42", "43", "44"}, "claude", "", false, mockFn, &out)
+	var out, errOut bytes.Buffer
+	err := runBatch([]string{"42", "43", "44"}, "claude", "", false, mockFn, &out, &errOut)
 	if err == nil {
 		t.Fatal("expected error when one issue fails")
 	}
@@ -2768,6 +2768,15 @@ func TestRunBatch_oneFailureContinuesOthers(t *testing.T) {
 			t.Errorf("output missing 'started %s'; got: %q", iss, outStr)
 		}
 	}
+
+	// The failed issue's error must be prefixed with the issue number.
+	errStr := errOut.String()
+	if !strings.Contains(errStr, "[43] error:") {
+		t.Errorf("error output must include '[43] error:' prefix; got: %q", errStr)
+	}
+	if !strings.Contains(errStr, "worktree already exists for issue 43") {
+		t.Errorf("error output must include the original error message; got: %q", errStr)
+	}
 }
 
 // TestRunBatch_resultsInOrder verifies that output is printed in the original
@@ -2781,8 +2790,8 @@ func TestRunBatch_resultsInOrder(t *testing.T) {
 		return nil
 	}
 
-	var out bytes.Buffer
-	if err := runBatch([]string{"42", "43", "44"}, "claude", "", false, mockFn, &out); err != nil {
+	var out, errOut bytes.Buffer
+	if err := runBatch([]string{"42", "43", "44"}, "claude", "", false, mockFn, &out, &errOut); err != nil {
 		t.Fatalf("runBatch: %v", err)
 	}
 
@@ -2795,5 +2804,32 @@ func TestRunBatch_resultsInOrder(t *testing.T) {
 	}
 	if !(idx42 < idx43 && idx43 < idx44) {
 		t.Errorf("output not in issue order; got: %q", outStr)
+	}
+}
+
+// TestStartCmd_emptyIssueTokens verifies that a comma-only or whitespace-only
+// issue argument returns a user-facing error instead of panicking.
+func TestStartCmd_emptyIssueTokens(t *testing.T) {
+	tests := []struct {
+		name string
+		arg  string
+	}{
+		{"comma only", ","},
+		{"spaced commas", " , "},
+		{"multiple commas", ",,"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := NewStartCmd()
+			c.SilenceUsage = true
+			c.SetArgs([]string{tt.arg})
+			err := c.Execute()
+			if err == nil {
+				t.Fatal("expected error for empty issue tokens, got nil")
+			}
+			if !strings.Contains(err.Error(), "no valid issue tokens found") {
+				t.Errorf("wrong error message: %v", err)
+			}
+		})
 	}
 }
