@@ -93,6 +93,7 @@ func TestGetKey(t *testing.T) {
 		Agent:     "copilot",
 		SessionID: "sess-999",
 		DevPID:    "77",
+		SDD:       "plain",
 	}); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -103,6 +104,43 @@ func TestGetKey(t *testing.T) {
 	v, err = GetKey(dir, "session-id")
 	if err != nil || v != "sess-999" {
 		t.Errorf("GetKey session-id: got %q %v", v, err)
+	}
+	v, err = GetKey(dir, "sdd")
+	if err != nil || v != "plain" {
+		t.Errorf("GetKey sdd: got %q %v", v, err)
+	}
+}
+
+func TestWriteAlwaysIncludesSDD(t *testing.T) {
+	// Write must always emit the sdd= key, even when SDD is empty, so that
+	// Read can set SDDSet=true and callers can distinguish new worktrees
+	// created without --sdd from legacy worktrees that predate the sdd key.
+	dir := t.TempDir()
+	af := AgentFile{
+		Agent:     "codex",
+		SessionID: "xyz-789",
+		DevPID:    "1234",
+		// SDD intentionally empty (started without --sdd)
+	}
+	if err := Write(dir, af); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, FileName))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !contains(string(raw), "sdd=") {
+		t.Error("expected sdd= line to be present even when SDD is empty")
+	}
+	got, err := Read(dir)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if !got.SDDSet {
+		t.Error("expected SDDSet=true after reading a file written with empty SDD")
+	}
+	if got.SDD != "" {
+		t.Errorf("SDD: got %q, want %q", got.SDD, "")
 	}
 }
 

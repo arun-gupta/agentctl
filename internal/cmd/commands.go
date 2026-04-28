@@ -273,7 +273,10 @@ func runReleasePausedSession(issue, prompt string, headless, quiet bool) error {
 	}
 
 	// Check that a spec exists (paused state reached).
-	if computeSpecState(wt.Path, issue, af.SDD) == "no-spec" {
+	if af.SDDSet && af.SDD == "" {
+		return fmt.Errorf("worktree for issue %s was started without --sdd; resume is not applicable", issue)
+	}
+	if computeSpecState(wt.Path, issue, af.SDD, af.SDDSet) == "no-spec" {
 		return fmt.Errorf("spec not yet generated for issue %s; paused state not reached.\nTail %s/agent.log to confirm and retry once the pause is reported.", issue, wt.Path)
 	}
 
@@ -818,7 +821,7 @@ func runStatus(verbose bool) error {
 
 		devPIDStr := pidStatus(af.DevPID)
 		agentPIDStr := pidStatus(af.AgentPID)
-		specState := computeSpecState(wt.Path, wt.Issue, af.SDD)
+		specState := computeSpecState(wt.Path, wt.Issue, af.SDD, af.SDDSet)
 
 		prState := "none"
 		if branch != "?" && branch != "HEAD" {
@@ -1032,11 +1035,21 @@ func pidStatus(pid string) string {
 
 // computeSpecState derives the spec lifecycle state from filesystem artifacts.
 // sddName is the SDD methodology recorded in .agent (empty when no SDD was requested).
+// sddSet is true when the sdd= key was explicitly present in the .agent file:
+//   - sddSet=false: legacy worktree written before the sdd key existed — fall back
+//     to filesystem heuristics (same as old behaviour).
+//   - sddSet=true, sddName="": worktree started without --sdd — return "no-spec".
+//   - sddSet=true, sddName!="": SDD was requested — use filesystem heuristics.
+//
 // It recognises two layouts:
 //   - plain-style:   specs/spec.md (flat); always "paused" — no lifecycle files
 //   - speckit-style: specs/<issue>-*/spec.md with optional plan.md / tasks.md
-func computeSpecState(wtPath, issue, sddName string) string {
-	if issue == "" || sddName == "" {
+func computeSpecState(wtPath, issue, sddName string, sddSet bool) string {
+	if issue == "" {
+		return "no-spec"
+	}
+	// New worktree explicitly created without --sdd.
+	if sddSet && sddName == "" {
 		return "no-spec"
 	}
 	// Plain-style: flat specs/spec.md with no lifecycle subdirectory.
