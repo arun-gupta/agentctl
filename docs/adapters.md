@@ -105,7 +105,7 @@ resume_cmd: my-bot --continue {prompt} --id {session_id}
 
 ## Built-in adapters
 
-The binary ships with these five built-in adapters. Override any by dropping a same-named file in a higher-priority location.
+The binary ships with these six built-in adapters. Override any by dropping a same-named file in a higher-priority location.
 
 ### claude
 
@@ -152,6 +152,16 @@ launch: copilot --add-dir {worktree} --allow-all-tools -p {kickoff}
 resume_cmd: copilot --add-dir {worktree} --allow-all-tools -p {prompt} --continue
 session_type: directory
 install: npm install -g @github/copilot
+```
+
+### openhands
+
+```yaml
+binary: openhands
+launch: openhands --headless --always-approve -t {kickoff}
+resume_cmd: openhands --headless --always-approve --resume --last -t {prompt}
+session_type: directory
+install: pip install openhands-ai
 ```
 
 ## Drop-in locations

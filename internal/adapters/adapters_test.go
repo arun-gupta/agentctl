@@ -11,7 +11,7 @@ import (
 	"github.com/arun-gupta/agentctl/internal/adapters"
 )
 
-var knownBuiltins = []string{"claude", "codex", "copilot", "gemini", "opencode"}
+var knownBuiltins = []string{"claude", "codex", "copilot", "gemini", "opencode", "openhands"}
 
 // ─── built-in list / get ──────────────────────────────────────────────────────
 
@@ -225,6 +225,45 @@ func TestResumeCmd_opencode(t *testing.T) {
 		}
 		if arg == "sess-oc" {
 			t.Errorf("opencode ResumeCmd must not pass session ID as flag, got args: %v", args)
+		}
+	}
+}
+
+func TestLaunchCmd_openhands(t *testing.T) {
+	a, err := adapters.Get("openhands")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := a.LaunchCmd("fix the login bug", "sess-oh", "/tmp/wt")
+	args := cmd.Args
+	assertContains(t, args, "openhands")
+	assertContains(t, args, "--headless")
+	assertContains(t, args, "--always-approve")
+	assertContains(t, args, "-t")
+	assertContains(t, args, "fix the login bug")
+	for _, arg := range args {
+		if arg == "sess-oh" {
+			t.Errorf("openhands LaunchCmd must not pass session ID, got args: %v", args)
+		}
+	}
+}
+
+func TestResumeCmd_openhands(t *testing.T) {
+	a, err := adapters.Get("openhands")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := a.ResumeCmd("narrow the scope", "sess-oh", "/tmp/wt")
+	args := cmd.Args
+	assertContains(t, args, "openhands")
+	assertContains(t, args, "--headless")
+	assertContains(t, args, "--resume")
+	assertContains(t, args, "--last")
+	assertContains(t, args, "-t")
+	assertContains(t, args, "narrow the scope")
+	for _, arg := range args {
+		if arg == "sess-oh" {
+			t.Errorf("openhands ResumeCmd must not pass session ID as flag, got args: %v", args)
 		}
 	}
 }

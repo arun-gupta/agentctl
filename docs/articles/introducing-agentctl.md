@@ -47,7 +47,7 @@ flowchart LR
     agent --> pr["Pull request"]
 ```
 
-agentctl is **agent-agnostic and fully pluggable**. The default adapter is Claude Code (`claude`), and `--agent codex` and `--agent copilot` are tested built-ins. `--agent gemini` and `--agent opencode` are also included and would benefit from additional community testing. Adding support for a new coding agent takes a single line of YAML:
+agentctl is **agent-agnostic and fully pluggable**. The default adapter is Claude Code (`claude`), and `--agent codex` and `--agent copilot` are tested built-ins. `--agent gemini`, `--agent opencode`, and `--agent openhands` are also included and would benefit from additional community testing. Adding support for a new coding agent takes a single line of YAML:
 
 ```yaml
 binary: cursor-agent
