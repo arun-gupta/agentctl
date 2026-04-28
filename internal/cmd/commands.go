@@ -2230,8 +2230,8 @@ func agentEnv(wtPath string) ([]string, error) {
 
 	realHome, err := os.UserHomeDir()
 	if err == nil {
-		// Link config files/dirs so git, SSH, and OpenHands work with real credentials/settings.
-		for _, name := range []string{".gitconfig", ".ssh", ".openhands"} {
+		// Link config files/dirs so git, SSH, OpenHands, and gh CLI work with real credentials.
+		for _, name := range []string{".gitconfig", ".ssh", ".openhands", ".config"} {
 			src := filepath.Join(realHome, name)
 			dst := filepath.Join(agentHome, name)
 
