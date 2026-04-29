@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -1810,8 +1811,13 @@ func waitForFile(path string, timeout time.Duration) error {
 
 // notifyTestSentinelPath returns the path of the one-time sentinel file that
 // records whether the first-run notification test has already been done.
+// Returns "" when the user config directory cannot be resolved.
 func notifyTestSentinelPath() string {
-	return filepath.Join(xdg.UserConfigDir(), "agentctl", "notify-tested")
+	cfgDir := xdg.UserConfigDir()
+	if cfgDir == "" {
+		return ""
+	}
+	return filepath.Join(cfgDir, "agentctl", "notify-tested")
 }
 
 // maybeFireTestNotification sends a single test notification the very first
@@ -1819,7 +1825,13 @@ func notifyTestSentinelPath() string {
 // A one-line hint is printed to out so the user knows to look for it.
 func maybeFireTestNotification(issue string, out io.Writer) {
 	sentinel := notifyTestSentinelPath()
-	_ = os.MkdirAll(filepath.Dir(sentinel), 0o755)
+	if sentinel == "" {
+		return
+	}
+
+	if err := os.MkdirAll(filepath.Dir(sentinel), 0o755); err != nil {
+		return
+	}
 
 	f, err := os.OpenFile(sentinel, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -1831,7 +1843,17 @@ func maybeFireTestNotification(issue string, out io.Writer) {
 	_ = f.Close()
 
 	notify.Send("agentctl", fmt.Sprintf("Notifications enabled — you'll be notified when issue #%s finishes.", issue))
-	fmt.Fprintln(out, "Note: a test notification was sent — if you didn't see it, or want it to stay until dismissed, go to System Settings → Notifications → Terminal → set style to \"Alerts\".")
+
+	var hint string
+	switch runtime.GOOS {
+	case "darwin":
+		hint = "Note: a test notification was sent — if you didn't see it, go to System Settings → Notifications → Terminal and set the style to \"Alerts\"."
+	case "linux":
+		hint = "Note: a test notification was sent — if you didn't see it, ensure notify-send (libnotify-bin) is installed."
+	default:
+		hint = "Note: a test notification was sent — if you didn't see it, check your system's notification settings."
+	}
+	fmt.Fprintln(out, hint)
 }
 
 // sendCompletionNotification fires a native desktop notification reporting
