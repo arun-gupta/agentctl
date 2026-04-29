@@ -1118,7 +1118,7 @@ func runDevStart(wtPath string, quiet bool, out io.Writer) error {
 	}
 
 	if process.IsAlive(af.DevPID) {
-		return fmt.Errorf("dev server already running (PID %s) — use `agentctl dev stop` to restart", af.DevPID)
+		return fmt.Errorf("dev server already running (PID %s) — stop that process and clear the recorded dev-pid before restarting", af.DevPID)
 	}
 
 	if conflictPID, inUse := isPortInUse(af.DevPort); inUse {
