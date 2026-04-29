@@ -1511,10 +1511,15 @@ func validateSDD(sddName, repoRoot string) error {
 	matches, err := filepath.Glob(pattern)
 	if err != nil || len(matches) == 0 {
 		return fmt.Errorf(
-			"speckit skills not found in %s\n"+
-				"Expected .claude/commands/speckit.*.md files — install the SpecKit skill pack first.\n"+
-				"See https://github.com/arun-gupta/agentctl/blob/main/docs/sdd.md for setup instructions.",
-			filepath.Join(repoRoot, ".claude", "commands"),
+			"SpecKit skills not found in this repo.\n\n" +
+				"--sdd=speckit requires SpecKit slash commands installed as Claude Code command files:\n" +
+				"  .claude/commands/speckit.specify.md\n" +
+				"  .claude/commands/speckit.plan.md\n" +
+				"  .claude/commands/speckit.tasks.md\n" +
+				"  .claude/commands/speckit.implement.md\n\n" +
+				"To install: copy the SpecKit skill files into .claude/commands/ in this repo.\n\n" +
+				"Alternatively, use --sdd=plain which works without any additional setup:\n" +
+				"  agentctl start <issue> --sdd=plain",
 		)
 	}
 	return nil

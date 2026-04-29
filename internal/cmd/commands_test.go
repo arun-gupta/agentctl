@@ -727,11 +727,14 @@ func TestValidateSDD_speckit_missingSkills(t *testing.T) {
 	if err == nil {
 		t.Fatal("validateSDD(speckit) expected error when skills missing, got nil")
 	}
-	if !strings.Contains(err.Error(), "speckit skills not found") {
-		t.Errorf("error should mention 'speckit skills not found', got: %v", err)
+	if !strings.Contains(err.Error(), "SpecKit skills not found") {
+		t.Errorf("error should mention 'SpecKit skills not found', got: %v", err)
 	}
 	if !strings.Contains(err.Error(), ".claude/commands") {
 		t.Errorf("error should mention .claude/commands path, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "--sdd=plain") {
+		t.Errorf("error should suggest --sdd=plain alternative, got: %v", err)
 	}
 }
 
