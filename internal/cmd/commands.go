@@ -1802,6 +1802,10 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			convWg.Wait() // drain remaining pipe → log before the final read
 			close(logDone)
 			wg.Wait()
+			if agentExitErr != nil {
+				fmt.Fprintf(out, "agent exited with error — check the log: agentctl logs %s\n", issue)
+				return nil
+			}
 			if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
 				reportPRStatus(os.Stdout, wtPath, branch, issue)
 			}
