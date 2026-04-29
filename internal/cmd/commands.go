@@ -283,12 +283,13 @@ By default the resumed agent streams its output to the terminal (foreground).
 Use --headless to run it in the background and write output to agent.log.`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			prompt := "proceed"
+			const authorisation = "You are authorised to run bash commands (tests, linters, builds) directly without asking for human approval."
+			prompt := "The spec is approved. Proceed with implementation. " + authorisation
 			if len(args) == 2 {
 				if strings.TrimSpace(args[1]) == "" {
 					return fmt.Errorf("feedback must be non-empty; omit it entirely to approve")
 				}
-				prompt = args[1]
+				prompt = args[1] + " " + authorisation
 			}
 			return runReleasePausedSession(args[0], prompt, headless, quiet, sendNotify)
 		},
