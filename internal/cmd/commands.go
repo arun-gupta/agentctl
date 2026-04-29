@@ -2246,7 +2246,15 @@ func followLog(logPath string, out io.Writer, done <-chan struct{}, quiet bool, 
 			if line != "" && !quiet {
 				if !filterNoise || !isStderrNoise(strings.TrimRight(line, "\r\n")) {
 					clearSpinner()
-					fmt.Fprint(out, line)
+					// On a TTY, partial lines (no trailing \n) leave the cursor
+					// mid-line. The next spinner tick then uses \r to reposition
+					// to column 0 and overwrites the log text. Force a newline so
+					// the cursor always lands at a clean line start.
+					if isTTY && !strings.HasSuffix(line, "\n") {
+						fmt.Fprintln(out, line)
+					} else {
+						fmt.Fprint(out, line)
+					}
 				}
 			}
 			if errors.Is(err, io.EOF) {
