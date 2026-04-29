@@ -1386,7 +1386,7 @@ func TestLaunchAgent_nonHeadless_sigintPrintsHints(t *testing.T) {
 // ─── buildResumePrompt ────────────────────────────────────────────────────────
 
 func TestBuildResumePrompt_approval_sdd(t *testing.T) {
-	prompt := buildResumePrompt("", "plain")
+	prompt := buildResumePrompt("", "plain", "")
 	if !strings.Contains(prompt, "The spec is approved") {
 		t.Errorf("approval prompt must say 'The spec is approved', got: %q", prompt)
 	}
@@ -1400,12 +1400,13 @@ func TestBuildResumePrompt_approval_sdd(t *testing.T) {
 
 func TestBuildResumePrompt_revision_sdd(t *testing.T) {
 	feedback := "Please add error handling"
-	prompt := buildResumePrompt(feedback, "plain")
+	specPath := "specs/42-myfeature/spec.md"
+	prompt := buildResumePrompt(feedback, "plain", specPath)
 	if !strings.Contains(prompt, feedback) {
 		t.Errorf("revision prompt must include feedback, got: %q", prompt)
 	}
-	if !strings.Contains(prompt, "specs/spec.md") {
-		t.Errorf("SDD revision prompt must reference specs/spec.md, got: %q", prompt)
+	if !strings.Contains(prompt, specPath) {
+		t.Errorf("SDD revision prompt must reference %q, got: %q", specPath, prompt)
 	}
 	if !strings.Contains(prompt, "stop and wait for human approval") {
 		t.Errorf("SDD revision prompt must tell agent to stop and wait, got: %q", prompt)
@@ -1416,20 +1417,37 @@ func TestBuildResumePrompt_revision_sdd(t *testing.T) {
 	if strings.Contains(prompt, "The spec is approved") {
 		t.Errorf("revision prompt must not contain approval text, got: %q", prompt)
 	}
+	if !strings.Contains(prompt, resumeAuthorisation) {
+		t.Errorf("revision prompt must include authorisation sentence, got: %q", prompt)
+	}
+}
+
+func TestBuildResumePrompt_revision_sdd_fallback_specpath(t *testing.T) {
+	feedback := "Please add error handling"
+	prompt := buildResumePrompt(feedback, "plain", "")
+	if !strings.Contains(prompt, "specs/spec.md") {
+		t.Errorf("SDD revision prompt must fall back to specs/spec.md when specPath is empty, got: %q", prompt)
+	}
 }
 
 func TestBuildResumePrompt_revision_nonSDD(t *testing.T) {
 	feedback := "Please add error handling"
-	prompt := buildResumePrompt(feedback, "")
-	if prompt != feedback {
-		t.Errorf("non-SDD revision prompt must be bare feedback, got: %q", prompt)
+	prompt := buildResumePrompt(feedback, "", "")
+	if !strings.Contains(prompt, feedback) {
+		t.Errorf("non-SDD revision prompt must include feedback, got: %q", prompt)
+	}
+	if !strings.Contains(prompt, resumeAuthorisation) {
+		t.Errorf("non-SDD revision prompt must include authorisation sentence, got: %q", prompt)
 	}
 }
 
 func TestBuildResumePrompt_approval_nonSDD(t *testing.T) {
-	prompt := buildResumePrompt("", "")
-	if prompt != "proceed" {
-		t.Errorf("non-SDD approval prompt must be 'proceed', got: %q", prompt)
+	prompt := buildResumePrompt("", "", "")
+	if !strings.Contains(prompt, "proceed") {
+		t.Errorf("non-SDD approval prompt must contain 'proceed', got: %q", prompt)
+	}
+	if !strings.Contains(prompt, resumeAuthorisation) {
+		t.Errorf("non-SDD approval prompt must include authorisation sentence, got: %q", prompt)
 	}
 }
 

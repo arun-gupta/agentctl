@@ -272,26 +272,29 @@ const resumeAuthorisation = "You are authorised to run bash commands (tests, lin
 //
 // When sddName is non-empty (SDD mode):
 //   - No feedback: spec approved, proceed with implementation.
-//   - With feedback: revise specs/spec.md then stop again for re-review;
-//     do NOT implement yet.
+//   - With feedback: revise the spec at specPath (or specs/spec.md if specPath
+//     is empty) then stop again for re-review; do NOT implement yet.
 //
 // When sddName is empty (non-SDD mode): pass feedback through unchanged
 // (or "proceed" when no feedback).
 //
 // Either way, the bash-authorisation line is appended.
-func buildResumePrompt(feedback, sddName string) string {
+func buildResumePrompt(feedback, sddName, specPath string) string {
 	if sddName != "" {
 		if feedback == "" {
 			return "The spec is approved. Proceed with implementation. " + resumeAuthorisation
 		}
-		return "Revise specs/spec.md to incorporate this feedback: " + feedback +
+		if specPath == "" {
+			specPath = "specs/spec.md"
+		}
+		return "Revise " + specPath + " to incorporate this feedback: " + feedback +
 			"\nAfter updating the spec, stop and wait for human approval before" +
 			" proceeding with implementation. Do not implement yet. " + resumeAuthorisation
 	}
 	if feedback == "" {
-		return "proceed"
+		return "proceed " + resumeAuthorisation
 	}
-	return feedback
+	return feedback + " " + resumeAuthorisation
 }
 
 // NewResumeCmd creates the `resume` subcommand.
@@ -367,7 +370,8 @@ func runReleasePausedSession(issue, feedback string, headless, quiet, sendNotify
 		return fmt.Errorf("spec not yet generated for issue %s; paused state not reached.\nTail %s/agent.log to confirm and retry once the pause is reported.", issue, wt.Path)
 	}
 
-	prompt := buildResumePrompt(feedback, af.SDD)
+	specPath := findSpecPath(wt.Path, issue)
+	prompt := buildResumePrompt(feedback, af.SDD, specPath)
 	return agentResume(af.Agent, wt.Path, issue, af.SessionID, prompt, headless, quiet, sendNotify)
 }
 
