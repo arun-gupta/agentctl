@@ -1156,6 +1156,21 @@ func computeSpecState(wtPath, issue, sddName string, sddSet bool) string {
 	return "paused"
 }
 
+// findSpecPath returns the absolute path to spec.md for the given issue inside
+// wtPath, or "" if none is found. It checks the plain layout first
+// (specs/spec.md), then the speckit layout (specs/<issue>-*/spec.md).
+func findSpecPath(wtPath, issue string) string {
+	plain := filepath.Join(wtPath, "specs", "spec.md")
+	if _, err := os.Stat(plain); err == nil {
+		return plain
+	}
+	matches, _ := filepath.Glob(filepath.Join(wtPath, "specs", issue+"-*", "spec.md"))
+	if len(matches) > 0 {
+		return matches[0]
+	}
+	return ""
+}
+
 // ghPRInfo calls `gh pr view <branch>` in repoRoot and returns the PR state
 // (e.g. "MERGED") and number (e.g. 42). Both are zero-values on error.
 func ghPRInfo(repoRoot, branch string) (state string, number int, err error) {
@@ -1810,6 +1825,9 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 				reportPRStatus(os.Stdout, wtPath, branch, issue)
 			}
 			if sddName != "" {
+				if specPath := findSpecPath(wtPath, issue); specPath != "" {
+					fmt.Fprintf(out, "Spec: %s\n", specPath)
+				}
 				fmt.Fprintf(out, resumeHintFmt, issue)
 			} else {
 				fmt.Fprintf(out, "agentctl cleanup %s   # after PR is merged\n", issue)
@@ -2280,7 +2298,15 @@ func followLog(logPath string, out io.Writer, done <-chan struct{}, quiet bool, 
 			if line != "" && !quiet {
 				if !filterNoise || !isStderrNoise(strings.TrimRight(line, "\r\n")) {
 					clearSpinner()
-					fmt.Fprint(out, line)
+					// On a TTY, partial lines (no trailing \n) leave the cursor
+					// mid-line. The next spinner tick then uses \r to reposition
+					// to column 0 and overwrites the log text. Force a newline so
+					// the cursor always lands at a clean line start.
+					if isTTY && !strings.HasSuffix(line, "\n") {
+						fmt.Fprintln(out, line)
+					} else {
+						fmt.Fprint(out, line)
+					}
 				}
 			}
 			if errors.Is(err, io.EOF) {

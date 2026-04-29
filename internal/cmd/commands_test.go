@@ -1093,6 +1093,49 @@ func TestLaunchAgent_nonHeadless_exitPrintsCleanupHint(t *testing.T) {
 	}
 }
 
+// TestLaunchAgent_nonHeadless_withSDD_showsSpecPath verifies that when a
+// foreground SDD run completes, the output includes the spec file path and the
+// resume hint.
+func TestLaunchAgent_nonHeadless_withSDD_showsSpecPath(t *testing.T) {
+	dir := t.TempDir()
+	writeLocalAdapter(t, dir, "echoagent",
+		"binary: echo\nsession: --session\n")
+	chdirTemp(t, dir)
+
+	// Write a spec file so findSpecPath can locate it.
+	specsDir := filepath.Join(dir, "specs")
+	if err := os.MkdirAll(specsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	specFile := filepath.Join(specsDir, "spec.md")
+	if err := os.WriteFile(specFile, []byte("# spec\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	done := make(chan error, 1)
+	go func() {
+		done <- launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", "plain", false, false, false, &out)
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("launchAgent SDD foreground: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("launchAgent timed out")
+	}
+
+	outStr := out.String()
+	if !strings.Contains(outStr, specFile) {
+		t.Errorf("output missing spec path %q:\n%s", specFile, outStr)
+	}
+	if !strings.Contains(outStr, "agentctl resume 42") {
+		t.Errorf("output missing resume hint:\n%s", outStr)
+	}
+}
+
 // TestLaunchAgent_nonClaudeNonHeadless_outputStreamed verifies that plain-text
 // output from non-claude adapters is written to agent.log in non-headless mode.
 func TestLaunchAgent_nonClaudeNonHeadless_outputStreamed(t *testing.T) {
