@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/arun-gupta/agentctl/internal/notify"
+	"github.com/arun-gupta/agentctl/internal/process"
 	"github.com/arun-gupta/agentctl/internal/sdd"
 	"github.com/arun-gupta/agentctl/internal/state"
 )
@@ -4024,4 +4026,125 @@ func TestStartCmd_emptyIssueTokens(t *testing.T) {
 			}
 		})
 	}
+}
+
+// ─── dev start ───────────────────────────────────────────────────────────────
+
+func TestRunDevStart_noDevServerInConfig(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"), []byte("notify: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".agent"), []byte("agent=claude\nsession-id=abc\ndev-pid=\ndev-port=3042\nsdd=plain\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	err := runDevStart(dir, true, &buf)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "dev_server not set") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestRunDevStart_noPortInDotAgent(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"), []byte("dev_server: \"sleep 1\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".agent"), []byte("agent=claude\nsession-id=abc\ndev-pid=\nsdd=plain\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	err := runDevStart(dir, true, &buf)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "no port recorded") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestRunDevStart_alreadyRunning(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"), []byte("dev_server: \"sleep 100\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	selfPID := fmt.Sprintf("%d", os.Getpid())
+	content := "agent=claude\nsession-id=abc\ndev-pid=" + selfPID + "\ndev-port=3042\nsdd=plain\n"
+	if err := os.WriteFile(filepath.Join(dir, ".agent"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	err := runDevStart(dir, true, &buf)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "already running") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestRunDevStart_portInUse(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skip("cannot bind test port:", err)
+	}
+	defer ln.Close()
+	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"), []byte("dev_server: \"sleep 100\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	content := "agent=claude\nsession-id=abc\ndev-pid=\ndev-port=" + port + "\nsdd=plain\n"
+	if err := os.WriteFile(filepath.Join(dir, ".agent"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	err = runDevStart(dir, true, &buf)
+	if err == nil {
+		t.Fatal("expected error for port in use, got nil")
+	}
+	if !strings.Contains(err.Error(), "already in use") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestRunDevStart_success(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"), []byte("dev_server: \"sleep 100\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	freePort, err := findFreePort(3010, 3100)
+	if err != nil {
+		t.Fatalf("findFreePort: %v", err)
+	}
+	portStr := strconv.Itoa(freePort)
+	content := "agent=claude\nsession-id=test-session\ndev-pid=\ndev-port=" + portStr + "\nsdd=plain\n"
+	if err := os.WriteFile(filepath.Join(dir, ".agent"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := runDevStart(dir, true, &buf); err != nil {
+		t.Fatalf("runDevStart: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), "http://localhost:"+portStr) {
+		t.Errorf("output missing URL; got: %q", buf.String())
+	}
+
+	af, readErr := state.Read(dir)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if af.DevPID == "" {
+		t.Error("expected dev-pid to be set in .agent after dev start")
+	}
+	if _, err := strconv.Atoi(af.DevPID); err != nil {
+		t.Errorf("dev-pid %q is not a valid integer: %v", af.DevPID, err)
+	}
+	t.Cleanup(func() { process.Kill(af.DevPID) })
 }
