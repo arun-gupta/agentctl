@@ -1383,6 +1383,36 @@ func TestLaunchAgent_nonHeadless_sigintPrintsHints(t *testing.T) {
 	}
 }
 
+// ─── buildResumePrompt ────────────────────────────────────────────────────────
+
+func TestBuildResumePrompt_approval(t *testing.T) {
+	prompt := buildResumePrompt("")
+	if !strings.Contains(prompt, "The spec is approved") {
+		t.Errorf("approval prompt must say 'The spec is approved', got: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Proceed with implementation") {
+		t.Errorf("approval prompt must say 'Proceed with implementation', got: %q", prompt)
+	}
+	if !strings.Contains(prompt, resumeAuthorisation) {
+		t.Errorf("approval prompt must include authorisation sentence, got: %q", prompt)
+	}
+}
+
+func TestBuildResumePrompt_revision(t *testing.T) {
+	feedback := "Please add error handling"
+	prompt := buildResumePrompt(feedback)
+	if !strings.HasPrefix(prompt, feedback) {
+		t.Errorf("revision prompt must start with feedback, got: %q", prompt)
+	}
+	if !strings.Contains(prompt, resumeAuthorisation) {
+		t.Errorf("revision prompt must include authorisation sentence, got: %q", prompt)
+	}
+	// Approval text must NOT appear in a revision prompt.
+	if strings.Contains(prompt, "The spec is approved") {
+		t.Errorf("revision prompt must not contain approval text, got: %q", prompt)
+	}
+}
+
 // ─── resume command flags ─────────────────────────────────────────────────────
 
 func TestResumeCmd_headlessFlag(t *testing.T) {

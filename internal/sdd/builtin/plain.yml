@@ -32,5 +32,8 @@ kickoff: |
       What will not be done in this PR. Write "None" if nothing is excluded.
 
     Stop and wait for human approval before proceeding.
-  - STEP 2: After approval, implement the changes directly, push the branch, and open a PR. Do not merge.
+  - STEP 2: After approval, implement the changes, run tests, push the branch,
+    and open a PR. Do not merge. Run bash commands (tests, linters, builds)
+    directly without asking for human approval — you are authorised to execute
+    any command needed to complete the implementation.
   Dev server is running on port {port}.

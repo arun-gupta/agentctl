@@ -264,6 +264,21 @@ func runBatch(issues []string, agentName, sddName string, quiet, sendNotify bool
 
 // ─── resume ───────────────────────────────────────────────────────────────────
 
+// resumeAuthorisation is the sentence appended to every resume prompt so the
+// agent knows it may execute bash commands without additional human approval.
+const resumeAuthorisation = "You are authorised to run bash commands (tests, linters, builds) directly without asking for human approval."
+
+// buildResumePrompt returns the prompt sent to the agent on resume.
+// When feedback is empty the spec is approved and the agent begins
+// implementation; when feedback is non-empty the agent revises the spec.
+// Either way, the authorisation to run bash commands is appended.
+func buildResumePrompt(feedback string) string {
+	if feedback == "" {
+		return "The spec is approved. Proceed with implementation. " + resumeAuthorisation
+	}
+	return feedback + " " + resumeAuthorisation
+}
+
 // NewResumeCmd creates the `resume` subcommand.
 func NewResumeCmd() *cobra.Command {
 	var (
@@ -276,21 +291,23 @@ func NewResumeCmd() *cobra.Command {
 		Short: "Resume a paused spec review: approve or revise",
 		Long: `Resume a paused agent after the spec-review checkpoint.
 
-Without feedback, sends approval ("proceed") and the agent begins implementation.
-With feedback, sends the revision text and the agent rewrites the spec.
+Without feedback, sends "The spec is approved. Proceed with implementation." plus
+an authorisation to run bash commands, and the agent begins implementation.
+With feedback, sends the revision text (plus the same bash authorisation) and
+the agent rewrites the spec.
 
 By default the resumed agent streams its output to the terminal (foreground).
 Use --headless to run it in the background and write output to agent.log.`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			prompt := "proceed"
-			if len(args) == 2 {
-				if strings.TrimSpace(args[1]) == "" {
-					return fmt.Errorf("feedback must be non-empty; omit it entirely to approve")
-				}
-				prompt = args[1]
+			if len(args) == 2 && strings.TrimSpace(args[1]) == "" {
+				return fmt.Errorf("feedback must be non-empty; omit it entirely to approve")
 			}
-			return runReleasePausedSession(args[0], prompt, headless, quiet, sendNotify)
+			feedback := ""
+			if len(args) == 2 {
+				feedback = args[1]
+			}
+			return runReleasePausedSession(args[0], buildResumePrompt(feedback), headless, quiet, sendNotify)
 		},
 	}
 	c.Flags().BoolVar(&headless, "headless", false, "Run agent in background (log -> agent.log)")
