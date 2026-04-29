@@ -1512,9 +1512,12 @@ func validateSDD(sddName, repoRoot string) error {
 	if err != nil || len(matches) == 0 {
 		return fmt.Errorf(
 			"SpecKit skills not found in this repo.\n\n" +
-				"To install SpecKit (requires Python 3.11+ and uv or pipx):\n" +
-				"  uvx --from git+https://github.com/github/spec-kit.git@vX.Y.Z specify init <PROJECT_NAME> --integration claude\n\n" +
-				"Replace vX.Y.Z with the latest release from https://github.com/github/spec-kit/releases\n\n" +
+				"--sdd=speckit requires SpecKit slash commands installed as Claude Code command files:\n" +
+				"  .claude/commands/speckit.specify.md\n" +
+				"  .claude/commands/speckit.plan.md\n" +
+				"  .claude/commands/speckit.tasks.md\n" +
+				"  .claude/commands/speckit.implement.md\n\n" +
+				"To install: copy the SpecKit skill files into .claude/commands/ in this repo.\n\n" +
 				"Alternatively, use --sdd=plain which works without any additional setup:\n" +
 				"  agentctl start <issue> --sdd=plain",
 		)
