@@ -307,12 +307,17 @@ func NewResumeCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "resume <issue> [feedback]",
 		Short: "Resume a paused spec review: approve or revise",
-		Long: `Resume a paused agent after the spec-review checkpoint.
+		Long: `Resume a paused agent session.
 
-Without feedback, sends "The spec is approved. Proceed with implementation." plus
-an authorisation to run bash commands, and the agent begins implementation.
-With feedback, sends the revision text (plus the same bash authorisation) and
-the agent rewrites the spec.
+In SDD mode (when the worktree was started with --sdd):
+  Without feedback: sends "The spec is approved. Proceed with implementation."
+    plus a bash-authorisation line; the agent begins implementation.
+  With feedback: sends the revision text plus the same bash-authorisation line;
+    the agent rewrites the spec and pauses again for re-review.
+
+In non-SDD mode (all other sessions):
+  Without feedback: sends "proceed" plus a bash-authorisation line.
+  With feedback: sends the feedback text plus a bash-authorisation line.
 
 By default the resumed agent streams its output to the terminal (foreground).
 Use --headless to run it in the background and write output to agent.log.`,
@@ -1847,7 +1852,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			maybeFireTestNotification(issue, out)
 			go func() {
 				<-exitCh
-				sendCompletionNotification(issue, wtPath, agentExitErr)
+				sendCompletionNotification(issue, wtPath, sddName, agentExitErr)
 			}()
 		}
 		return nil
@@ -1967,17 +1972,24 @@ func maybeFireTestNotification(issue string, out io.Writer) {
 // sendCompletionNotification fires a native desktop notification reporting
 // that the agent for the given issue has finished. exitErr is the error
 // returned by the agent process's Wait() call; nil means success.
-func sendCompletionNotification(issue, wtPath string, exitErr error) {
+// When sddName is non-empty and the agent succeeded, the message signals
+// that the spec is ready for review rather than using the generic finish text.
+func sendCompletionNotification(issue, wtPath, sddName string, exitErr error) {
 	branch, _ := git.CurrentBranch(wtPath)
-	status := "succeeded"
-	if exitErr != nil {
-		status = "failed"
-	}
 	branchPart := ""
 	if branch != "" {
 		branchPart = " (" + branch + ")"
 	}
-	notify.Send("agentctl", fmt.Sprintf("Agent finished — issue #%s%s: %s", issue, branchPart, status))
+	var message string
+	switch {
+	case exitErr != nil:
+		message = fmt.Sprintf("Agent failed — issue #%s%s: check agentctl logs %s", issue, branchPart, issue)
+	case sddName != "" && findSpecPath(wtPath, issue) != "":
+		message = fmt.Sprintf("Spec ready for review — issue #%s%s: run agentctl resume %s", issue, branchPart, issue)
+	default:
+		message = fmt.Sprintf("Agent finished — issue #%s%s: succeeded", issue, branchPart)
+	}
+	notify.Send("agentctl", message)
 }
 
 // convertStreamToLog reads Claude --output-format stream-json lines from r,
@@ -2806,7 +2818,7 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 			maybeFireTestNotification(issue, os.Stdout)
 			go func() {
 				<-exitCh
-				sendCompletionNotification(issue, wtPath, resumeExitErr)
+				sendCompletionNotification(issue, wtPath, "", resumeExitErr)
 			}()
 		}
 		return nil
