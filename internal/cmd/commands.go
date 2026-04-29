@@ -1410,8 +1410,6 @@ func startDevServer(dir string, out io.Writer) (devPID, portStr string, err erro
 		return startCustomDevServer(dir, cfg, out)
 	}
 
-	// No dev server configured — warn and skip
-	fmt.Fprintf(out, "warning: no dev_server configured in .agentctl.yml, skipping dev server startup\n")
 	return "", "", nil
 }
 

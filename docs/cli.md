@@ -29,7 +29,7 @@ Side effects:
 - Reserves a dev-server port in the `3010-3100` range.
 - Writes `.agent` metadata in the worktree.
 - Seeds `.env.local` from the primary worktree when present, stripping any existing `PORT=` lines (does not inject `PORT=<port>` itself).
-- Starts the dev server: if `.agentctl.yml` defines a `dev_server` command it is used (with `{port}` substituted); otherwise a warning is printed and the step is skipped. Any project that needs a dev server must set `dev_server` explicitly in `.agentctl.yml`.
+- Starts the dev server: if `.agentctl.yml` defines a `dev_server` command it is used (with `{port}` substituted); otherwise the step is silently skipped. Any project that needs a dev server must set `dev_server` explicitly in `.agentctl.yml`.
 - Launches the selected adapter.
 - When the agent exits, appends `Closes #<issue>` to the PR body retrieved via `gh pr view <branch>`, unless the body already contains `closes #<issue>` or `fixes #<issue>` (case-insensitive). Other closing keywords such as `resolves #<issue>` do not suppress the append.
 
@@ -321,7 +321,7 @@ Place `.agentctl.yml` in the root of your application repository to set per-repo
 
 ```yaml
 # Shell command to start the dev server. {port} is substituted with the
-# reserved port. If omitted, no dev server is started and a warning is printed.
+# reserved port. If omitted, no dev server is started (silently skipped).
 dev_server: "uvicorn main:app --port {port}"
 
 # Port agentctl allocated for the dev server (3010–3100 range). This value is
