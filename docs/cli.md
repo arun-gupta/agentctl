@@ -9,7 +9,7 @@ Run `agentctl --help` or `agentctl <command> --help` for generated help from the
 ### `agentctl start`
 
 ```bash
-agentctl start [--agent <name>] [--headless] [--quiet] <issue-number-or-url> [slug] [--sdd=<name>]
+agentctl start [--agent <name>] [--headless] [--notify] [--quiet] <issue-number-or-url> [slug] [--sdd=<name>]
 ```
 
 Creates a linked worktree for a GitHub issue and launches the selected coding agent inside it.
@@ -36,8 +36,8 @@ Side effects:
 ### `agentctl resume`
 
 ```bash
-agentctl resume [--headless] [--quiet] <issue-number>
-agentctl resume [--headless] [--quiet] <issue-number> [feedback]
+agentctl resume [--headless] [--notify] [--quiet] <issue-number>
+agentctl resume [--headless] [--notify] [--quiet] <issue-number> [feedback]
 ```
 
 Resumes a paused agent after the spec-review checkpoint.
@@ -324,8 +324,8 @@ Place `.agentctl.yml` in the root of your application repository to set per-repo
 # reserved port. If omitted, no dev server is started and a warning is printed.
 dev_server: "uvicorn main:app --port {port}"
 
-# Port to reserve for the dev server. If omitted, agentctl picks a free port
-# in the 3010–3100 range. Written back by agentctl after allocation.
+# Port agentctl allocated for the dev server (3010–3100 range). This value is
+# written and managed by agentctl; do not set it manually.
 port: 3010
 
 # Send a native desktop notification when a headless agent finishes.
