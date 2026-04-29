@@ -315,6 +315,24 @@ tail -f ../<repo>-42-<slug>/agent.log
 tail -f ../<repo>-42-<slug>/dev.log
 ```
 
+## `.agentctl.yml` configuration
+
+Place `.agentctl.yml` in the root of your application repository to set per-repo defaults. All fields are optional.
+
+```yaml
+# Shell command to start the dev server. {port} is substituted with the
+# reserved port. If omitted, no dev server is started and a warning is printed.
+dev_server: "uvicorn main:app --port {port}"
+
+# Port to reserve for the dev server. If omitted, agentctl picks a free port
+# in the 3010–3100 range. Written back by agentctl after allocation.
+port: 3010
+
+# Send a native desktop notification when a headless agent finishes.
+# Can also be enabled per-invocation with --notify.
+notify: true
+```
+
 ## Desktop notifications
 
 agentctl can fire a native OS notification the moment a headless agent finishes, so you don't have to poll `agentctl status` or watch `agent.log`.
