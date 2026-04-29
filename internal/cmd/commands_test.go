@@ -709,6 +709,46 @@ func TestValidateAdapter_unknown(t *testing.T) {
 	}
 }
 
+// ─── validateSDD ─────────────────────────────────────────────────────────────
+
+func TestValidateSDD_nonSpeckit_noCheck(t *testing.T) {
+	// Non-speckit methodologies require no filesystem check.
+	if err := validateSDD("plain", t.TempDir()); err != nil {
+		t.Errorf("validateSDD(plain) = %v; want nil", err)
+	}
+	if err := validateSDD("", t.TempDir()); err != nil {
+		t.Errorf("validateSDD(\"\") = %v; want nil", err)
+	}
+}
+
+func TestValidateSDD_speckit_missingSkills(t *testing.T) {
+	dir := t.TempDir() // no .claude/commands/ directory
+	err := validateSDD("speckit", dir)
+	if err == nil {
+		t.Fatal("validateSDD(speckit) expected error when skills missing, got nil")
+	}
+	if !strings.Contains(err.Error(), "speckit skills not found") {
+		t.Errorf("error should mention 'speckit skills not found', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), ".claude/commands") {
+		t.Errorf("error should mention .claude/commands path, got: %v", err)
+	}
+}
+
+func TestValidateSDD_speckit_skillsPresent(t *testing.T) {
+	dir := t.TempDir()
+	cmdDir := filepath.Join(dir, ".claude", "commands")
+	if err := os.MkdirAll(cmdDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cmdDir, "speckit.specify.md"), []byte("# speckit"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateSDD("speckit", dir); err != nil {
+		t.Errorf("validateSDD(speckit) with skills present = %v; want nil", err)
+	}
+}
+
 // ─── waitForFile ─────────────────────────────────────────────────────────────
 
 func TestWaitForFile_exists(t *testing.T) {

@@ -152,6 +152,11 @@ func startOne(issue, slug, agentName, sddName string, headless, quiet, sendNotif
 		}
 	}
 
+	// Validate methodology-specific prerequisites before any side effects.
+	if err := validateSDD(sddName, repoRoot); err != nil {
+		return err
+	}
+
 	// Derive slug from GitHub issue title if not supplied.
 	if slug == "" {
 		slug, err = slugFromIssue(ghIssueArg)
@@ -1493,6 +1498,26 @@ func resolveIssueArg(flag string, args []string) (string, error) {
 func validateAdapter(name string) error {
 	_, err := adapters.Get(name)
 	return err
+}
+
+// validateSDD checks that methodology-specific prerequisites are present in
+// the repo before any worktree is created. Currently only "speckit" requires
+// external skills (.claude/commands/speckit.*.md files).
+func validateSDD(sddName, repoRoot string) error {
+	if sddName != "speckit" {
+		return nil
+	}
+	pattern := filepath.Join(repoRoot, ".claude", "commands", "speckit.*.md")
+	matches, err := filepath.Glob(pattern)
+	if err != nil || len(matches) == 0 {
+		return fmt.Errorf(
+			"speckit skills not found in %s\n"+
+				"Expected .claude/commands/speckit.*.md files — install the SpecKit skill pack first.\n"+
+				"See https://github.com/arun-gupta/agentctl/blob/main/docs/sdd.md for setup instructions.",
+			filepath.Join(repoRoot, ".claude", "commands"),
+		)
+	}
+	return nil
 }
 
 // findWorktreePath resolves the linked worktree path for the given issue number.
