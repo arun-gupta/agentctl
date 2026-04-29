@@ -1385,7 +1385,7 @@ func TestLaunchAgent_nonHeadless_sigintPrintsHints(t *testing.T) {
 
 // ─── buildResumePrompt ────────────────────────────────────────────────────────
 
-func TestBuildResumePrompt_approval(t *testing.T) {
+func TestBuildResumePrompt_approval_sdd(t *testing.T) {
 	prompt := buildResumePrompt("", "plain")
 	if !strings.Contains(prompt, "The spec is approved") {
 		t.Errorf("approval prompt must say 'The spec is approved', got: %q", prompt)
