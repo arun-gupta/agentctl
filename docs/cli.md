@@ -224,7 +224,7 @@ Error cases:
 |-----------|---------------|
 | `dev_server` not set in `.agentctl.yml` | `dev_server not set in .agentctl.yml — nothing to start` |
 | `.agent` has no port recorded | `no port recorded in .agent — run agentctl start first` |
-| Dev server already running | `dev server already running (PID N) — use agentctl dev stop to restart` |
+| Dev server already running | `dev server already running (PID N) — run agentctl cleanup, then agentctl dev start` |
 | Port already in use | `port N already in use` (with PID if detectable) |
 
 ## Workflows
