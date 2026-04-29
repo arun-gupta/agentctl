@@ -1437,7 +1437,10 @@ func TestLaunchAgent_nonHeadless_nonZeroExitPrintsErrorHint(t *testing.T) {
 	}()
 
 	select {
-	case <-done:
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("launchAgent: unexpected error: %v", err)
+		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("launchAgent did not return")
 	}
