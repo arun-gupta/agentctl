@@ -1024,14 +1024,49 @@ func TestLaunchAgent_nonHeadless_exitPrintsResumeHint(t *testing.T) {
 	}
 
 	outStr := out.String()
-	want := fmt.Sprintf(resumeHintFmt, "42")
+	// Non-SDD run: expect cleanup hint, not resume hint.
+	want := "agentctl cleanup 42"
 	if !strings.Contains(outStr, want) {
-		t.Errorf("missing resume hint %q in foreground-exit output:\n%s", want, outStr)
+		t.Errorf("missing cleanup hint %q in foreground-exit output:\n%s", want, outStr)
 	}
-	for _, unwanted := range []string{"agentctl logs", "agentctl attach", "agentctl discard"} {
+	for _, unwanted := range []string{"agentctl logs", "agentctl attach", "agentctl discard", resumeHintFmt[:20]} {
 		if strings.Contains(outStr, unwanted) {
 			t.Errorf("foreground-exit output must not contain %q:\n%s", unwanted, outStr)
 		}
+	}
+}
+
+// TestLaunchAgent_nonClaudeNonHeadless_outputStreamed verifies that plain-text
+// output from non-claude adapters is written to agent.log in non-headless mode.
+func TestLaunchAgent_nonClaudeNonHeadless_outputStreamed(t *testing.T) {
+	dir := t.TempDir()
+	// Use echo with an explicit launch command that emits a known plain-text
+	// line — simulates codex/copilot output (no JSON events).
+	writeLocalAdapter(t, dir, "echoagent2",
+		"binary: echo\nlaunch: echo hello from codex\n")
+	chdirTemp(t, dir)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- launchAgent("echoagent2", dir, "42", "3010", "sess-abc", "do the thing", "", false, false, false, &bytes.Buffer{})
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("launchAgent: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("launchAgent did not return")
+	}
+
+	logPath := filepath.Join(dir, "agent.log")
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read agent.log: %v", err)
+	}
+	if !strings.Contains(string(content), "hello from codex") {
+		t.Errorf("agent.log missing plain-text output; got:\n%s", content)
 	}
 }
 
@@ -1494,9 +1529,10 @@ func TestAgentResume_nonHeadless_exitPrintsResumeHint(t *testing.T) {
 	r.Close()
 
 	out := buf.String()
-	want := fmt.Sprintf(resumeHintFmt, "42")
+	// After resume exit, the agent is done — expect cleanup hint, not resume hint.
+	want := "agentctl cleanup 42"
 	if !strings.Contains(out, want) {
-		t.Errorf("missing resume hint %q in foreground-exit output:\n%s", want, out)
+		t.Errorf("missing cleanup hint %q in foreground-exit output:\n%s", want, out)
 	}
 	for _, unwanted := range []string{"agentctl logs", "agentctl attach", "agentctl discard"} {
 		if strings.Contains(out, unwanted) {

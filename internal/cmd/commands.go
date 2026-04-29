@@ -1651,6 +1651,13 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 				convertOpenHandsStream(pr, logFile)
 				return
 			}
+			if adapterName != "claude" {
+				// Non-Claude adapters emit plain text; copy it directly to the log.
+				if _, err := io.Copy(logFile, pr); err != nil && !errors.Is(err, io.ErrClosedPipe) {
+					fmt.Fprintf(logFile, "converter read error: %v\n", err)
+				}
+				return
+			}
 			r := bufio.NewReader(pr)
 			for {
 				line, err := r.ReadString('\n')
@@ -1742,7 +1749,11 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
 				reportPRStatus(os.Stdout, wtPath, branch, issue)
 			}
-			fmt.Fprintf(out, resumeHintFmt, issue)
+			if sddName != "" {
+				fmt.Fprintf(out, resumeHintFmt, issue)
+			} else {
+				fmt.Fprintf(out, "agentctl cleanup %s   # after PR is merged\n", issue)
+			}
 			return nil
 		case <-sigCh:
 			signal.Stop(sigCh)
@@ -2702,7 +2713,7 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 			if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
 				reportPRStatus(os.Stdout, wtPath, branch, issue)
 			}
-			fmt.Fprintf(os.Stdout, resumeHintFmt, issue)
+			fmt.Fprintf(os.Stdout, "agentctl cleanup %s   # after PR is merged\n", issue)
 			return nil
 		case <-sigCh:
 			signal.Stop(sigCh)
