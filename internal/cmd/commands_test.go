@@ -1006,6 +1006,64 @@ func TestLaunchAgent_headless_notify(t *testing.T) {
 	}
 }
 
+// TestSendCompletionNotification_sddSpecReady verifies that when sddName is set
+// and the spec file exists, the notification says "Spec ready for review".
+func TestSendCompletionNotification_sddSpecReady(t *testing.T) {
+	dir := t.TempDir()
+	specsDir := filepath.Join(dir, "specs")
+	if err := os.MkdirAll(specsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(specsDir, "spec.md"), []byte("# spec\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	origFn := notify.SendFn
+	t.Cleanup(func() { notify.SendFn = origFn })
+	var got [2]string
+	notify.SendFn = func(title, message string) { got = [2]string{title, message} }
+
+	sendCompletionNotification("46", dir, "plain", nil)
+
+	if !strings.Contains(got[1], "Spec ready for review") {
+		t.Errorf("SDD notify message must say 'Spec ready for review', got: %q", got[1])
+	}
+	if !strings.Contains(got[1], "agentctl resume 46") {
+		t.Errorf("SDD notify message must include resume command, got: %q", got[1])
+	}
+}
+
+// TestSendCompletionNotification_nonSDD verifies the generic finish message.
+func TestSendCompletionNotification_nonSDD(t *testing.T) {
+	origFn := notify.SendFn
+	t.Cleanup(func() { notify.SendFn = origFn })
+	var got [2]string
+	notify.SendFn = func(title, message string) { got = [2]string{title, message} }
+
+	sendCompletionNotification("46", t.TempDir(), "", nil)
+
+	if !strings.Contains(got[1], "Agent finished") {
+		t.Errorf("non-SDD notify message must say 'Agent finished', got: %q", got[1])
+	}
+}
+
+// TestSendCompletionNotification_failure verifies the failure message.
+func TestSendCompletionNotification_failure(t *testing.T) {
+	origFn := notify.SendFn
+	t.Cleanup(func() { notify.SendFn = origFn })
+	var got [2]string
+	notify.SendFn = func(title, message string) { got = [2]string{title, message} }
+
+	sendCompletionNotification("46", t.TempDir(), "plain", fmt.Errorf("exit status 1"))
+
+	if !strings.Contains(got[1], "Agent failed") {
+		t.Errorf("failure notify message must say 'Agent failed', got: %q", got[1])
+	}
+	if !strings.Contains(got[1], "agentctl logs 46") {
+		t.Errorf("failure notify message must include logs command, got: %q", got[1])
+	}
+}
+
 // TestMaybeFireTestNotification_firstRun verifies that a notification is sent
 // and the sentinel is created on the first --notify use, and that a hint line
 // is printed to out.
