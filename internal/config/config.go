@@ -1,6 +1,4 @@
 // Package config handles reading and writing the per-repo .agentctl.yml file.
-// This file is the single source of truth for all agentctl repo-level config:
-// developers write the dev_server field; agentctl writes back the allocated port.
 package config
 
 import (
@@ -18,10 +16,6 @@ type AgentctlConfig struct {
 	// Use {port} as a placeholder; agentctl substitutes the allocated port.
 	// Example: "uvicorn main:app --port {port}"
 	DevServer string `yaml:"dev_server,omitempty"`
-
-	// Port is written back by agentctl after it allocates a port for the dev
-	// server. Read-only for the developer.
-	Port int `yaml:"port,omitempty"`
 
 	// Notify enables native desktop notifications when a headless agent
 	// finishes. Only meaningful in headless mode; ignored for foreground runs.

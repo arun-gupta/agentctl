@@ -14,7 +14,7 @@ func TestRead_missingFile_returnsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.DevServer != "" || cfg.Port != 0 {
+	if cfg.DevServer != "" || cfg.Notify {
 		t.Errorf("expected empty config for missing file, got %+v", cfg)
 	}
 }
@@ -33,7 +33,7 @@ func TestRead_parsesDevServer(t *testing.T) {
 	}
 }
 
-func TestWrite_persistsPort(t *testing.T) {
+func TestWrite_preservesDevServer(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"), []byte("dev_server: \"uvicorn main:app --port {port}\"\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -42,7 +42,6 @@ func TestWrite_persistsPort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.Port = 3042
 	if err := config.Write(dir, cfg); err != nil {
 		t.Fatalf("Write error: %v", err)
 	}
@@ -50,9 +49,6 @@ func TestWrite_persistsPort(t *testing.T) {
 	got, err := config.Read(dir)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if got.Port != 3042 {
-		t.Errorf("Port = %d, want 3042", got.Port)
 	}
 	if got.DevServer != "uvicorn main:app --port {port}" {
 		t.Errorf("DevServer lost after Write: %q", got.DevServer)
@@ -61,7 +57,7 @@ func TestWrite_persistsPort(t *testing.T) {
 
 func TestWrite_createsFileWhenAbsent(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &config.AgentctlConfig{Port: 3010}
+	cfg := &config.AgentctlConfig{DevServer: "npm start"}
 	if err := config.Write(dir, cfg); err != nil {
 		t.Fatalf("Write error: %v", err)
 	}
@@ -69,8 +65,8 @@ func TestWrite_createsFileWhenAbsent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Port != 3010 {
-		t.Errorf("Port = %d, want 3010", got.Port)
+	if got.DevServer != "npm start" {
+		t.Errorf("DevServer = %q, want %q", got.DevServer, "npm start")
 	}
 }
 
