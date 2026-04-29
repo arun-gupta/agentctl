@@ -324,9 +324,8 @@ Place `.agentctl.yml` in the root of your application repository to set per-repo
 # reserved port. If omitted, no dev server is started and a warning is printed.
 dev_server: "uvicorn main:app --port {port}"
 
-# Port last allocated by agentctl for the dev server. This field is written
-# back by agentctl after it picks a free port in the 3010–3100 range.
-# It is managed by agentctl and should not be set manually.
+# Port agentctl allocated for the dev server (3010–3100 range). This value is
+# written and managed by agentctl; do not set it manually.
 port: 3010
 
 # Send a native desktop notification when a headless agent finishes.
