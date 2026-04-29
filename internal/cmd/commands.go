@@ -1819,12 +1819,18 @@ func notifyTestSentinelPath() string {
 // A one-line hint is printed to out so the user knows to look for it.
 func maybeFireTestNotification(issue string, out io.Writer) {
 	sentinel := notifyTestSentinelPath()
-	if _, err := os.Stat(sentinel); err == nil {
-		return // already tested
-	}
-	notify.Send("agentctl", fmt.Sprintf("Notifications enabled — you'll be notified when issue #%s finishes.", issue))
 	_ = os.MkdirAll(filepath.Dir(sentinel), 0o755)
-	_ = os.WriteFile(sentinel, []byte(""), 0o644)
+
+	f, err := os.OpenFile(sentinel, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return // already tested
+		}
+		return
+	}
+	_ = f.Close()
+
+	notify.Send("agentctl", fmt.Sprintf("Notifications enabled — you'll be notified when issue #%s finishes.", issue))
 	fmt.Fprintln(out, "Note: a test notification was sent — if you didn't see it, or want it to stay until dismissed, go to System Settings → Notifications → Terminal → set style to \"Alerts\".")
 }
 
