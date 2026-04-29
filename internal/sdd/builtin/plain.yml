@@ -20,8 +20,9 @@ kickoff: |
 
       ## Test Cases
       Bulleted list of scenarios that the new or updated tests will validate —
-      one bullet per case, describe what is asserted, not which file changes.
-      Also list which test files are added or updated.
+      one bullet per case, describing what behavior or assertion is tested
+      rather than which files changed. After the bullets, add a separate note
+      listing any test files added or updated.
 
       ## Risks / Open Questions
       What you are uncertain about, assumptions made, or areas where human
