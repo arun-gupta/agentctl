@@ -544,7 +544,10 @@ func TestLocateOrCloneRepo_cwdMatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != dir {
+	// Resolve symlinks: on macOS t.TempDir() is under /var which symlinks to /private/var.
+	wantResolved, _ := filepath.EvalSymlinks(dir)
+	gotResolved, _ := filepath.EvalSymlinks(got)
+	if gotResolved != wantResolved {
 		t.Errorf("got %q, want %q", got, dir)
 	}
 }
@@ -630,7 +633,10 @@ func TestRepoRootForIssue_bareNumber(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if root != dir {
+	// Resolve symlinks: on macOS t.TempDir() is under /var which symlinks to /private/var.
+	wantResolved, _ := filepath.EvalSymlinks(dir)
+	gotResolved, _ := filepath.EvalSymlinks(root)
+	if gotResolved != wantResolved {
 		t.Errorf("root = %q, want %q", root, dir)
 	}
 	if issueNum != "42" {
@@ -650,7 +656,10 @@ func TestRepoRootForIssue_urlCwdMatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if root != dir {
+	// Resolve symlinks: on macOS t.TempDir() is under /var which symlinks to /private/var.
+	wantResolved, _ := filepath.EvalSymlinks(dir)
+	gotResolved, _ := filepath.EvalSymlinks(root)
+	if gotResolved != wantResolved {
 		t.Errorf("root = %q, want %q", root, dir)
 	}
 	if issueNum != "99" {
@@ -896,14 +905,16 @@ func TestLaunchAgent_headless_withSDD_showsResumeHint(t *testing.T) {
 	}
 
 	outStr := out.String()
-	for _, want := range []string{"Session ID: sess-abc", "agentctl resume 42", "sends approval"} {
+	// SDD headless: must show logs/attach/discard so user can follow progress,
+	// plus the resume hint for the spec-review checkpoint.
+	for _, want := range []string{
+		"agentctl logs 42",
+		"agentctl attach 42",
+		"agentctl discard 42",
+		"agentctl resume 42",
+	} {
 		if !strings.Contains(outStr, want) {
 			t.Errorf("SDD headless output missing %q:\n%s", want, outStr)
-		}
-	}
-	for _, unwanted := range []string{"agentctl logs", "agentctl attach", "agentctl discard"} {
-		if strings.Contains(outStr, unwanted) {
-			t.Errorf("SDD headless output must not contain %q:\n%s", unwanted, outStr)
 		}
 	}
 }
@@ -991,7 +1002,7 @@ func TestLaunchAgent_nonHeadless_exitsWhenAgentDone(t *testing.T) {
 	}
 }
 
-func TestLaunchAgent_nonHeadless_exitPrintsResumeHint(t *testing.T) {
+func TestLaunchAgent_nonHeadless_exitPrintsCleanupHint(t *testing.T) {
 	dir := t.TempDir()
 	writeLocalAdapter(t, dir, "echoagent",
 		"binary: echo\nsession: --session\n")
@@ -1024,14 +1035,49 @@ func TestLaunchAgent_nonHeadless_exitPrintsResumeHint(t *testing.T) {
 	}
 
 	outStr := out.String()
-	want := fmt.Sprintf(resumeHintFmt, "42")
+	// Non-SDD run: expect cleanup hint, not resume hint.
+	want := "agentctl cleanup 42"
 	if !strings.Contains(outStr, want) {
-		t.Errorf("missing resume hint %q in foreground-exit output:\n%s", want, outStr)
+		t.Errorf("missing cleanup hint %q in foreground-exit output:\n%s", want, outStr)
 	}
-	for _, unwanted := range []string{"agentctl logs", "agentctl attach", "agentctl discard"} {
+	for _, unwanted := range []string{"agentctl logs", "agentctl attach", "agentctl discard", "agentctl resume"} {
 		if strings.Contains(outStr, unwanted) {
 			t.Errorf("foreground-exit output must not contain %q:\n%s", unwanted, outStr)
 		}
+	}
+}
+
+// TestLaunchAgent_nonClaudeNonHeadless_outputStreamed verifies that plain-text
+// output from non-claude adapters is written to agent.log in non-headless mode.
+func TestLaunchAgent_nonClaudeNonHeadless_outputStreamed(t *testing.T) {
+	dir := t.TempDir()
+	// Use echo with an explicit launch command that emits a known plain-text
+	// line — simulates codex/copilot output (no JSON events).
+	writeLocalAdapter(t, dir, "echoagent2",
+		"binary: echo\nlaunch: echo hello from codex\n")
+	chdirTemp(t, dir)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- launchAgent("echoagent2", dir, "42", "3010", "sess-abc", "do the thing", "", false, false, false, &bytes.Buffer{})
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("launchAgent: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("launchAgent did not return")
+	}
+
+	logPath := filepath.Join(dir, "agent.log")
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read agent.log: %v", err)
+	}
+	if !strings.Contains(string(content), "hello from codex") {
+		t.Errorf("agent.log missing plain-text output; got:\n%s", content)
 	}
 }
 
@@ -1445,7 +1491,7 @@ func TestAgentResume_nonHeadless_exitsWhenAgentDone(t *testing.T) {
 	}
 }
 
-func TestAgentResume_nonHeadless_exitPrintsResumeHint(t *testing.T) {
+func TestAgentResume_nonHeadless_exitPrintsCleanupHint(t *testing.T) {
 	dir := t.TempDir()
 	writeLocalAdapter(t, dir, "echoagent",
 		"binary: echo\nsession: --session\n")
@@ -1494,9 +1540,10 @@ func TestAgentResume_nonHeadless_exitPrintsResumeHint(t *testing.T) {
 	r.Close()
 
 	out := buf.String()
-	want := fmt.Sprintf(resumeHintFmt, "42")
+	// After resume exit, the agent is done — expect cleanup hint, not resume hint.
+	want := "agentctl cleanup 42"
 	if !strings.Contains(out, want) {
-		t.Errorf("missing resume hint %q in foreground-exit output:\n%s", want, out)
+		t.Errorf("missing cleanup hint %q in foreground-exit output:\n%s", want, out)
 	}
 	for _, unwanted := range []string{"agentctl logs", "agentctl attach", "agentctl discard"} {
 		if strings.Contains(out, unwanted) {
@@ -2519,8 +2566,8 @@ func TestStartDevServer_noPackageJSON_returnsEmptyPort(t *testing.T) {
 	if port != "" {
 		t.Errorf("expected empty port when no dev server started, got %q", port)
 	}
-	if !strings.Contains(buf.String(), "warning") {
-		t.Errorf("expected a warning message when dev_server is not configured, got %q", buf.String())
+	if buf.String() != "" {
+		t.Errorf("expected no output when dev_server is not configured, got %q", buf.String())
 	}
 }
 

@@ -1395,7 +1395,7 @@ func seedEnvLocal(src, dst string) error {
 
 // startDevServer starts a dev server for the project in dir. Detection order:
 //  1. .agentctl.yml with dev_server field  → run that command with {port} substituted
-//  2. otherwise                            → print a warning and skip, return ("","",nil)
+//  2. otherwise                            → silently skip, return ("","",nil)
 //
 // On success the allocated port is written back to .agentctl.yml so it serves
 // as the single source of truth for all agentctl repo config.
@@ -1410,8 +1410,6 @@ func startDevServer(dir string, out io.Writer) (devPID, portStr string, err erro
 		return startCustomDevServer(dir, cfg, out)
 	}
 
-	// No dev server configured — warn and skip
-	fmt.Fprintf(out, "warning: no dev_server configured in .agentctl.yml, skipping dev server startup\n")
 	return "", "", nil
 }
 
@@ -1653,6 +1651,13 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 				convertOpenHandsStream(pr, logFile)
 				return
 			}
+			if adapterName != "claude" {
+				// Non-Claude adapters emit plain text; copy it directly to the log.
+				if _, err := io.Copy(logFile, pr); err != nil && !errors.Is(err, io.ErrClosedPipe) {
+					fmt.Fprintf(logFile, "converter read error: %v\n", err)
+				}
+				return
+			}
 			r := bufio.NewReader(pr)
 			for {
 				line, err := r.ReadString('\n')
@@ -1701,15 +1706,11 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 
 	if headless {
 		fmt.Fprintf(out, "Agent PID %d — log: %s\n", pid, logPath)
+		fmt.Fprintf(out, "agentctl logs %s      # follow log\n", issue)
+		fmt.Fprintf(out, "agentctl attach %s    # stream live and wait\n", issue)
+		fmt.Fprintf(out, "agentctl discard %s   # abandon\n", issue)
 		if sddName != "" {
-			fmt.Fprintf(out, "Session ID: %s\n", sessionID)
-			fmt.Fprintf(out, "Use \"agentctl resume %s [feedback]\" to continue the session.\n", issue)
-			fmt.Fprintln(out, "Without feedback, it sends approval (\"proceed\") and the agent begins implementation.")
-			fmt.Fprintln(out, "With feedback, it sends the revision text and the agent rewrites the spec.")
-		} else {
-			fmt.Fprintf(out, "agentctl logs %s      # follow log\n", issue)
-			fmt.Fprintf(out, "agentctl attach %s    # stream live and wait\n", issue)
-			fmt.Fprintf(out, "agentctl discard %s   # abandon\n", issue)
+			fmt.Fprintf(out, "agentctl resume %s [feedback]   # approve spec or send revisions\n", issue)
 		}
 		if sendNotify {
 			go func() {
@@ -1744,7 +1745,11 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
 				reportPRStatus(os.Stdout, wtPath, branch, issue)
 			}
-			fmt.Fprintf(out, resumeHintFmt, issue)
+			if sddName != "" {
+				fmt.Fprintf(out, resumeHintFmt, issue)
+			} else {
+				fmt.Fprintf(out, "agentctl cleanup %s   # after PR is merged\n", issue)
+			}
 			return nil
 		case <-sigCh:
 			signal.Stop(sigCh)
@@ -2554,6 +2559,13 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 				convertOpenHandsStream(pr, logFile)
 				return
 			}
+			if adapterName != "claude" {
+				// Non-Claude adapters emit plain text; copy it directly to the log.
+				if _, err := io.Copy(logFile, pr); err != nil && !errors.Is(err, io.ErrClosedPipe) {
+					fmt.Fprintf(logFile, "converter read error: %v\n", err)
+				}
+				return
+			}
 			r := bufio.NewReader(pr)
 			for {
 				line, err := r.ReadString('\n')
@@ -2704,7 +2716,7 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 			if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
 				reportPRStatus(os.Stdout, wtPath, branch, issue)
 			}
-			fmt.Fprintf(os.Stdout, resumeHintFmt, issue)
+			fmt.Fprintf(os.Stdout, "agentctl cleanup %s   # after PR is merged\n", issue)
 			return nil
 		case <-sigCh:
 			signal.Stop(sigCh)
