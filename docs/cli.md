@@ -9,13 +9,14 @@ Run `agentctl --help` or `agentctl <command> --help` for generated help from the
 ### `agentctl start`
 
 ```bash
-agentctl start [--agent <name>] [--headless] [--quiet] <issue-number-or-url> [slug] [--sdd=<name>]
+agentctl start [--agent <name>] [--headless] [--notify] [--quiet] <issue-number-or-url> [slug] [--sdd=<name>]
 ```
 
 Creates a linked worktree for a GitHub issue and launches the selected coding agent inside it.
 
 - `--agent <name>`: adapter name; default is `claude`. See [adapters.md](adapters.md) for available adapters.
 - `--headless`: run the agent in the background and write agent output to `agent.log`.
+- `--notify`: send a native desktop notification when the headless agent finishes. No-op when `--headless` is not set. See [Desktop notifications](#desktop-notifications).
 - `--quiet`: suppress agent log output in the terminal; show only the spinner (TTY) or heartbeat lines (non-TTY/CI). Has no effect with `--headless`.
 - `--sdd=<name>`: opt into an SDD methodology (e.g. `--sdd=plain`, `--sdd=speckit`). Omit to skip SDD and work directly toward a PR. See [sdd.md](sdd.md).
 - `<issue-number-or-url>`: a bare GitHub issue number (e.g. `42`) **or** a full GitHub issue URL (e.g. `https://github.com/owner/repo/issues/42`). When a URL is supplied, `agentctl` locates or clones the target repository automatically so you do not need to `cd` into it first.
@@ -35,8 +36,8 @@ Side effects:
 ### `agentctl resume`
 
 ```bash
-agentctl resume [--headless] [--quiet] <issue-number>
-agentctl resume [--headless] [--quiet] <issue-number> [feedback]
+agentctl resume [--headless] [--notify] [--quiet] <issue-number>
+agentctl resume [--headless] [--notify] [--quiet] <issue-number> [feedback]
 ```
 
 Resumes a paused agent after the spec-review checkpoint.
@@ -47,6 +48,7 @@ Resumes a paused agent after the spec-review checkpoint.
 By default the resumed agent streams its output to the terminal (foreground mode), identical to `agentctl start` without `--headless`. Press Ctrl+C to detach without stopping the agent.
 
 - `--headless`: run the resumed agent in the background and write output to `agent.log`.
+- `--notify`: send a native desktop notification when the headless agent finishes. No-op when `--headless` is not set. See [Desktop notifications](#desktop-notifications).
 - `--quiet`: suppress agent log output in the terminal; show only the spinner (TTY) or heartbeat lines (non-TTY/CI). Has no effect with `--headless`.
 
 The command requires:
@@ -225,8 +227,8 @@ agentctl cleanup 42
 ### Headless single-issue workflow
 
 ```bash
-# Start work in the background
-agentctl start --headless 42
+# Start work in the background; get a desktop notification when done
+agentctl start --headless --notify 42
 
 # Watch progress
 agentctl status --verbose
@@ -312,6 +314,62 @@ cat ../<repo>-42-<slug>/.agent
 tail -f ../<repo>-42-<slug>/agent.log
 tail -f ../<repo>-42-<slug>/dev.log
 ```
+
+## `.agentctl.yml` configuration
+
+Place `.agentctl.yml` in the root of your application repository to set per-repo defaults. All fields are optional.
+
+```yaml
+# Shell command to start the dev server. {port} is substituted with the
+# reserved port. If omitted, no dev server is started and a warning is printed.
+dev_server: "uvicorn main:app --port {port}"
+
+# Port agentctl allocated for the dev server (3010–3100 range). This value is
+# written and managed by agentctl; do not set it manually.
+port: 3010
+
+# Send a native desktop notification when a headless agent finishes.
+# Can also be enabled per-invocation with --notify.
+notify: true
+```
+
+## Desktop notifications
+
+agentctl can fire a native OS notification the moment a headless agent finishes, so you don't have to poll `agentctl status` or watch `agent.log`.
+
+### Enabling notifications
+
+**Per-invocation** — pass `--notify` on `start` or `resume`:
+
+```bash
+agentctl start --headless --notify 42
+agentctl resume --headless --notify 42
+```
+
+**Repo-wide default** — add `notify: true` to `.agentctl.yml`:
+
+```yaml
+notify: true
+```
+
+Either or both can be set; they combine with OR. `--notify` has no effect without `--headless`.
+
+### Notification format
+
+```
+Title:   agentctl
+Message: Agent finished — issue #42 (42-my-feature): succeeded
+```
+
+The message includes the issue number, branch name, and exit status (`succeeded` or `failed`).
+
+### Platform support
+
+| Platform | Tool | Notes |
+|----------|------|-------|
+| macOS | `osascript` | Built into macOS; no install required |
+| Linux | `notify-send` | Provided by `libnotify-bin` on Debian/Ubuntu |
+| Other | — | Silently no-ops; CI is unaffected |
 
 ## Worktree state files
 
