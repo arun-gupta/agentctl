@@ -1141,7 +1141,12 @@ func runDevStart(wtPath string, quiet bool, out io.Writer) error {
 	fmt.Fprintf(out, "Dev server ready → http://localhost:%s\n", af.DevPort)
 
 	if cfg.Notify {
-		go notify.Send("agentctl", fmt.Sprintf("Dev server ready → http://localhost:%s", af.DevPort))
+		msg := fmt.Sprintf("Dev server ready → http://localhost:%s", af.DevPort)
+		if quiet {
+			notify.Send("agentctl", msg)
+		} else {
+			go notify.Send("agentctl", msg)
+		}
 	}
 
 	if !quiet {
