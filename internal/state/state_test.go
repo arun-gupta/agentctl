@@ -144,6 +144,46 @@ func TestWriteAlwaysIncludesSDD(t *testing.T) {
 	}
 }
 
+func TestDevPortRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	want := AgentFile{
+		Agent:     "claude",
+		SessionID: "s1",
+		DevPID:    "1234",
+		DevPort:   "3042",
+	}
+	if err := Write(dir, want); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	got, err := Read(dir)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got.DevPort != want.DevPort {
+		t.Errorf("DevPort: got %q, want %q", got.DevPort, want.DevPort)
+	}
+}
+
+func TestWriteOmitsEmptyDevPort(t *testing.T) {
+	dir := t.TempDir()
+	af := AgentFile{
+		Agent:     "claude",
+		SessionID: "s1",
+		DevPID:    "1234",
+		// DevPort intentionally empty (no dev server)
+	}
+	if err := Write(dir, af); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, FileName))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if contains(string(raw), "dev-port=") {
+		t.Error("expected dev-port line to be absent when DevPort is empty")
+	}
+}
+
 func TestReadExtraKeys(t *testing.T) {
 	dir := t.TempDir()
 	content := "agent=claude\nsession-id=s1\ndev-pid=1\ncustom-key=hello\n"

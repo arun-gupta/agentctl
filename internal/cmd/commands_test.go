@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/arun-gupta/agentctl/internal/config"
 	"github.com/arun-gupta/agentctl/internal/notify"
 	"github.com/arun-gupta/agentctl/internal/sdd"
 	"github.com/arun-gupta/agentctl/internal/state"
@@ -3142,10 +3141,11 @@ func TestFollowLog_filterNoise_false_passesEverything(t *testing.T) {
 	}
 }
 
-func TestStartDevServer_agentctlYml_writesPortBack(t *testing.T) {
+func TestStartDevServer_doesNotDirtyAgentctlYml(t *testing.T) {
 	dir := t.TempDir()
+	original := "dev_server: \"echo ok\"\n"
 	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"),
-		[]byte("dev_server: \"echo ok\"\n"), 0o644); err != nil {
+		[]byte(original), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	pidStr, portStr, err := startDevServer(dir, io.Discard)
@@ -3171,13 +3171,13 @@ func TestStartDevServer_agentctlYml_writesPortBack(t *testing.T) {
 	if portStr == "" {
 		t.Fatal("expected non-empty port when dev_server is set")
 	}
-	// Verify port was written back to .agentctl.yml.
-	cfg, err := config.Read(dir)
-	if err != nil {
-		t.Fatal(err)
+	// Verify .agentctl.yml was NOT modified (port belongs in .agent, not here).
+	content, readErr := os.ReadFile(filepath.Join(dir, ".agentctl.yml"))
+	if readErr != nil {
+		t.Fatal(readErr)
 	}
-	if fmt.Sprintf("%d", cfg.Port) != portStr {
-		t.Errorf("port in .agentctl.yml = %d, want %s", cfg.Port, portStr)
+	if string(content) != original {
+		t.Errorf(".agentctl.yml was modified by startDevServer:\ngot:  %q\nwant: %q", string(content), original)
 	}
 }
 

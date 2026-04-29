@@ -17,6 +17,7 @@ type AgentFile struct {
 	Agent     string // adapter name, e.g. "claude"
 	SessionID string // UUID assigned at spawn time
 	DevPID    string // PID of the dev server process
+	DevPort   string // port allocated for the dev server; empty when no dev server
 	AgentPID  string // PID of the background agent process (headless only)
 	SDD       string // SDD methodology name, e.g. "plain", "speckit"; empty if none
 	// SDDSet is true when the sdd= key was explicitly present in the .agent file,
@@ -58,6 +59,8 @@ func Read(worktreePath string) (AgentFile, error) {
 			af.SessionID = v
 		case "dev-pid":
 			af.DevPID = v
+		case "dev-port":
+			af.DevPort = v
 		case "agent-pid":
 			af.AgentPID = v
 		case "sdd":
@@ -84,6 +87,8 @@ func GetKey(worktreePath, key string) (string, error) {
 		return af.SessionID, nil
 	case "dev-pid":
 		return af.DevPID, nil
+	case "dev-port":
+		return af.DevPort, nil
 	case "agent-pid":
 		return af.AgentPID, nil
 	case "sdd":
@@ -101,6 +106,9 @@ func Write(worktreePath string, af AgentFile) error {
 		"agent=" + af.Agent,
 		"session-id=" + af.SessionID,
 		"dev-pid=" + af.DevPID,
+	}
+	if af.DevPort != "" {
+		lines = append(lines, "dev-port="+af.DevPort)
 	}
 	if af.AgentPID != "" {
 		lines = append(lines, "agent-pid="+af.AgentPID)

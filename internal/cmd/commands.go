@@ -201,6 +201,7 @@ func startOne(issue, slug, agentName, sddName string, headless, quiet, sendNotif
 		Agent:     agentName,
 		SessionID: sessionID,
 		DevPID:    devPID,
+		DevPort:   portStr,
 		SDD:       sddName,
 	}
 	if err := state.Write(wtPath, af); err != nil {
@@ -1552,10 +1553,6 @@ func startCustomDevServer(dir string, cfg *config.AgentctlConfig, out io.Writer)
 	}
 	fmt.Fprintf(out, "Dev server: http://localhost:%s (log: %s/dev.log)\n", portStr, dir)
 
-	cfg.Port = port
-	if err := config.Write(dir, cfg); err != nil {
-		fmt.Fprintf(out, "warning: could not persist port to .agentctl.yml: %v\n", err)
-	}
 	return fmt.Sprintf("%d", devCmd.Process.Pid), portStr, nil
 }
 
