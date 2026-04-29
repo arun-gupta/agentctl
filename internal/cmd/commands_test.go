@@ -1718,6 +1718,45 @@ func TestAgentEnv_ghConfigSymlink(t *testing.T) {
 	}
 }
 
+// TestAgentEnv_codexSymlink verifies that agentEnv creates a symlink
+// .agent-home/.codex → <HOME>/.codex when ~/.codex exists, giving the codex
+// CLI access to its credentials under HOME isolation.
+func TestAgentEnv_codexSymlink(t *testing.T) {
+	// Build a fake HOME containing .codex
+	fakeHome := t.TempDir()
+	codexSrc := filepath.Join(fakeHome, ".codex")
+	if err := os.MkdirAll(codexSrc, 0o755); err != nil {
+		t.Fatalf("setup fake HOME: %v", err)
+	}
+
+	// Point HOME at our fake directory so os.UserHomeDir picks it up.
+	t.Setenv("HOME", fakeHome)
+
+	dir := t.TempDir()
+	if _, err := agentEnv(dir); err != nil {
+		t.Fatalf("agentEnv: %v", err)
+	}
+
+	agentHome := filepath.Join(dir, ".agent-home")
+
+	// .agent-home/.codex must be a symlink pointing to the real ~/.codex.
+	codexDst := filepath.Join(agentHome, ".codex")
+	fi, err := os.Lstat(codexDst)
+	if err != nil {
+		t.Skipf("symlinks not supported on this platform: %v", err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Error(".agent-home/.codex must be a symlink")
+	}
+	target, err := os.Readlink(codexDst)
+	if err != nil {
+		t.Fatalf("readlink .agent-home/.codex: %v", err)
+	}
+	if target != codexSrc {
+		t.Errorf(".agent-home/.codex symlink target = %q; want %q", target, codexSrc)
+	}
+}
+
 // fakeGHBin writes a small shell script to dir/gh that outputs token when
 // called as "gh auth token", and updates PATH so exec.Command("gh", …) finds it.
 func fakeGHBin(t *testing.T, token string) {
