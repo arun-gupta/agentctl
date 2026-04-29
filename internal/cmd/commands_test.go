@@ -1425,6 +1425,36 @@ func TestLaunchAgent_nonZeroExitLogsToStderr(t *testing.T) {
 	}
 }
 
+func TestLaunchAgent_nonHeadless_nonZeroExitPrintsErrorHint(t *testing.T) {
+	dir := t.TempDir()
+	writeLocalAdapter(t, dir, "falseagent", "binary: false\n")
+	chdirTemp(t, dir)
+
+	var out bytes.Buffer
+	done := make(chan error, 1)
+	go func() {
+		done <- launchAgent("falseagent", dir, "42", "3010", "sess-abc", "do the thing", "", false, false, false, &out)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("launchAgent did not return")
+	}
+
+	outStr := out.String()
+	if !strings.Contains(outStr, "agent exited with error") {
+		t.Errorf("expected 'agent exited with error' in output, got: %q", outStr)
+	}
+	if !strings.Contains(outStr, "agentctl logs 42") {
+		t.Errorf("expected 'agentctl logs 42' hint in output, got: %q", outStr)
+	}
+	// Must not show the normal cleanup/resume hint on error.
+	if strings.Contains(outStr, "agentctl cleanup") {
+		t.Errorf("must not show cleanup hint on error exit, got: %q", outStr)
+	}
+}
+
 func TestAgentResume_unknownAdapter(t *testing.T) {
 	dir := t.TempDir()
 	err := agentResume("nonexistent-xyz-abc", dir, "42", "sess-123", "my feedback", true, false, false)
