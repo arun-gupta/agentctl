@@ -1006,6 +1006,71 @@ func TestLaunchAgent_headless_notify(t *testing.T) {
 	}
 }
 
+// TestMaybeFireTestNotification_firstRun verifies that a notification is sent
+// and the sentinel is created on the first --notify use, and that a hint line
+// is printed to out.
+func TestMaybeFireTestNotification_firstRun(t *testing.T) {
+	cfgDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgDir)
+
+	origFn := notify.SendFn
+	t.Cleanup(func() { notify.SendFn = origFn })
+
+	var notified [][2]string
+	notify.SendFn = func(title, message string) {
+		notified = append(notified, [2]string{title, message})
+	}
+
+	var out bytes.Buffer
+	maybeFireTestNotification("42", &out)
+
+	if len(notified) != 1 {
+		t.Fatalf("expected 1 notification, got %d", len(notified))
+	}
+	if !strings.Contains(notified[0][1], "42") {
+		t.Errorf("notification message %q does not mention issue 42", notified[0][1])
+	}
+	if !strings.Contains(out.String(), "test notification was sent") {
+		t.Errorf("hint line missing from output: %q", out.String())
+	}
+	sentinel := filepath.Join(cfgDir, "agentctl", "notify-tested")
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Errorf("sentinel file not created: %v", err)
+	}
+}
+
+// TestMaybeFireTestNotification_subsequentRun verifies that the notification
+// is not sent again once the sentinel exists.
+func TestMaybeFireTestNotification_subsequentRun(t *testing.T) {
+	cfgDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgDir)
+
+	// Pre-create the sentinel.
+	sentinelDir := filepath.Join(cfgDir, "agentctl")
+	if err := os.MkdirAll(sentinelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sentinelDir, "notify-tested"), []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	origFn := notify.SendFn
+	t.Cleanup(func() { notify.SendFn = origFn })
+
+	called := false
+	notify.SendFn = func(title, message string) { called = true }
+
+	var out bytes.Buffer
+	maybeFireTestNotification("42", &out)
+
+	if called {
+		t.Error("notification must not fire on subsequent runs (sentinel present)")
+	}
+	if out.Len() != 0 {
+		t.Errorf("no hint expected on subsequent run, got: %q", out.String())
+	}
+}
+
 func TestLaunchAgent_nonHeadless_exitsWhenAgentDone(t *testing.T) {
 	dir := t.TempDir()
 	// Use `echo` as the agent binary — always on PATH, exits immediately.
