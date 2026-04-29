@@ -272,26 +272,29 @@ const resumeAuthorisation = "You are authorised to run bash commands (tests, lin
 //
 // When sddName is non-empty (SDD mode):
 //   - No feedback: spec approved, proceed with implementation.
-//   - With feedback: revise specs/spec.md then stop again for re-review;
-//     do NOT implement yet.
-//   - In both SDD cases, append the bash-authorisation line.
+//   - With feedback: revise the spec at specPath (or specs/spec.md if specPath
+//     is empty) then stop again for re-review; do NOT implement yet.
 //
 // When sddName is empty (non-SDD mode): pass feedback through unchanged
-// (or "proceed" when no feedback), without appending the
-// bash-authorisation line.
-func buildResumePrompt(feedback, sddName string) string {
+// (or "proceed" when no feedback).
+//
+// Either way, the bash-authorisation line is appended.
+func buildResumePrompt(feedback, sddName, specPath string) string {
 	if sddName != "" {
 		if feedback == "" {
 			return "The spec is approved. Proceed with implementation. " + resumeAuthorisation
 		}
-		return "Revise specs/spec.md to incorporate this feedback: " + feedback +
+		if specPath == "" {
+			specPath = "specs/spec.md"
+		}
+		return "Revise " + specPath + " to incorporate this feedback: " + feedback +
 			"\nAfter updating the spec, stop and wait for human approval before" +
 			" proceeding with implementation. Do not implement yet. " + resumeAuthorisation
 	}
 	if feedback == "" {
-		return "proceed"
+		return "proceed " + resumeAuthorisation
 	}
-	return feedback
+	return feedback + " " + resumeAuthorisation
 }
 
 // NewResumeCmd creates the `resume` subcommand.
@@ -310,12 +313,11 @@ In SDD mode (when the worktree was started with --sdd):
   Without feedback: sends "The spec is approved. Proceed with implementation."
     plus a bash-authorisation line; the agent begins implementation.
   With feedback: sends the revision text plus the same bash-authorisation line;
-    the agent rewrites specs/spec.md and pauses again for re-review.
+    the agent rewrites the spec and pauses again for re-review.
 
 In non-SDD mode (all other sessions):
-  Without feedback: sends "proceed" to the agent.
-  With feedback: sends the feedback text unchanged to the agent.
-  No bash-authorisation line is appended in non-SDD mode.
+  Without feedback: sends "proceed" plus a bash-authorisation line.
+  With feedback: sends the feedback text plus a bash-authorisation line.
 
 By default the resumed agent streams its output to the terminal (foreground).
 Use --headless to run it in the background and write output to agent.log.`,
@@ -373,7 +375,8 @@ func runReleasePausedSession(issue, feedback string, headless, quiet, sendNotify
 		return fmt.Errorf("spec not yet generated for issue %s; paused state not reached.\nTail %s/agent.log to confirm and retry once the pause is reported.", issue, wt.Path)
 	}
 
-	prompt := buildResumePrompt(feedback, af.SDD)
+	specPath := findSpecPath(wt.Path, issue)
+	prompt := buildResumePrompt(feedback, af.SDD, specPath)
 	return agentResume(af.Agent, wt.Path, issue, af.SessionID, prompt, headless, quiet, sendNotify)
 }
 

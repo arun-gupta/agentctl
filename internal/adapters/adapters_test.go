@@ -81,6 +81,8 @@ func TestResumeCmd_claude(t *testing.T) {
 	assertContains(t, args, "my feedback")
 	assertContains(t, args, "sess-123")
 	assertContains(t, args, "--resume")
+	assertContains(t, args, "--permission-mode")
+	assertContains(t, args, "bypassPermissions")
 }
 
 func TestLaunchCmd_gemini_noSessionFlag(t *testing.T) {
