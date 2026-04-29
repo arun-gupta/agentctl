@@ -1002,7 +1002,7 @@ func TestLaunchAgent_nonHeadless_exitsWhenAgentDone(t *testing.T) {
 	}
 }
 
-func TestLaunchAgent_nonHeadless_exitPrintsResumeHint(t *testing.T) {
+func TestLaunchAgent_nonHeadless_exitPrintsCleanupHint(t *testing.T) {
 	dir := t.TempDir()
 	writeLocalAdapter(t, dir, "echoagent",
 		"binary: echo\nsession: --session\n")
@@ -1040,7 +1040,7 @@ func TestLaunchAgent_nonHeadless_exitPrintsResumeHint(t *testing.T) {
 	if !strings.Contains(outStr, want) {
 		t.Errorf("missing cleanup hint %q in foreground-exit output:\n%s", want, outStr)
 	}
-	for _, unwanted := range []string{"agentctl logs", "agentctl attach", "agentctl discard", resumeHintFmt[:20]} {
+	for _, unwanted := range []string{"agentctl logs", "agentctl attach", "agentctl discard", "agentctl resume"} {
 		if strings.Contains(outStr, unwanted) {
 			t.Errorf("foreground-exit output must not contain %q:\n%s", unwanted, outStr)
 		}
@@ -1491,7 +1491,7 @@ func TestAgentResume_nonHeadless_exitsWhenAgentDone(t *testing.T) {
 	}
 }
 
-func TestAgentResume_nonHeadless_exitPrintsResumeHint(t *testing.T) {
+func TestAgentResume_nonHeadless_exitPrintsCleanupHint(t *testing.T) {
 	dir := t.TempDir()
 	writeLocalAdapter(t, dir, "echoagent",
 		"binary: echo\nsession: --session\n")
@@ -2527,7 +2527,6 @@ func TestStartDevServer_noPackageJSON_returnsEmptyPort(t *testing.T) {
 	if port != "" {
 		t.Errorf("expected empty port when no dev server started, got %q", port)
 	}
-	// No dev_server configured — silently skipped, no output expected.
 	if buf.String() != "" {
 		t.Errorf("expected no output when dev_server is not configured, got %q", buf.String())
 	}

@@ -1395,7 +1395,7 @@ func seedEnvLocal(src, dst string) error {
 
 // startDevServer starts a dev server for the project in dir. Detection order:
 //  1. .agentctl.yml with dev_server field  → run that command with {port} substituted
-//  2. otherwise                            → print a warning and skip, return ("","",nil)
+//  2. otherwise                            → silently skip, return ("","",nil)
 //
 // On success the allocated port is written back to .agentctl.yml so it serves
 // as the single source of truth for all agentctl repo config.
@@ -2557,6 +2557,13 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 
 			if adapterName == "openhands" {
 				convertOpenHandsStream(pr, logFile)
+				return
+			}
+			if adapterName != "claude" {
+				// Non-Claude adapters emit plain text; copy it directly to the log.
+				if _, err := io.Copy(logFile, pr); err != nil && !errors.Is(err, io.ErrClosedPipe) {
+					fmt.Fprintf(logFile, "converter read error: %v\n", err)
+				}
 				return
 			}
 			r := bufio.NewReader(pr)
