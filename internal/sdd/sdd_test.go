@@ -184,6 +184,17 @@ func TestKickoffPrompt_plain_waitForApproval(t *testing.T) {
 	}
 }
 
+func TestKickoffPrompt_plain_authorisedBashCommands(t *testing.T) {
+	m, err := sdd.Get("plain")
+	if err != nil {
+		t.Fatalf("Get(plain) unexpected error: %v", err)
+	}
+	prompt := m.KickoffPrompt("42", "3010")
+	if !strings.Contains(prompt, "you are authorised to execute") {
+		t.Errorf("plain prompt must authorise agent to run bash commands, got:\n%s", prompt)
+	}
+}
+
 // ─── resolution chain ─────────────────────────────────────────────────────────
 
 func TestGet_userLevelOverridesBuiltin(t *testing.T) {
