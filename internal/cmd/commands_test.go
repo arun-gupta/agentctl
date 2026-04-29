@@ -1016,19 +1016,19 @@ func TestMaybeFireTestNotification_firstRun(t *testing.T) {
 	origFn := notify.SendFn
 	t.Cleanup(func() { notify.SendFn = origFn })
 
-	var notifed [][2]string
+	var notified [][2]string
 	notify.SendFn = func(title, message string) {
-		notifed = append(notifed, [2]string{title, message})
+		notified = append(notified, [2]string{title, message})
 	}
 
 	var out bytes.Buffer
 	maybeFireTestNotification("42", &out)
 
-	if len(notifed) != 1 {
-		t.Fatalf("expected 1 notification, got %d", len(notifed))
+	if len(notified) != 1 {
+		t.Fatalf("expected 1 notification, got %d", len(notified))
 	}
-	if !strings.Contains(notifed[0][1], "42") {
-		t.Errorf("notification message %q does not mention issue 42", notifed[0][1])
+	if !strings.Contains(notified[0][1], "42") {
+		t.Errorf("notification message %q does not mention issue 42", notified[0][1])
 	}
 	if !strings.Contains(out.String(), "test notification was sent") || !strings.Contains(out.String(), "Alerts") {
 		t.Errorf("hint line missing from output: %q", out.String())
