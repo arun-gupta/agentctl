@@ -10,10 +10,12 @@ Include new function signatures, CLI flags, HTTP endpoints, or data structure
 snippets inline here if applicable. -->
 
 ## Test Cases
-<!-- Bulleted list of scenarios the new or updated tests will validate — one
-bullet per case, describe what is asserted, not which file changes. Also list
-which test files are added or updated.
-If there are no new tests, write "None". -->
+<!--
+Bulleted list of scenarios the new or updated tests will validate — one bullet
+per case. Describe what is asserted for each scenario, not which files changed.
+Separately list which test files are added or updated.
+If there are no new or updated tests, write "None".
+-->
 
 ## Risks / Open Questions
 <!-- What you are uncertain about, assumptions made, or areas where human judgment
