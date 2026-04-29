@@ -304,12 +304,18 @@ func NewResumeCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "resume <issue> [feedback]",
 		Short: "Resume a paused spec review: approve or revise",
-		Long: `Resume a paused agent after the spec-review checkpoint.
+		Long: `Resume a paused agent session.
 
-Without feedback, sends "The spec is approved. Proceed with implementation." plus
-an authorisation to run bash commands, and the agent begins implementation.
-With feedback, sends the revision text (plus the same bash authorisation) and
-the agent rewrites the spec.
+In SDD mode (when the worktree was started with --sdd):
+  Without feedback: sends "The spec is approved. Proceed with implementation."
+    plus a bash-authorisation line; the agent begins implementation.
+  With feedback: sends the revision text plus the same bash-authorisation line;
+    the agent rewrites specs/spec.md and pauses again for re-review.
+
+In non-SDD mode (all other sessions):
+  Without feedback: sends "proceed" to the agent.
+  With feedback: sends the feedback text unchanged to the agent.
+  No bash-authorisation line is appended in non-SDD mode.
 
 By default the resumed agent streams its output to the terminal (foreground).
 Use --headless to run it in the background and write output to agent.log.`,
