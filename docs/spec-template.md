@@ -5,14 +5,21 @@
 <!-- How you plan to solve it. -->
 
 ## Changes
-<!-- Files/modules to add, modify, or delete. Include new function signatures,
-CLI flags, HTTP endpoints, or data structure snippets inline here if applicable. -->
+<!-- Implementation files/modules to add, modify, or delete (excluding test files).
+Include new function signatures, CLI flags, HTTP endpoints, or data structure
+snippets inline here if applicable. -->
 
 ## Test Cases
-<!-- Bulleted list of scenarios that will be validated (not code — just what will be tested). -->
+<!--
+Bulleted list of scenarios the new or updated tests will validate — one bullet
+per case. Describe what is asserted for each scenario, not which files changed.
+Separately list which test files are added or updated.
+If there are no new or updated tests, write "None".
+-->
 
 ## Risks / Open Questions
-<!-- What you are uncertain about, assumptions made, or areas where human judgment is needed. -->
+<!-- What you are uncertain about, assumptions made, or areas where human judgment
+is needed. Write "None" if there are no risks. -->
 
 ## Out of Scope
-<!-- What will not be done in this PR. -->
+<!-- What will not be done in this PR. Write "None" if nothing is excluded. -->

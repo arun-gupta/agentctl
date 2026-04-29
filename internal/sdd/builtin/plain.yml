@@ -4,8 +4,8 @@ kickoff: |
   Do not run agentctl, claude, codex, or any other agent-launcher CLI.
   Follow the plain spec workflow:
   - STEP 1: Write a `specs/spec.md` describing your intended approach. Use
-    `docs/spec-template.md` as a starting point. The spec must contain these
-    sections:
+    `docs/spec-template.md` as a starting point. The spec must contain ALL of
+    these sections — write every section even if the answer is "None" or "N/A":
 
       ## Problem
       What the issue asks for and why.
@@ -14,17 +14,22 @@ kickoff: |
       How you plan to solve it.
 
       ## Changes
-      Files/modules to add, modify, or delete. Include new function signatures,
-      CLI flags, HTTP endpoints, or data structure snippets inline here if applicable.
+      Implementation files/modules to add, modify, or delete (excluding test
+      files). Include new function signatures, CLI flags, HTTP endpoints, or
+      data structure snippets inline here if applicable.
 
       ## Test Cases
-      Bulleted list of scenarios that will be validated (not code — just what will be tested).
+      Bulleted list of scenarios that the new or updated tests will validate —
+      one bullet per case, describing what behavior or assertion is tested
+      rather than which files changed. After the bullets, add a separate note
+      listing any test files added or updated.
 
       ## Risks / Open Questions
-      What you are uncertain about, assumptions made, or areas where human judgment is needed.
+      What you are uncertain about, assumptions made, or areas where human
+      judgment is needed. Write "None" if there are no risks.
 
       ## Out of Scope
-      What will not be done in this PR.
+      What will not be done in this PR. Write "None" if nothing is excluded.
 
     Stop and wait for human approval before proceeding.
   - STEP 2: After approval, implement the changes directly, push the branch, and open a PR. Do not merge.
