@@ -274,11 +274,11 @@ const resumeAuthorisation = "You are authorised to run bash commands (tests, lin
 //   - No feedback: spec approved, proceed with implementation.
 //   - With feedback: revise specs/spec.md then stop again for re-review;
 //     do NOT implement yet.
+//   - In both SDD cases, append the bash-authorisation line.
 //
 // When sddName is empty (non-SDD mode): pass feedback through unchanged
-// (or "proceed" when no feedback).
-//
-// Either way, the bash-authorisation line is appended.
+// (or "proceed" when no feedback), without appending the
+// bash-authorisation line.
 func buildResumePrompt(feedback, sddName string) string {
 	if sddName != "" {
 		if feedback == "" {
