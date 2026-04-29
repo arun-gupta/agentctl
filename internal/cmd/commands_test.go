@@ -1000,7 +1000,7 @@ func TestLaunchAgent_nonHeadless_exitPrintsResumeHint(t *testing.T) {
 	var out bytes.Buffer
 	done := make(chan error, 1)
 	go func() {
-		done <- launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", "", false, false, &out)
+		done <- launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", "", false, false, false, &out)
 	}()
 
 	select {
@@ -1461,7 +1461,7 @@ func TestAgentResume_nonHeadless_exitPrintsResumeHint(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- agentResume("echoagent", dir, "42", "sess-123", "my feedback", false, false)
+		done <- agentResume("echoagent", dir, "42", "sess-123", "my feedback", false, false, false)
 	}()
 
 	select {
