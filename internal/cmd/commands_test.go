@@ -1113,7 +1113,7 @@ func TestLaunchAgent_nonHeadless_exitsWhenAgentDone(t *testing.T) {
 	}
 }
 
-func TestLaunchAgent_nonHeadless_exitPrintsCleanupHint(t *testing.T) {
+func TestLaunchAgent_nonHeadless_exitNoPR_printsNoPR(t *testing.T) {
 	dir := t.TempDir()
 	writeLocalAdapter(t, dir, "echoagent",
 		"binary: echo\nsession: --session\n")
@@ -1146,10 +1146,10 @@ func TestLaunchAgent_nonHeadless_exitPrintsCleanupHint(t *testing.T) {
 	}
 
 	outStr := out.String()
-	// Non-SDD run: expect cleanup hint, not resume hint.
-	want := "agentctl cleanup 42"
-	if !strings.Contains(outStr, want) {
-		t.Errorf("missing cleanup hint %q in foreground-exit output:\n%s", want, outStr)
+	// Non-SDD run with no PR: expect "PR: none", no cleanup hint (no PR yet),
+	// and no headless hints.
+	if !strings.Contains(outStr, "PR: none") {
+		t.Errorf("missing 'PR: none' in foreground-exit output:\n%s", outStr)
 	}
 	for _, unwanted := range []string{"agentctl logs", "agentctl attach", "agentctl discard", "agentctl resume"} {
 		if strings.Contains(outStr, unwanted) {
@@ -1678,7 +1678,7 @@ func TestAgentResume_nonHeadless_exitsWhenAgentDone(t *testing.T) {
 	}
 }
 
-func TestAgentResume_nonHeadless_exitPrintsCleanupHint(t *testing.T) {
+func TestAgentResume_nonHeadless_exitNoPR_printsNoPR(t *testing.T) {
 	dir := t.TempDir()
 	writeLocalAdapter(t, dir, "echoagent",
 		"binary: echo\nsession: --session\n")
@@ -1727,10 +1727,10 @@ func TestAgentResume_nonHeadless_exitPrintsCleanupHint(t *testing.T) {
 	r.Close()
 
 	out := buf.String()
-	// After resume exit, the agent is done — expect cleanup hint, not resume hint.
-	want := "agentctl cleanup 42"
-	if !strings.Contains(out, want) {
-		t.Errorf("missing cleanup hint %q in foreground-exit output:\n%s", want, out)
+	// After resume exit with no PR: expect "PR: none". Cleanup hint only appears
+	// when a PR exists. No headless hints.
+	if !strings.Contains(out, "PR: none") {
+		t.Errorf("missing 'PR: none' in foreground-exit output:\n%s", out)
 	}
 	for _, unwanted := range []string{"agentctl logs", "agentctl attach", "agentctl discard"} {
 		if strings.Contains(out, unwanted) {
@@ -3194,6 +3194,7 @@ func makeGHStub(t *testing.T, stubDir, viewJSON, listJSON string, editFail bool)
 printf '%%s\n' "$@" >> %s
 if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   if [ -f %s ]; then cat %s; fi
+  if [ %d -ne 0 ]; then printf 'no pull requests found for branch\n' >&2; fi
   exit %d
 fi
 if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
@@ -3206,6 +3207,7 @@ fi
 exit 0`,
 		callsFile,
 		responseFile, responseFile,
+		prViewExit,
 		prViewExit,
 		listFile,
 		prEditExit,
@@ -3349,16 +3351,19 @@ func TestReportPRStatus_printsPRLink(t *testing.T) {
 	}
 }
 
-func TestReportPRStatus_noPR_printsNothing(t *testing.T) {
+func TestReportPRStatus_noPR_printsNone(t *testing.T) {
 	stubDir := t.TempDir()
 	makeGHStub(t, stubDir, "", "", false) // no PR
 	prependPath(t, stubDir)
 
 	var buf bytes.Buffer
-	reportPRStatus(&buf, t.TempDir(), "2-my-feature", "2")
+	hasPR := reportPRStatus(&buf, t.TempDir(), "2-my-feature", "2")
 
-	if buf.Len() > 0 {
-		t.Errorf("expected no output when no PR exists, got: %q", buf.String())
+	if hasPR {
+		t.Error("expected hasPR=false when no PR exists")
+	}
+	if !strings.Contains(buf.String(), "PR: none") {
+		t.Errorf("expected 'PR: none' when no PR exists, got: %q", buf.String())
 	}
 }
 

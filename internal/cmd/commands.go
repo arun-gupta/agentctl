@@ -1235,7 +1235,13 @@ func linkPRToIssue(dir, branch, issueNum string) (*prInfo, error) {
 	cmd.Stdout = &out
 	cmd.Stderr = &errBuf
 	if err := cmd.Run(); err != nil {
-		return nil, nil // no PR — silently skip
+		// "no pull request(s) found" means the branch exists but has no PR — not an error.
+		// Any other failure (auth, gh not installed, etc.) is a real error.
+		errMsg := strings.ToLower(errBuf.String())
+		if strings.Contains(errMsg, "no pull request") {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("gh pr view: %w: %s", err, strings.TrimSpace(errBuf.String()))
 	}
 
 	var pr prInfo
@@ -1260,15 +1266,26 @@ func linkPRToIssue(dir, branch, issueNum string) (*prInfo, error) {
 }
 
 // reportPRStatus links the PR to the issue and prints the PR URL to w.
-// Silent when no PR exists.
-func reportPRStatus(w io.Writer, dir, branch, issueNum string) {
+// Returns true when a PR was found. Prints "PR: none" when no PR exists,
+// "PR: unknown (<reason>)" when the check could not be performed, so callers
+// can always tell the user what happened.
+func reportPRStatus(w io.Writer, dir, branch, issueNum string) bool {
+	// An empty branch means no branch was found or created, so no PR can exist.
+	if branch == "" {
+		fmt.Fprintln(w, "PR: none")
+		return false
+	}
 	pr, err := linkPRToIssue(dir, branch, issueNum)
 	if err != nil {
-		fmt.Fprintf(w, "note: could not link PR to issue: %v\n", err)
+		fmt.Fprintf(w, "PR: unknown (%v)\n", err)
+		return false
 	}
 	if pr != nil && pr.Number > 0 && pr.URL != "" {
 		fmt.Fprintf(w, "PR: #%d  %s\n", pr.Number, pr.URL)
+		return true
 	}
+	fmt.Fprintln(w, "PR: none")
+	return false
 }
 
 // parseIssueURL checks whether arg is a full GitHub issue URL of the form
@@ -1824,15 +1841,17 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 				fmt.Fprintf(out, "agent exited with error — check the log: agentctl logs %s\n", issue)
 				return nil
 			}
-			if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
-				reportPRStatus(os.Stdout, wtPath, branch, issue)
+			branch, branchErr := git.CurrentBranch(wtPath)
+			if branchErr != nil {
+				branch = ""
 			}
+			hasPR := reportPRStatus(out, wtPath, branch, issue)
 			if sddName != "" {
 				if specPath := findSpecPath(wtPath, issue); specPath != "" {
 					fmt.Fprintf(out, "Spec: %s\n", specPath)
 				}
 				fmt.Fprintf(out, resumeHintFmt, issue)
-			} else {
+			} else if hasPR {
 				fmt.Fprintf(out, "agentctl cleanup %s   # after PR is merged\n", issue)
 			}
 			return nil
@@ -2854,10 +2873,14 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 			convWg.Wait()
 			close(logDone)
 			wg.Wait()
-			if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
-				reportPRStatus(os.Stdout, wtPath, branch, issue)
+			branch, branchErr := git.CurrentBranch(wtPath)
+			if branchErr != nil {
+				branch = ""
 			}
-			fmt.Fprintf(os.Stdout, "agentctl cleanup %s   # after PR is merged\n", issue)
+			hasPR := reportPRStatus(os.Stdout, wtPath, branch, issue)
+			if hasPR {
+				fmt.Fprintf(os.Stdout, "agentctl cleanup %s   # after PR is merged\n", issue)
+			}
 			return nil
 		case <-sigCh:
 			signal.Stop(sigCh)
