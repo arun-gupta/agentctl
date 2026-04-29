@@ -1972,6 +1972,94 @@ func TestStreamLog_fileMissing(t *testing.T) {
 	}
 }
 
+// TestStreamLog_followExitsOnProcessDeath verifies that streamLog exits with the
+// guidance message when the agent process dies while following the log.
+func TestStreamLog_followExitsOnProcessDeath(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "agent.log")
+	if err := os.WriteFile(logPath, []byte("agent started\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Start a short-lived helper process and wait for it to exit so IsAlive
+	// will return false before streamLog's first poll fires.
+	cmd := exec.Command("true")
+	if err := cmd.Start(); err != nil {
+		t.Skipf("could not start helper process: %v", err)
+	}
+	pid := strconv.Itoa(cmd.Process.Pid)
+	_ = cmd.Wait()
+
+	// Write the (now-dead) PID to .agent so streamLog can pick it up.
+	if err := state.AppendKey(dir, "agent-pid", pid); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	done := make(chan error, 1)
+	go func() {
+		done <- streamLog(dir, 50, false, &buf, 100*time.Millisecond)
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("streamLog: %v", err)
+		}
+		out := buf.String()
+		if !strings.Contains(out, "agent process has exited") {
+			t.Errorf("expected exit message; got: %q", out)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("streamLog did not return within 5s after agent process exited")
+	}
+}
+
+// TestStreamLog_followExitsWhenPIDAppearsLate verifies that streamLog detects
+// process death even when agent-pid is appended to .agent after streamLog starts.
+func TestStreamLog_followExitsWhenPIDAppearsLate(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "agent.log")
+	if err := os.WriteFile(logPath, []byte("agent started\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Start a short-lived process, capture its PID, then let it die before
+	// we write it to .agent.
+	cmd := exec.Command("true")
+	if err := cmd.Start(); err != nil {
+		t.Skipf("could not start helper process: %v", err)
+	}
+	pid := strconv.Itoa(cmd.Process.Pid)
+	_ = cmd.Wait()
+
+	var buf bytes.Buffer
+	done := make(chan error, 1)
+	go func() {
+		done <- streamLog(dir, 50, false, &buf, 100*time.Millisecond)
+	}()
+
+	// Write the dead PID after streamLog has started so the re-read logic
+	// inside the polling loop is exercised.
+	time.Sleep(200 * time.Millisecond)
+	if err := state.AppendKey(dir, "agent-pid", pid); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("streamLog: %v", err)
+		}
+		out := buf.String()
+		if !strings.Contains(out, "agent process has exited") {
+			t.Errorf("expected exit message; got: %q", out)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("streamLog did not return within 5s after agent-pid was written")
+	}
+}
+
 func TestRunLogs_unknownIssue(t *testing.T) {
 	var buf bytes.Buffer
 	err := runLogs("99999", 50, true, &buf)

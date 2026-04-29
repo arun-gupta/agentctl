@@ -969,13 +969,43 @@ func streamLog(wtPath string, lines int, noFollow bool, w io.Writer, logWait tim
 		return fmt.Errorf("tail agent.log: %w", err)
 	}
 
+	// Read agent PID so we can detect process death and notify the user
+	// rather than hanging silently when the agent crashes or exits.
+	agentPID := ""
+	if af, err := state.Read(wtPath); err == nil {
+		agentPID = af.AgentPID
+	}
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	<-sigCh
-	signal.Stop(sigCh)
-	_ = tail.Process.Kill()
-	_ = tail.Wait()
-	return nil
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-sigCh:
+			signal.Stop(sigCh)
+			_ = tail.Process.Kill()
+			_ = tail.Wait()
+			return nil
+		case <-ticker.C:
+			// Re-read the PID if we don't have it yet; the agent writes it
+			// to .agent after the core fields, so it may not be present when
+			// agentctl logs starts.
+			if agentPID == "" {
+				if af, err := state.Read(wtPath); err == nil {
+					agentPID = af.AgentPID
+				}
+			}
+			if agentPID != "" && !process.IsAlive(agentPID) {
+				signal.Stop(sigCh)
+				time.Sleep(200 * time.Millisecond) // drain any final log writes
+				_ = tail.Process.Kill()
+				_ = tail.Wait()
+				fmt.Fprintln(w, "\nagent process has exited — use `agentctl attach <issue>` to see the full log or `agentctl resume <issue>` to continue")
+				return nil
+			}
+		}
+	}
 }
 
 // ─── attach ───────────────────────────────────────────────────────────────────
