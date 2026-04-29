@@ -1825,7 +1825,7 @@ func maybeFireTestNotification(issue string, out io.Writer) {
 	notify.Send("agentctl", fmt.Sprintf("Notifications enabled — you'll be notified when issue #%s finishes.", issue))
 	_ = os.MkdirAll(filepath.Dir(sentinel), 0o755)
 	_ = os.WriteFile(sentinel, []byte(""), 0o644)
-	fmt.Fprintln(out, "Note: a test notification was sent — if you didn't see it, check System Settings → Notifications → Terminal.")
+	fmt.Fprintln(out, "Note: a test notification was sent — if you didn't see it, or want it to stay until dismissed, go to System Settings → Notifications → Terminal → set style to \"Alerts\".")
 }
 
 // sendCompletionNotification fires a native desktop notification reporting

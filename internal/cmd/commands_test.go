@@ -1030,7 +1030,7 @@ func TestMaybeFireTestNotification_firstRun(t *testing.T) {
 	if !strings.Contains(notifed[0][1], "42") {
 		t.Errorf("notification message %q does not mention issue 42", notifed[0][1])
 	}
-	if !strings.Contains(out.String(), "test notification was sent") {
+	if !strings.Contains(out.String(), "test notification was sent") || !strings.Contains(out.String(), "Alerts") {
 		t.Errorf("hint line missing from output: %q", out.String())
 	}
 	sentinel := filepath.Join(cfgDir, "agentctl", "notify-tested")
