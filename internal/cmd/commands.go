@@ -1188,7 +1188,7 @@ func startDevServerOnPort(dir string, cfg *config.AgentctlConfig, portStr string
 		return "", fmt.Errorf("start dev server: %w", err)
 	}
 	if err := devLog.Close(); err != nil {
-		fmt.Fprintf(out, "warning: close dev log: %v\n", err)
+		fmt.Fprintf(os.Stderr, "warning: close dev log: %v\n", err)
 	}
 	return fmt.Sprintf("%d", devCmd.Process.Pid), nil
 }
