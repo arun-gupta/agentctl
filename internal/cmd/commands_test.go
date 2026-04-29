@@ -544,7 +544,10 @@ func TestLocateOrCloneRepo_cwdMatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != dir {
+	// Resolve symlinks: on macOS t.TempDir() is under /var which symlinks to /private/var.
+	wantResolved, _ := filepath.EvalSymlinks(dir)
+	gotResolved, _ := filepath.EvalSymlinks(got)
+	if gotResolved != wantResolved {
 		t.Errorf("got %q, want %q", got, dir)
 	}
 }
@@ -630,7 +633,10 @@ func TestRepoRootForIssue_bareNumber(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if root != dir {
+	// Resolve symlinks: on macOS t.TempDir() is under /var which symlinks to /private/var.
+	wantResolved, _ := filepath.EvalSymlinks(dir)
+	gotResolved, _ := filepath.EvalSymlinks(root)
+	if gotResolved != wantResolved {
 		t.Errorf("root = %q, want %q", root, dir)
 	}
 	if issueNum != "42" {
@@ -650,7 +656,10 @@ func TestRepoRootForIssue_urlCwdMatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if root != dir {
+	// Resolve symlinks: on macOS t.TempDir() is under /var which symlinks to /private/var.
+	wantResolved, _ := filepath.EvalSymlinks(dir)
+	gotResolved, _ := filepath.EvalSymlinks(root)
+	if gotResolved != wantResolved {
 		t.Errorf("root = %q, want %q", root, dir)
 	}
 	if issueNum != "99" {
@@ -2518,8 +2527,9 @@ func TestStartDevServer_noPackageJSON_returnsEmptyPort(t *testing.T) {
 	if port != "" {
 		t.Errorf("expected empty port when no dev server started, got %q", port)
 	}
-	if !strings.Contains(buf.String(), "warning") {
-		t.Errorf("expected a warning message when dev_server is not configured, got %q", buf.String())
+	// No dev_server configured — silently skipped, no output expected.
+	if buf.String() != "" {
+		t.Errorf("expected no output when dev_server is not configured, got %q", buf.String())
 	}
 }
 
