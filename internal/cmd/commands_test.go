@@ -1048,7 +1048,7 @@ func TestLaunchAgent_nonHeadless_exitsWhenAgentDone(t *testing.T) {
 	}
 }
 
-func TestLaunchAgent_nonHeadless_exitPrintsCleanupHint(t *testing.T) {
+func TestLaunchAgent_nonHeadless_exitNoPR_printsNoPR(t *testing.T) {
 	dir := t.TempDir()
 	writeLocalAdapter(t, dir, "echoagent",
 		"binary: echo\nsession: --session\n")
@@ -1613,7 +1613,7 @@ func TestAgentResume_nonHeadless_exitsWhenAgentDone(t *testing.T) {
 	}
 }
 
-func TestAgentResume_nonHeadless_exitPrintsCleanupHint(t *testing.T) {
+func TestAgentResume_nonHeadless_exitNoPR_printsNoPR(t *testing.T) {
 	dir := t.TempDir()
 	writeLocalAdapter(t, dir, "echoagent",
 		"binary: echo\nsession: --session\n")
@@ -3129,6 +3129,7 @@ func makeGHStub(t *testing.T, stubDir, viewJSON, listJSON string, editFail bool)
 printf '%%s\n' "$@" >> %s
 if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   if [ -f %s ]; then cat %s; fi
+  if [ %d -ne 0 ]; then printf 'no pull requests found for branch\n' >&2; fi
   exit %d
 fi
 if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
@@ -3141,6 +3142,7 @@ fi
 exit 0`,
 		callsFile,
 		responseFile, responseFile,
+		prViewExit,
 		prViewExit,
 		listFile,
 		prEditExit,
