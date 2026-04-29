@@ -1706,15 +1706,11 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 
 	if headless {
 		fmt.Fprintf(out, "Agent PID %d — log: %s\n", pid, logPath)
+		fmt.Fprintf(out, "agentctl logs %s      # follow log\n", issue)
+		fmt.Fprintf(out, "agentctl attach %s    # stream live and wait\n", issue)
+		fmt.Fprintf(out, "agentctl discard %s   # abandon\n", issue)
 		if sddName != "" {
-			fmt.Fprintf(out, "Session ID: %s\n", sessionID)
-			fmt.Fprintf(out, "Use \"agentctl resume %s [feedback]\" to continue the session.\n", issue)
-			fmt.Fprintln(out, "Without feedback, it sends approval (\"proceed\") and the agent begins implementation.")
-			fmt.Fprintln(out, "With feedback, it sends the revision text and the agent rewrites the spec.")
-		} else {
-			fmt.Fprintf(out, "agentctl logs %s      # follow log\n", issue)
-			fmt.Fprintf(out, "agentctl attach %s    # stream live and wait\n", issue)
-			fmt.Fprintf(out, "agentctl discard %s   # abandon\n", issue)
+			fmt.Fprintf(out, "agentctl resume %s [feedback]   # approve spec or send revisions\n", issue)
 		}
 		if sendNotify {
 			go func() {

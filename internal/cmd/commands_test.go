@@ -896,14 +896,16 @@ func TestLaunchAgent_headless_withSDD_showsResumeHint(t *testing.T) {
 	}
 
 	outStr := out.String()
-	for _, want := range []string{"Session ID: sess-abc", "agentctl resume 42", "sends approval"} {
+	// SDD headless: must show logs/attach/discard so user can follow progress,
+	// plus the resume hint for the spec-review checkpoint.
+	for _, want := range []string{
+		"agentctl logs 42",
+		"agentctl attach 42",
+		"agentctl discard 42",
+		"agentctl resume 42",
+	} {
 		if !strings.Contains(outStr, want) {
 			t.Errorf("SDD headless output missing %q:\n%s", want, outStr)
-		}
-	}
-	for _, unwanted := range []string{"agentctl logs", "agentctl attach", "agentctl discard"} {
-		if strings.Contains(outStr, unwanted) {
-			t.Errorf("SDD headless output must not contain %q:\n%s", unwanted, outStr)
 		}
 	}
 }
