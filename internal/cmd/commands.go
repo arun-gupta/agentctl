@@ -269,14 +269,29 @@ func runBatch(issues []string, agentName, sddName string, quiet, sendNotify bool
 const resumeAuthorisation = "You are authorised to run bash commands (tests, linters, builds) directly without asking for human approval."
 
 // buildResumePrompt returns the prompt sent to the agent on resume.
-// When feedback is empty the spec is approved and the agent begins
-// implementation; when feedback is non-empty the agent revises the spec.
-// Either way, the authorisation to run bash commands is appended.
-func buildResumePrompt(feedback string) string {
-	if feedback == "" {
-		return "The spec is approved. Proceed with implementation. " + resumeAuthorisation
+//
+// When sddName is non-empty (SDD mode):
+//   - No feedback: spec approved, proceed with implementation.
+//   - With feedback: revise specs/spec.md then stop again for re-review;
+//     do NOT implement yet.
+//
+// When sddName is empty (non-SDD mode): pass feedback through unchanged
+// (or "proceed" when no feedback).
+//
+// Either way, the bash-authorisation line is appended.
+func buildResumePrompt(feedback, sddName string) string {
+	if sddName != "" {
+		if feedback == "" {
+			return "The spec is approved. Proceed with implementation. " + resumeAuthorisation
+		}
+		return "Revise specs/spec.md to incorporate this feedback: " + feedback +
+			"\nAfter updating the spec, stop and wait for human approval before" +
+			" proceeding with implementation. Do not implement yet. " + resumeAuthorisation
 	}
-	return feedback + " " + resumeAuthorisation
+	if feedback == "" {
+		return "proceed"
+	}
+	return feedback
 }
 
 // NewResumeCmd creates the `resume` subcommand.
@@ -307,7 +322,7 @@ Use --headless to run it in the background and write output to agent.log.`,
 			if len(args) == 2 {
 				feedback = args[1]
 			}
-			return runReleasePausedSession(args[0], buildResumePrompt(feedback), headless, quiet, sendNotify)
+			return runReleasePausedSession(args[0], feedback, headless, quiet, sendNotify)
 		},
 	}
 	c.Flags().BoolVar(&headless, "headless", false, "Run agent in background (log -> agent.log)")
@@ -316,7 +331,7 @@ Use --headless to run it in the background and write output to agent.log.`,
 	return c
 }
 
-func runReleasePausedSession(issue, prompt string, headless, quiet, sendNotify bool) error {
+func runReleasePausedSession(issue, feedback string, headless, quiet, sendNotify bool) error {
 	repoRoot, err := git.RepoRoot()
 	if err != nil {
 		return fmt.Errorf("cannot determine repo root: %w", err)
@@ -352,6 +367,7 @@ func runReleasePausedSession(issue, prompt string, headless, quiet, sendNotify b
 		return fmt.Errorf("spec not yet generated for issue %s; paused state not reached.\nTail %s/agent.log to confirm and retry once the pause is reported.", issue, wt.Path)
 	}
 
+	prompt := buildResumePrompt(feedback, af.SDD)
 	return agentResume(af.Agent, wt.Path, issue, af.SessionID, prompt, headless, quiet, sendNotify)
 }
 

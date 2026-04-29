@@ -1386,7 +1386,7 @@ func TestLaunchAgent_nonHeadless_sigintPrintsHints(t *testing.T) {
 // ─── buildResumePrompt ────────────────────────────────────────────────────────
 
 func TestBuildResumePrompt_approval(t *testing.T) {
-	prompt := buildResumePrompt("")
+	prompt := buildResumePrompt("", "plain")
 	if !strings.Contains(prompt, "The spec is approved") {
 		t.Errorf("approval prompt must say 'The spec is approved', got: %q", prompt)
 	}
@@ -1398,18 +1398,38 @@ func TestBuildResumePrompt_approval(t *testing.T) {
 	}
 }
 
-func TestBuildResumePrompt_revision(t *testing.T) {
+func TestBuildResumePrompt_revision_sdd(t *testing.T) {
 	feedback := "Please add error handling"
-	prompt := buildResumePrompt(feedback)
-	if !strings.HasPrefix(prompt, feedback) {
-		t.Errorf("revision prompt must start with feedback, got: %q", prompt)
+	prompt := buildResumePrompt(feedback, "plain")
+	if !strings.Contains(prompt, feedback) {
+		t.Errorf("revision prompt must include feedback, got: %q", prompt)
 	}
-	if !strings.Contains(prompt, resumeAuthorisation) {
-		t.Errorf("revision prompt must include authorisation sentence, got: %q", prompt)
+	if !strings.Contains(prompt, "specs/spec.md") {
+		t.Errorf("SDD revision prompt must reference specs/spec.md, got: %q", prompt)
 	}
-	// Approval text must NOT appear in a revision prompt.
+	if !strings.Contains(prompt, "stop and wait for human approval") {
+		t.Errorf("SDD revision prompt must tell agent to stop and wait, got: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Do not implement") {
+		t.Errorf("SDD revision prompt must say 'Do not implement', got: %q", prompt)
+	}
 	if strings.Contains(prompt, "The spec is approved") {
 		t.Errorf("revision prompt must not contain approval text, got: %q", prompt)
+	}
+}
+
+func TestBuildResumePrompt_revision_nonSDD(t *testing.T) {
+	feedback := "Please add error handling"
+	prompt := buildResumePrompt(feedback, "")
+	if prompt != feedback {
+		t.Errorf("non-SDD revision prompt must be bare feedback, got: %q", prompt)
+	}
+}
+
+func TestBuildResumePrompt_approval_nonSDD(t *testing.T) {
+	prompt := buildResumePrompt("", "")
+	if prompt != "proceed" {
+		t.Errorf("non-SDD approval prompt must be 'proceed', got: %q", prompt)
 	}
 }
 
