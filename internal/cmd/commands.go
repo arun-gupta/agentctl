@@ -1845,6 +1845,9 @@ func generateUUID() (string, error) {
 // it from the current branch when inside a linked worktree.
 func resolveIssueArg(flag string, args []string) (string, error) {
 	if len(args) == 1 && args[0] != "" {
+		if _, _, num, ok := parseIssueURL(args[0]); ok {
+			return num, nil
+		}
 		return args[0], nil
 	}
 	linked, issue, err := git.IsInsideLinkedWorktree()
