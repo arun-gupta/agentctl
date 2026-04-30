@@ -1913,6 +1913,12 @@ func findWorktreePath(issue string) (string, error) {
 // until the agent exits (non-headless). quiet suppresses log lines, showing
 // only the spinner/heartbeat.
 func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName string, headless, quiet, sendNotify bool, out io.Writer) error {
+	// --quiet uses the detached subprocess log router so the converter
+	// survives if the user Ctrl+C's out of the foreground spinner.
+	if quiet {
+		headless = true
+	}
+
 	ad, err := adapters.Get(adapterName)
 	if err != nil {
 		return err
