@@ -183,7 +183,9 @@ func startOne(issue, slug, agentName, sddName string, headless, quiet, sendNotif
 		if !cleanupOnError {
 			return
 		}
-		_ = cleanupFailedStart(repoRoot, wtPath, branch, "")
+		if cleanupErr := cleanupFailedStart(repoRoot, wtPath, branch, ""); cleanupErr != nil {
+			fmt.Fprintf(out, "Warning: failed to clean up worktree after start failure (path: %s, branch: %s): %v\n", wtPath, branch, cleanupErr)
+		}
 	}()
 
 	// Seed .env.local from main repo if present (strips any existing PORT= line).
@@ -1464,17 +1466,21 @@ func cleanupFailedStart(repoRoot, wtPath, branch, devPID string) error {
 	if _, err := os.Stat(wtPath); err == nil {
 		if rmErr := git.RemoveWorktree(repoRoot, wtPath); rmErr != nil {
 			wts, listErr := git.LinkedWorktrees(repoRoot)
-			registered := listErr == nil && false
-			for _, wt := range wts {
-				if wt.Path == wtPath {
-					registered = true
-					break
+			registered := false
+			if listErr != nil {
+				errs = append(errs, rmErr.Error(), listErr.Error())
+			} else {
+				for _, wt := range wts {
+					if wt.Path == wtPath {
+						registered = true
+						break
+					}
 				}
-			}
-			if registered {
-				errs = append(errs, rmErr.Error())
-			} else if removeErr := os.RemoveAll(wtPath); removeErr != nil {
-				errs = append(errs, removeErr.Error())
+				if registered {
+					errs = append(errs, rmErr.Error())
+				} else if removeErr := os.RemoveAll(wtPath); removeErr != nil {
+					errs = append(errs, removeErr.Error())
+				}
 			}
 		}
 	}
@@ -1888,8 +1894,10 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 	}
 
 	if headless {
+		timer := time.NewTimer(500 * time.Millisecond)
 		select {
 		case <-exitCh:
+			timer.Stop()
 			if agentExitErr != nil {
 				exitCode := "unknown"
 				var exitErr *exec.ExitError
@@ -1898,7 +1906,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 				}
 				return fmt.Errorf("Agent exited immediately (code %s) — check credentials or run `agentctl logs %s` for details.", exitCode, issue)
 			}
-		case <-time.After(500 * time.Millisecond):
+		case <-timer.C:
 		}
 
 		fmt.Fprintf(out, "Agent PID %d — log: %s\n", pid, logPath)
