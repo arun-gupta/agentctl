@@ -2814,7 +2814,7 @@ func agentEnv(wtPath string) ([]string, error) {
 			}
 			if !hasAgentHomeExclude {
 				updatedContent := content
-				if len(updatedContent) > 0 && !bytes.HasSuffix(updatedContent, []byte("\n")) {
+				if !bytes.HasSuffix(updatedContent, []byte("\n")) {
 					updatedContent = append(updatedContent, '\n')
 				}
 				updatedContent = append(updatedContent, []byte(".agent-home\n")...)
