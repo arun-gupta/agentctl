@@ -179,6 +179,15 @@ func startOne(issue, slug, agentName, sddName string, headless, quiet, sendNotif
 	if err := git.AddWorktree(repoRoot, wtPath, branch); err != nil {
 		return fmt.Errorf("git worktree add: %w", err)
 	}
+	cleanupOnError := true
+	defer func() {
+		if !cleanupOnError {
+			return
+		}
+		if cleanupErr := cleanupFailedStart(repoRoot, wtPath, branch, ""); cleanupErr != nil {
+			fmt.Fprintf(out, "Warning: failed to clean up worktree after start failure (path: %s, branch: %s): %v\n", wtPath, branch, cleanupErr)
+		}
+	}()
 
 	// Seed .env.local from main repo if present (strips any existing PORT= line).
 	if err := seedEnvLocal(filepath.Join(repoRoot, ".env.local"), filepath.Join(wtPath, ".env.local")); err != nil {
@@ -220,7 +229,16 @@ func startOne(issue, slug, agentName, sddName string, headless, quiet, sendNotif
 		kickoff = m.KickoffPrompt(issueNum, portStr)
 	}
 
-	return launchAgent(agentName, wtPath, issueNum, portStr, sessionID, kickoff, sddName, headless, quiet, sendNotify, out)
+	if err := launchAgent(agentName, wtPath, issueNum, portStr, sessionID, kickoff, sddName, headless, quiet, sendNotify, out); err != nil {
+		cleanupOnError = false
+		if cleanupErr := cleanupFailedStart(repoRoot, wtPath, branch, devPID); cleanupErr != nil {
+			return fmt.Errorf("%w\ncleanup warning: %v", err, cleanupErr)
+		}
+		return err
+	}
+
+	cleanupOnError = false
+	return nil
 }
 
 // runBatch provisions worktrees and launches agents for multiple issues
@@ -1631,6 +1649,44 @@ func worktreeExistsError(wtPath, issueNum string) error {
 	return fmt.Errorf("Worktree already exists for issue %s.\nWorktree: %s\n\n  agentctl discard %s   to delete the worktree and start over", issueNum, wtPath, issueNum)
 }
 
+func cleanupFailedStart(repoRoot, wtPath, branch, devPID string) error {
+	process.Kill(devPID)
+
+	var errs []string
+	if _, err := os.Stat(wtPath); err == nil {
+		if rmErr := git.RemoveWorktree(repoRoot, wtPath); rmErr != nil {
+			wts, listErr := git.LinkedWorktrees(repoRoot)
+			registered := false
+			if listErr != nil {
+				errs = append(errs, rmErr.Error(), listErr.Error())
+			} else {
+				for _, wt := range wts {
+					if wt.Path == wtPath {
+						registered = true
+						break
+					}
+				}
+				if registered {
+					errs = append(errs, rmErr.Error())
+				} else if removeErr := os.RemoveAll(wtPath); removeErr != nil {
+					errs = append(errs, removeErr.Error())
+				}
+			}
+		}
+	}
+
+	if git.BranchExists(repoRoot, branch) {
+		if err := git.DeleteLocalBranch(repoRoot, branch); err != nil {
+			errs = append(errs, err.Error())
+		}
+	}
+
+	if len(errs) > 0 {
+		return errors.New(strings.Join(errs, "; "))
+	}
+	return nil
+}
+
 // slugFromIssue fetches the GitHub issue title and converts it to a slug.
 // issueArg may be a bare issue number or a full GitHub issue URL; both are
 // accepted by `gh issue view`.
@@ -2028,6 +2084,23 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 	}
 
 	if headless {
+		timer := time.NewTimer(500 * time.Millisecond)
+		select {
+		case <-exitCh:
+			if !timer.Stop() {
+				<-timer.C
+			}
+			if agentExitErr != nil {
+				exitCode := "unknown"
+				var exitErr *exec.ExitError
+				if errors.As(agentExitErr, &exitErr) {
+					exitCode = strconv.Itoa(exitErr.ExitCode())
+				}
+				return fmt.Errorf("Agent exited immediately (code %s) — check credentials or run `agentctl logs %s` for details.", exitCode, issue)
+			}
+		case <-timer.C:
+		}
+
 		fmt.Fprintf(out, "Agent PID %d — log: %s\n", pid, logPath)
 		fmt.Fprintf(out, "agentctl logs %s      # follow log\n", issue)
 		fmt.Fprintf(out, "agentctl attach %s    # stream live and wait\n", issue)
