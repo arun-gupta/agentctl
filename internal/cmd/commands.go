@@ -229,7 +229,7 @@ func startOne(issue, slug, agentName, sddName string, headless, quiet, sendNotif
 		kickoff = m.KickoffPrompt(issueNum, portStr)
 	}
 
-	if err := launchAgent(agentName, wtPath, issueNum, ghIssueArg, portStr, sessionID, kickoff, sddName, headless, quiet, sendNotify, out); err != nil {
+	if err := launchAgent(agentName, wtPath, issueNum, portStr, sessionID, kickoff, sddName, headless, quiet, sendNotify, out); err != nil {
 		cleanupOnError = false
 		if cleanupErr := cleanupFailedStart(repoRoot, wtPath, branch, devPID); cleanupErr != nil {
 			return fmt.Errorf("%w\ncleanup warning: %v", err, cleanupErr)
@@ -1845,8 +1845,8 @@ func generateUUID() (string, error) {
 // it from the current branch when inside a linked worktree.
 func resolveIssueArg(flag string, args []string) (string, error) {
 	if len(args) == 1 && args[0] != "" {
-		if _, _, num, ok := parseIssueURL(args[0]); ok {
-			return num, nil
+		if _, _, _, ok := parseIssueURL(args[0]); ok {
+			return "", fmt.Errorf("issue URLs are not accepted here; re-run with the bare issue number:\n  agentctl %s <issue>", flag)
 		}
 		return args[0], nil
 	}
@@ -1915,11 +1915,7 @@ func findWorktreePath(issue string) (string, error) {
 // then either returns immediately (headless) or streams agent.log to stdout
 // until the agent exits (non-headless). quiet suppresses log lines, showing
 // only the spinner/heartbeat.
-// issueArg is the original user-supplied argument (bare number or full GitHub
-// issue URL); it is used only in display hints so the user can copy-paste the
-// exact same argument they used with `start`. issue is the bare number used
-// for internal operations (PR linking, spec path globs, etc.).
-func launchAgent(adapterName, wtPath, issue, issueArg, port, sessionID, kickoff, sddName string, headless, quiet, sendNotify bool, out io.Writer) error {
+func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName string, headless, quiet, sendNotify bool, out io.Writer) error {
 	// --quiet uses the detached subprocess log router (same as headless) so
 	// the converter survives if the user Ctrl+C's, but the parent still waits
 	// for the agent to finish (foreground behaviour is preserved).
@@ -2136,11 +2132,11 @@ func launchAgent(adapterName, wtPath, issue, issueArg, port, sessionID, kickoff,
 		}
 
 		fmt.Fprintf(out, "Agent PID %d — log: %s\n", pid, logPath)
-		fmt.Fprintf(out, "agentctl logs %s      # follow log\n", issueArg)
-		fmt.Fprintf(out, "agentctl attach %s    # stream live and wait\n", issueArg)
-		fmt.Fprintf(out, "agentctl discard %s   # abandon\n", issueArg)
+		fmt.Fprintf(out, "agentctl logs %s      # follow log\n", issue)
+		fmt.Fprintf(out, "agentctl attach %s    # stream live and wait\n", issue)
+		fmt.Fprintf(out, "agentctl discard %s   # abandon\n", issue)
 		if sddName != "" {
-			fmt.Fprintf(out, "agentctl resume %s [feedback]   # approve spec or send revisions\n", issueArg)
+			fmt.Fprintf(out, "agentctl resume %s [feedback]   # approve spec or send revisions\n", issue)
 		}
 		if sendNotify {
 			maybeFireTestNotification(issue, out)
@@ -2174,7 +2170,7 @@ func launchAgent(adapterName, wtPath, issue, issueArg, port, sessionID, kickoff,
 			close(logDone)
 			wg.Wait()
 			if agentExitErr != nil {
-				fmt.Fprintf(out, "agent exited with error — check the log: agentctl logs %s\n", issueArg)
+				fmt.Fprintf(out, "agent exited with error — check the log: agentctl logs %s\n", issue)
 				return nil
 			}
 			branch, branchErr := git.CurrentBranch(wtPath)
@@ -2189,10 +2185,10 @@ func launchAgent(adapterName, wtPath, issue, issueArg, port, sessionID, kickoff,
 				if specPath := findSpecPath(wtPath, issue); specPath != "" {
 					fmt.Fprintf(out, "Spec: %s\n", specPath)
 				}
-				fmt.Fprintf(out, resumeHintFmt, issueArg)
+				fmt.Fprintf(out, resumeHintFmt, issue)
 			}
 			if hasPR {
-				fmt.Fprintf(out, "agentctl cleanup %s   # delete worktree + branch after PR is merged\n", issueArg)
+				fmt.Fprintf(out, "agentctl cleanup %s   # delete worktree + branch after PR is merged\n", issue)
 			}
 			return nil
 		case <-sigCh:
@@ -2200,9 +2196,9 @@ func launchAgent(adapterName, wtPath, issue, issueArg, port, sessionID, kickoff,
 			close(logDone)
 			wg.Wait()
 			fmt.Fprintf(out, "agent still running in background\n")
-			fmt.Fprintf(out, "  agentctl logs %s     # follow log\n", issueArg)
-			fmt.Fprintf(out, "  agentctl attach %s   # stream live output\n", issueArg)
-			fmt.Fprintf(out, "  agentctl discard %s  # permanently delete worktree and branches\n", issueArg)
+			fmt.Fprintf(out, "  agentctl logs %s     # follow log\n", issue)
+			fmt.Fprintf(out, "  agentctl attach %s   # stream live output\n", issue)
+			fmt.Fprintf(out, "  agentctl discard %s  # permanently delete worktree and branches\n", issue)
 			return nil
 		}
 	}
