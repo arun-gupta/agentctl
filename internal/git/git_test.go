@@ -27,6 +27,7 @@ func initRepo(t *testing.T) string {
 	gitRun("init")
 	gitRun("config", "user.email", "test@example.com")
 	gitRun("config", "user.name", "Test")
+	gitRun("config", "commit.gpgsign", "false")
 	if err := os.WriteFile(filepath.Join(dir, "f"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}

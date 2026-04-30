@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arun-gupta/agentctl/internal/git"
 	"github.com/arun-gupta/agentctl/internal/notify"
 	"github.com/arun-gupta/agentctl/internal/sdd"
 	"github.com/arun-gupta/agentctl/internal/state"
@@ -410,6 +411,7 @@ func TestResolveIssueArg_withArg(t *testing.T) {
 
 func TestResolveIssueArg_noArgs_notLinked(t *testing.T) {
 	// Running from the primary worktree (not a linked one) must return an error.
+	chdirTemp(t, t.TempDir())
 	_, err := resolveIssueArg("test", []string{})
 	if err == nil {
 		t.Error("expected error when no arg given and not inside a linked worktree")
@@ -851,6 +853,7 @@ func initGitRepoWithBareOrigin(t *testing.T) string {
 
 	gitRun(t, repo, "config", "user.email", "test@example.com")
 	gitRun(t, repo, "config", "user.name", "Test")
+	gitRun(t, repo, "config", "commit.gpgsign", "false")
 	return repo
 }
 
@@ -1658,6 +1661,27 @@ func TestLaunchAgent_nonZeroExitLogsToStderr(t *testing.T) {
 	}
 }
 
+func TestLaunchAgent_headless_immediateNonZeroExitReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	writeLocalAdapter(t, dir, "falseagent", "binary: false\n")
+	chdirTemp(t, dir)
+
+	var out bytes.Buffer
+	err := launchAgent("falseagent", dir, "42", "3010", "sess-abc", "do the thing", "", true, false, false, &out)
+	if err == nil {
+		t.Fatal("expected error for immediate non-zero headless exit, got nil")
+	}
+	if !strings.Contains(err.Error(), "Agent exited immediately") {
+		t.Fatalf("expected immediate-exit error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "agentctl logs 42") {
+		t.Errorf("expected logs hint in error, got: %v", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("headless immediate-exit path should not print success hints, got: %q", out.String())
+	}
+}
+
 func TestLaunchAgent_nonHeadless_nonZeroExitPrintsErrorHint(t *testing.T) {
 	dir := t.TempDir()
 	writeLocalAdapter(t, dir, "falseagent", "binary: false\n")
@@ -1696,6 +1720,40 @@ func TestAgentResume_unknownAdapter(t *testing.T) {
 	err := agentResume("nonexistent-xyz-abc", dir, "42", "sess-123", "my feedback", true, false, false)
 	if err == nil {
 		t.Error("expected error for unknown adapter")
+	}
+}
+
+func TestStartOne_headlessImmediateExitCleansUpWorktree(t *testing.T) {
+	repo := initGitRepoForStale(t)
+	writeLocalAdapter(t, repo, "falseagent", "binary: false\n")
+	chdirTemp(t, repo)
+
+	var out bytes.Buffer
+	err := startOne("42", "plain-fails", "falseagent", "", true, false, false, &out)
+	if err == nil {
+		t.Fatal("expected startOne to fail when headless agent exits immediately")
+	}
+	if !strings.Contains(err.Error(), "Agent exited immediately") {
+		t.Fatalf("expected immediate-exit error, got: %v", err)
+	}
+
+	wtPath := filepath.Join(filepath.Dir(repo), filepath.Base(repo)+"-42-plain-fails")
+	if _, statErr := os.Stat(wtPath); !os.IsNotExist(statErr) {
+		t.Fatalf("worktree path should be removed after failed start, stat err=%v", statErr)
+	}
+
+	if git.BranchExists(repo, "42-plain-fails") {
+		t.Fatal("local branch should be removed after failed start")
+	}
+
+	wts, wtErr := git.LinkedWorktrees(repo)
+	if wtErr != nil {
+		t.Fatalf("LinkedWorktrees: %v", wtErr)
+	}
+	for _, wt := range wts {
+		if wt.Path == wtPath {
+			t.Fatalf("worktree %s should not remain registered after failed start", wtPath)
+		}
 	}
 }
 
@@ -3710,6 +3768,7 @@ func initGitRepoForStale(t *testing.T) string {
 	gitRun("init")
 	gitRun("config", "user.email", "test@example.com")
 	gitRun("config", "user.name", "Test")
+	gitRun("config", "commit.gpgsign", "false")
 	if err := os.WriteFile(filepath.Join(dir, "README"), []byte("test\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
