@@ -1847,6 +1847,9 @@ func generateUUID() (string, error) {
 // it from the current branch when inside a linked worktree.
 func resolveIssueArg(flag string, args []string) (string, error) {
 	if len(args) == 1 && args[0] != "" {
+		if _, _, _, ok := parseIssueURL(args[0]); ok {
+			return "", fmt.Errorf("issue URLs are not accepted here; re-run with the bare issue number:\n  agentctl %s <issue>", flag)
+		}
 		return args[0], nil
 	}
 	linked, issue, err := git.IsInsideLinkedWorktree()
@@ -1915,6 +1918,11 @@ func findWorktreePath(issue string) (string, error) {
 // until the agent exits (non-headless). quiet suppresses log lines, showing
 // only the spinner/heartbeat.
 func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName string, headless, quiet, sendNotify bool, out io.Writer) error {
+	// --quiet uses the detached subprocess log router (same as headless) so
+	// the converter survives if the user Ctrl+C's, but the parent still waits
+	// for the agent to finish (foreground behaviour is preserved).
+	detachedRouter := headless || quiet
+
 	ad, err := adapters.Get(adapterName)
 	if err != nil {
 		return err
@@ -1950,7 +1958,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 	// the file; Claude headless uses a pipe fed to a detached __stream-log
 	// subprocess so intermediate tool steps are captured progressively.
 	var pr, pw *os.File
-	if !headless {
+	if !detachedRouter {
 		pr, pw, err = os.Pipe()
 		if err != nil {
 			logFile.Close()
@@ -1968,9 +1976,8 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 	} else {
 		if adapterName == "claude" {
 			// Use stream-json so intermediate tool steps are captured progressively.
-			// Since the parent exits immediately in headless mode, a detached
-			// __stream-log subprocess converts the pipe to human-readable text in
-			// agent.log.
+			// A detached __stream-log subprocess converts the pipe to human-readable
+			// text in agent.log and survives the parent exiting.
 			agentCmd.Args = append(agentCmd.Args, "--output-format", "stream-json", "--verbose")
 			pr, pw, err = os.Pipe()
 			if err != nil {
@@ -2007,7 +2014,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 	// convWg tracks the converter goroutine so we can drain all remaining pipe
 	// content into the log file before signalling followLog to do its final read.
 	var convWg sync.WaitGroup
-	if headless {
+	if detachedRouter {
 		if pw != nil {
 			// Spawn a detached converter process. Its stdout is the already-open
 			// logFile fd so it never opens files by path (avoids race with test
@@ -2183,7 +2190,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 				fmt.Fprintf(out, resumeHintFmt, issue)
 			}
 			if hasPR {
-				fmt.Fprintf(out, "agentctl cleanup %s   # after PR is merged\n", issue)
+				fmt.Fprintf(out, "agentctl cleanup %s   # delete worktree + branch after PR is merged\n", issue)
 			}
 			return nil
 		case <-sigCh:
@@ -3298,7 +3305,7 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 				fmt.Fprintf(os.Stdout, resumeHintFmt, issue)
 			}
 			if hasPR {
-				fmt.Fprintf(os.Stdout, "agentctl cleanup %s   # after PR is merged\n", issue)
+				fmt.Fprintf(os.Stdout, "agentctl cleanup %s   # delete worktree + branch after PR is merged\n", issue)
 			}
 			return nil
 		case <-sigCh:

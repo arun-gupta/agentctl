@@ -411,6 +411,16 @@ func TestResolveIssueArg_withArg(t *testing.T) {
 	}
 }
 
+func TestResolveIssueArg_rejectsURL(t *testing.T) {
+	_, err := resolveIssueArg("discard", []string{"https://github.com/myorg/myrepo/issues/42"})
+	if err == nil {
+		t.Error("expected error when a full issue URL is passed")
+	}
+	if !strings.Contains(err.Error(), "bare issue number") {
+		t.Errorf("expected 'bare issue number' in error, got: %v", err)
+	}
+}
+
 func TestResolveIssueArg_noArgs_notLinked(t *testing.T) {
 	// Running from the primary worktree (not a linked one) must return an error.
 	chdirTemp(t, t.TempDir())
