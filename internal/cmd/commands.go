@@ -1224,6 +1224,7 @@ func startDevServerOnPort(dir string, cfg *config.AgentctlConfig, portStr string
 	devCmd.Dir = dir
 	devCmd.Stdout = devLog
 	devCmd.Stderr = devLog
+	detachProcess(devCmd)
 	if err := devCmd.Start(); err != nil {
 		devLog.Close()
 		return "", fmt.Errorf("start dev server: %w", err)
@@ -1798,6 +1799,7 @@ func startCustomDevServer(dir string, cfg *config.AgentctlConfig, out io.Writer)
 	devCmd.Dir = dir
 	devCmd.Stdout = devLog
 	devCmd.Stderr = devLog
+	detachProcess(devCmd)
 	if err := devCmd.Start(); err != nil {
 		devLog.Close()
 		return "", "", fmt.Errorf("start dev server: %w", err)
@@ -2768,6 +2770,57 @@ func agentEnv(wtPath string) ([]string, error) {
 
 	if err := os.MkdirAll(agentHome, 0o755); err != nil {
 		return nil, fmt.Errorf("agentEnv: create agent home dir: %w", err)
+	}
+
+	// Write a .gitignore that ignores all contents of .agent-home. This
+	// prevents build tools that respect .gitignore (e.g. Turbopack) from
+	// following symlinks inside here that point outside the project root.
+	// Use Lstat + O_EXCL so a malicious repo cannot plant a symlink at
+	// .agent-home/.gitignore and redirect our write to a path outside the
+	// worktree.
+	gitignorePath := filepath.Join(agentHome, ".gitignore")
+	if fi, err := os.Lstat(gitignorePath); err == nil {
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("agentEnv: .agent-home/.gitignore is a symlink; refusing to write")
+		}
+	} else if os.IsNotExist(err) {
+		f, createErr := os.OpenFile(gitignorePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if createErr == nil {
+			_, _ = f.Write([]byte("*\n"))
+			_ = f.Close()
+		} else if !errors.Is(createErr, os.ErrExist) {
+			fmt.Fprintf(os.Stderr, "agentctl: warning: failed to create %s: %v\n", gitignorePath, createErr)
+		}
+	} else {
+		fmt.Fprintf(os.Stderr, "agentctl: warning: failed to stat %s: %v\n", gitignorePath, err)
+	}
+
+	// Also add .agent-home to the worktree-local git exclude so it doesn't
+	// appear in git status. This file lives in the worktree's own git metadata
+	// dir and is never committed.
+	if out, err := exec.Command("git", "-C", wtPath, "rev-parse", "--git-dir").Output(); err == nil {
+		gitDir := strings.TrimSpace(string(out))
+		if !filepath.IsAbs(gitDir) {
+			gitDir = filepath.Join(wtPath, gitDir)
+		}
+		excludePath := filepath.Join(gitDir, "info", "exclude")
+		if content, err := os.ReadFile(excludePath); err == nil {
+			hasAgentHomeExclude := false
+			for _, line := range strings.Split(string(content), "\n") {
+				if strings.TrimSpace(line) == ".agent-home" {
+					hasAgentHomeExclude = true
+					break
+				}
+			}
+			if !hasAgentHomeExclude {
+				updatedContent := content
+				if !bytes.HasSuffix(updatedContent, []byte("\n")) {
+					updatedContent = append(updatedContent, '\n')
+				}
+				updatedContent = append(updatedContent, []byte(".agent-home\n")...)
+				_ = os.WriteFile(excludePath, updatedContent, 0o644)
+			}
+		}
 	}
 
 	realHome, err := os.UserHomeDir()

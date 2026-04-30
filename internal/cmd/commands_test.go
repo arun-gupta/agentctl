@@ -2355,6 +2355,146 @@ func TestAgentEnv_replacesEmptyToken(t *testing.T) {
 	t.Error("GITHUB_TOKEN not found in env at all")
 }
 
+// TestAgentEnv_gitignoreCreated verifies that agentEnv writes "*\n" into
+// .agent-home/.gitignore when it does not yet exist.
+func TestAgentEnv_gitignoreCreated(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := agentEnv(dir); err != nil {
+		t.Fatalf("agentEnv: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, ".agent-home", ".gitignore"))
+	if err != nil {
+		t.Fatalf(".agent-home/.gitignore missing: %v", err)
+	}
+	if string(got) != "*\n" {
+		t.Errorf(".agent-home/.gitignore = %q; want %q", string(got), "*\n")
+	}
+}
+
+// TestAgentEnv_gitignoreSymlinkRejected verifies that agentEnv returns an error
+// when .agent-home/.gitignore is a pre-planted symlink (malicious-repo guard).
+func TestAgentEnv_gitignoreSymlinkRejected(t *testing.T) {
+	dir := t.TempDir()
+	agentHome := filepath.Join(dir, ".agent-home")
+	if err := os.MkdirAll(agentHome, 0o755); err != nil {
+		t.Fatalf("mkdir .agent-home: %v", err)
+	}
+	target := filepath.Join(t.TempDir(), "injected")
+	gitignorePath := filepath.Join(agentHome, ".gitignore")
+	if err := os.Symlink(target, gitignorePath); err != nil {
+		t.Skipf("symlinks not supported on this platform: %v", err)
+	}
+	_, err := agentEnv(dir)
+	if err == nil {
+		t.Fatal("expected error when .agent-home/.gitignore is a symlink")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Errorf("error should mention symlink; got: %v", err)
+	}
+	// Confirm the symlink target was NOT written by agentEnv.
+	if _, statErr := os.Stat(target); statErr == nil {
+		t.Error("agentEnv wrote through the symlink; expected no file at target path")
+	}
+}
+
+// TestAgentEnv_gitExcludeUpdated verifies that agentEnv adds ".agent-home" to
+// the worktree-local git/info/exclude file when running inside a git repository.
+func TestAgentEnv_gitExcludeUpdated(t *testing.T) {
+	// Initialise a temporary git repository so "git rev-parse --git-dir" succeeds.
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "init", dir).CombinedOutput(); err != nil {
+		t.Skipf("git init failed (git not available?): %v – %s", err, out)
+	}
+	// Ensure git/info/exclude exists (git init usually creates it).
+	excludePath := filepath.Join(dir, ".git", "info", "exclude")
+	if _, err := os.Stat(excludePath); os.IsNotExist(err) {
+		if err := os.MkdirAll(filepath.Dir(excludePath), 0o755); err != nil {
+			t.Fatalf("mkdir git/info: %v", err)
+		}
+		if err := os.WriteFile(excludePath, []byte("# git ls-files --others --exclude-from=.git/info/exclude\n"), 0o644); err != nil {
+			t.Fatalf("create exclude: %v", err)
+		}
+	}
+
+	if _, err := agentEnv(dir); err != nil {
+		t.Fatalf("agentEnv: %v", err)
+	}
+
+	content, err := os.ReadFile(excludePath)
+	if err != nil {
+		t.Fatalf("read exclude: %v", err)
+	}
+	found := false
+	for _, line := range strings.Split(string(content), "\n") {
+		if strings.TrimSpace(line) == ".agent-home" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("'.agent-home' not found as an exact line in git/info/exclude; got:\n%s", string(content))
+	}
+}
+
+// TestAgentEnv_gitExcludeNoMissingNewline verifies that the .agent-home entry
+// is appended on its own line even when the existing exclude file does not end
+// with a newline.
+func TestAgentEnv_gitExcludeNoMissingNewline(t *testing.T) {
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "init", dir).CombinedOutput(); err != nil {
+		t.Skipf("git init failed (git not available?): %v – %s", err, out)
+	}
+	excludePath := filepath.Join(dir, ".git", "info", "exclude")
+	// Write file without a trailing newline.
+	if err := os.WriteFile(excludePath, []byte("# comment"), 0o644); err != nil {
+		t.Fatalf("write exclude: %v", err)
+	}
+
+	if _, err := agentEnv(dir); err != nil {
+		t.Fatalf("agentEnv: %v", err)
+	}
+
+	content, err := os.ReadFile(excludePath)
+	if err != nil {
+		t.Fatalf("read exclude: %v", err)
+	}
+	for _, line := range strings.Split(string(content), "\n") {
+		if strings.TrimSpace(line) == ".agent-home" {
+			return // found on its own line
+		}
+	}
+	t.Errorf("'.agent-home' not found as an exact line; got:\n%s", string(content))
+}
+
+// TestAgentEnv_gitExcludeNoDuplicate verifies that running agentEnv twice does
+// not add a second ".agent-home" line to git/info/exclude.
+func TestAgentEnv_gitExcludeNoDuplicate(t *testing.T) {
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "init", dir).CombinedOutput(); err != nil {
+		t.Skipf("git init failed (git not available?): %v – %s", err, out)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := agentEnv(dir); err != nil {
+			t.Fatalf("agentEnv (run %d): %v", i+1, err)
+		}
+	}
+
+	excludePath := filepath.Join(dir, ".git", "info", "exclude")
+	content, err := os.ReadFile(excludePath)
+	if err != nil {
+		t.Fatalf("read exclude: %v", err)
+	}
+	count := 0
+	for _, line := range strings.Split(string(content), "\n") {
+		if strings.TrimSpace(line) == ".agent-home" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("'.agent-home' appears %d times in git/info/exclude; want exactly 1\n%s", count, string(content))
+	}
+}
+
 func TestStreamLog_fileExists(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "agent.log")
