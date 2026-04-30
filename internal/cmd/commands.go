@@ -356,6 +356,12 @@ Use --headless to run it in the background and write output to agent.log.`,
 	c.Flags().BoolVar(&headless, "headless", false, "Run agent in background (log -> agent.log)")
 	c.Flags().BoolVar(&quiet, "quiet", false, "Suppress agent log output; show spinner/heartbeat only")
 	c.Flags().BoolVar(&sendNotify, "notify", false, "Send a desktop notification when the headless agent finishes")
+	c.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
+		if strings.Contains(err.Error(), "--agent") {
+			return fmt.Errorf("resume does not accept --agent: the agent is recorded in .agent when the worktree is created and reused automatically")
+		}
+		return err
+	})
 	return c
 }
 
@@ -1069,8 +1075,8 @@ func streamLog(wtPath, issue string, lines int, noFollow bool, w io.Writer, logW
 				if af2.DevPort != "" {
 					fmt.Fprintf(w, "\nDev server: http://localhost:%s\n", af2.DevPort)
 				}
-				if af2.SDD != "" && findSpecPath(wtPath, issue) != "" {
-					fmt.Fprintf(w, "Spec ready for review — agentctl resume %s\n", issue)
+				if specPath := findSpecPath(wtPath, issue); af2.SDD != "" && specPath != "" {
+					fmt.Fprintf(w, "Spec: %s\nSpec ready for review — agentctl resume %s\n", specPath, issue)
 				} else {
 					fmt.Fprintf(w, "agent process has exited\n")
 				}
@@ -1320,7 +1326,7 @@ func attachLog(wtPath, issue string, w io.Writer, logWait time.Duration) error {
 		_ = tail.Run()
 		fmt.Fprintln(w, "agent has already finished")
 		if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
-			reportPRStatus(w, wtPath, branch, issue)
+			reportPRStatus(w, wtPath, branch, issue, false)
 		}
 		return nil
 	}
@@ -1354,7 +1360,7 @@ func attachLog(wtPath, issue string, w io.Writer, logWait time.Duration) error {
 	_ = tail.Process.Kill()
 	_ = tail.Wait()
 	if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
-		reportPRStatus(w, wtPath, branch, issue)
+		reportPRStatus(w, wtPath, branch, issue, false)
 	}
 	return nil
 }
@@ -1526,13 +1532,15 @@ func linkPRToIssue(dir, branch, issueNum string) (*prInfo, error) {
 }
 
 // reportPRStatus links the PR to the issue and prints the PR URL to w.
-// Returns true when a PR was found. Prints "PR: none" when no PR exists,
-// "PR: unknown (<reason>)" when the check could not be performed, so callers
-// can always tell the user what happened.
-func reportPRStatus(w io.Writer, dir, branch, issueNum string) bool {
+// Returns true when a PR was found. When quietOnNone is false it prints
+// "PR: none" when no PR exists; when true it stays silent on no-PR so
+// callers at spec-review stage don't show a misleading "PR: none".
+func reportPRStatus(w io.Writer, dir, branch, issueNum string, quietOnNone bool) bool {
 	// An empty branch means no branch was found or created, so no PR can exist.
 	if branch == "" {
-		fmt.Fprintln(w, "PR: none")
+		if !quietOnNone {
+			fmt.Fprintln(w, "PR: none")
+		}
 		return false
 	}
 	pr, err := linkPRToIssue(dir, branch, issueNum)
@@ -1544,7 +1552,9 @@ func reportPRStatus(w io.Writer, dir, branch, issueNum string) bool {
 		fmt.Fprintf(w, "PR: #%d  %s\n", pr.Number, pr.URL)
 		return true
 	}
-	fmt.Fprintln(w, "PR: none")
+	if !quietOnNone {
+		fmt.Fprintln(w, "PR: none")
+	}
 	return false
 }
 
@@ -2162,16 +2172,17 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			if branchErr != nil {
 				branch = ""
 			}
-			hasPR := reportPRStatus(out, wtPath, branch, issue)
+			hasPR := reportPRStatus(out, wtPath, branch, issue, sddName != "")
 			if af3, err3 := state.Read(wtPath); err3 == nil && af3.DevPort != "" {
 				fmt.Fprintf(out, "Dev server: http://localhost:%s\n", af3.DevPort)
 			}
-			if sddName != "" {
+			if sddName != "" && !hasPR {
 				if specPath := findSpecPath(wtPath, issue); specPath != "" {
 					fmt.Fprintf(out, "Spec: %s\n", specPath)
 				}
 				fmt.Fprintf(out, resumeHintFmt, issue)
-			} else if hasPR {
+			}
+			if hasPR {
 				fmt.Fprintf(out, "agentctl cleanup %s   # after PR is merged\n", issue)
 			}
 			return nil
@@ -3277,7 +3288,15 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 			if branchErr != nil {
 				branch = ""
 			}
-			hasPR := reportPRStatus(os.Stdout, wtPath, branch, issue)
+			af2, _ := state.Read(wtPath)
+			resumeSDD := af2.SDD
+			hasPR := reportPRStatus(os.Stdout, wtPath, branch, issue, resumeSDD != "")
+			if resumeSDD != "" && !hasPR {
+				if specPath := findSpecPath(wtPath, issue); specPath != "" {
+					fmt.Fprintf(os.Stdout, "Spec: %s\n", specPath)
+				}
+				fmt.Fprintf(os.Stdout, resumeHintFmt, issue)
+			}
 			if hasPR {
 				fmt.Fprintf(os.Stdout, "agentctl cleanup %s   # after PR is merged\n", issue)
 			}

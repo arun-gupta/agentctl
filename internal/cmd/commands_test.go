@@ -2615,6 +2615,10 @@ func TestStreamLog_followExitMessage_sdd(t *testing.T) {
 			t.Fatalf("streamLog: %v", err)
 		}
 		out := buf.String()
+		specPath := filepath.Join(dir, "specs", "spec.md")
+		if !strings.Contains(out, specPath) {
+			t.Errorf("expected spec path %q in exit message; got: %q", specPath, out)
+		}
 		if !strings.Contains(out, "Spec ready for review") {
 			t.Errorf("expected 'Spec ready for review' exit message in SDD mode; got: %q", out)
 		}
@@ -3811,7 +3815,7 @@ func TestReportPRStatus_printsPRLink(t *testing.T) {
 	prependPath(t, stubDir)
 
 	var buf bytes.Buffer
-	reportPRStatus(&buf, t.TempDir(), "2-my-feature", "2")
+	reportPRStatus(&buf, t.TempDir(), "2-my-feature", "2", false)
 
 	out := buf.String()
 	if !strings.Contains(out, "PR: #9") {
@@ -3828,13 +3832,44 @@ func TestReportPRStatus_noPR_printsNone(t *testing.T) {
 	prependPath(t, stubDir)
 
 	var buf bytes.Buffer
-	hasPR := reportPRStatus(&buf, t.TempDir(), "2-my-feature", "2")
+	hasPR := reportPRStatus(&buf, t.TempDir(), "2-my-feature", "2", false)
 
 	if hasPR {
 		t.Error("expected hasPR=false when no PR exists")
 	}
 	if !strings.Contains(buf.String(), "PR: none") {
 		t.Errorf("expected 'PR: none' when no PR exists, got: %q", buf.String())
+	}
+}
+
+func TestReportPRStatus_quietOnNone_suppressesPRNone(t *testing.T) {
+	stubDir := t.TempDir()
+	makeGHStub(t, stubDir, "", "", false) // no PR
+	prependPath(t, stubDir)
+
+	var buf bytes.Buffer
+	hasPR := reportPRStatus(&buf, t.TempDir(), "2-my-feature", "2", true)
+
+	if hasPR {
+		t.Error("expected hasPR=false when no PR exists")
+	}
+	if strings.Contains(buf.String(), "PR: none") {
+		t.Errorf("expected no 'PR: none' output when quietOnNone=true, got: %q", buf.String())
+	}
+	if buf.Len() != 0 {
+		t.Errorf("expected empty output when quietOnNone=true and no PR, got: %q", buf.String())
+	}
+}
+
+func TestReportPRStatus_quietOnNone_emptyBranch_suppressesPRNone(t *testing.T) {
+	var buf bytes.Buffer
+	hasPR := reportPRStatus(&buf, t.TempDir(), "", "2", true)
+
+	if hasPR {
+		t.Error("expected hasPR=false when branch is empty")
+	}
+	if strings.Contains(buf.String(), "PR: none") {
+		t.Errorf("expected no 'PR: none' when quietOnNone=true and branch empty, got: %q", buf.String())
 	}
 }
 
