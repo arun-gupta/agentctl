@@ -1066,10 +1066,13 @@ func streamLog(wtPath, issue string, lines int, noFollow bool, w io.Writer, logW
 				_ = tail.Process.Kill()
 				_ = tail.Wait()
 				af2, _ := state.Read(wtPath)
+				if af2.DevPort != "" {
+					fmt.Fprintf(w, "\nDev server: http://localhost:%s\n", af2.DevPort)
+				}
 				if af2.SDD != "" && findSpecPath(wtPath, issue) != "" {
-					fmt.Fprintf(w, "\nSpec ready for review — agentctl resume %s\n", issue)
+					fmt.Fprintf(w, "Spec ready for review — agentctl resume %s\n", issue)
 				} else {
-					fmt.Fprintf(w, "\nagent process has exited\n")
+					fmt.Fprintf(w, "agent process has exited\n")
 				}
 				return nil
 			}
@@ -2158,6 +2161,9 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 				branch = ""
 			}
 			hasPR := reportPRStatus(out, wtPath, branch, issue)
+			if af3, err3 := state.Read(wtPath); err3 == nil && af3.DevPort != "" {
+				fmt.Fprintf(out, "Dev server: http://localhost:%s\n", af3.DevPort)
+			}
 			if sddName != "" {
 				if specPath := findSpecPath(wtPath, issue); specPath != "" {
 					fmt.Fprintf(out, "Spec: %s\n", specPath)
