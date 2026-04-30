@@ -17,7 +17,7 @@ Creates a linked worktree for a GitHub issue and launches the selected coding ag
 - `--agent <name>`: adapter name; default is `claude`. See [adapters.md](adapters.md) for available adapters.
 - `--headless`: run the agent in the background and write agent output to `agent.log`.
 - `--notify`: send a native desktop notification when the headless agent finishes. No-op when `--headless` is not set. See [Desktop notifications](#desktop-notifications).
-- `--quiet`: suppress agent log output in the terminal; show only the spinner (TTY) or heartbeat lines (non-TTY/CI). Has no effect with `--headless`.
+- `--quiet`: suppress all agent log output in the terminal; the parent still waits for the agent to finish (foreground). Has no effect with `--headless`.
 - `--sdd=<name>`: opt into an SDD methodology (e.g. `--sdd=plain`, `--sdd=speckit`). Omit to skip SDD and work directly toward a PR. See [sdd.md](sdd.md).
 - `<issue-number-or-url>`: a bare GitHub issue number (e.g. `42`) **or** a full GitHub issue URL (e.g. `https://github.com/owner/repo/issues/42`). When a URL is supplied, `agentctl` locates or clones the target repository automatically so you do not need to `cd` into it first.
 - `[slug]`: optional branch/worktree slug. If omitted, `agentctl` uses `gh issue view` to fetch the issue title and derive a slug.
@@ -36,8 +36,8 @@ Side effects:
 ### `agentctl resume`
 
 ```bash
-agentctl resume [--headless] [--notify] [--quiet] <issue-number>
-agentctl resume [--headless] [--notify] [--quiet] <issue-number> [feedback]
+agentctl resume [--headless] [--notify] [--quiet] <issue-number-or-url>
+agentctl resume [--headless] [--notify] [--quiet] <issue-number-or-url> [feedback]
 ```
 
 Resumes a paused agent after the spec-review checkpoint.
@@ -49,7 +49,9 @@ By default the resumed agent streams its output to the terminal (foreground mode
 
 - `--headless`: run the resumed agent in the background and write output to `agent.log`.
 - `--notify`: send a native desktop notification when the headless agent finishes. No-op when `--headless` is not set. See [Desktop notifications](#desktop-notifications).
-- `--quiet`: suppress agent log output in the terminal; show only the spinner (TTY) or heartbeat lines (non-TTY/CI). Has no effect with `--headless`.
+- `--quiet`: suppress all agent log output in the terminal; the parent still waits for the agent to finish (foreground). Has no effect with `--headless`.
+
+`--agent` is not accepted by `resume` — the agent is recorded in `.agent` at `start` time and reused automatically.
 
 The command requires:
 
@@ -91,7 +93,7 @@ PR column shows the PR number and state from `gh pr view <branch>`, e.g. `#42 OP
 ### `agentctl cleanup`
 
 ```bash
-agentctl cleanup [issue-number]
+agentctl cleanup [issue-number-or-url]
 agentctl cleanup --all
 ```
 
@@ -114,7 +116,7 @@ If the PR is not merged, use `agentctl discard` for abandoned work.
 ### `agentctl discard`
 
 ```bash
-agentctl discard [issue-number]
+agentctl discard [issue-number-or-url]
 agentctl discard --stale
 ```
 
@@ -139,9 +141,9 @@ Note: N stale worktree(s) found with no agent and no PR — run `agentctl discar
 ### `agentctl logs`
 
 ```bash
-agentctl logs <issue-number>
-agentctl logs <issue-number> --lines 100
-agentctl logs <issue-number> --no-follow
+agentctl logs <issue-number-or-url>
+agentctl logs <issue-number-or-url> --lines 100
+agentctl logs <issue-number-or-url> --no-follow
 ```
 
 Streams `agent.log` for the given issue to stdout.
@@ -170,7 +172,7 @@ Error cases:
 ### `agentctl attach`
 
 ```bash
-agentctl attach <issue-number>
+agentctl attach <issue-number-or-url>
 ```
 
 Streams `agent.log` and exits automatically when the agent process finishes — mirrors the non-headless `start` experience for an already-running headless agent.
@@ -224,7 +226,7 @@ Error cases:
 |-----------|---------------|
 | `dev_server` not set in `.agentctl.yml` | `dev_server not set in .agentctl.yml — nothing to start` |
 | `.agent` has no port recorded | `no port recorded in .agent — run agentctl start first` |
-| Dev server already running | `dev server already running (PID N) — run agentctl cleanup, then agentctl dev start` |
+| Dev server already running | `dev server already running (PID N) — stop that process and clear the recorded dev-pid before restarting` |
 | Port already in use | `port N already in use` (with PID if detectable) |
 
 ## Workflows
@@ -241,7 +243,7 @@ agentctl start https://github.com/owner/repo/issues/42
 
 The agent runs in your terminal with its log streamed live so you can follow along. Without `--sdd`, the agent works directly toward a PR. Use `--sdd=plain` or `--sdd=speckit` after the issue number to add a spec-review checkpoint.
 
-To suppress log output and show only a spinner/heartbeat:
+To suppress log output while still waiting for the agent to finish:
 
 ```bash
 agentctl start --quiet 42
