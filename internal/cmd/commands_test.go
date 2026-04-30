@@ -880,7 +880,7 @@ func writeLocalAdapter(t *testing.T, dir, name, content string) {
 
 func TestLaunchAgent_unknownAdapter(t *testing.T) {
 	dir := t.TempDir()
-	err := launchAgent("nonexistent-xyz-abc", dir, "42", "3010", "sess-123", "kickoff", "", true, false, false, &bytes.Buffer{})
+	err := launchAgent("nonexistent-xyz-abc", dir, "42", "42", "3010", "sess-123", "kickoff", "", true, false, false, &bytes.Buffer{})
 	if err == nil {
 		t.Error("expected error for unknown adapter")
 	}
@@ -891,7 +891,7 @@ func TestLaunchAgent_binaryNotFound(t *testing.T) {
 	writeLocalAdapter(t, dir, "fakebinary", "binary: __nonexistent_binary_xyz__\n")
 	chdirTemp(t, dir)
 
-	err := launchAgent("fakebinary", dir, "42", "3010", "sess-123", "kickoff", "", true, false, false, &bytes.Buffer{})
+	err := launchAgent("fakebinary", dir, "42", "42", "3010", "sess-123", "kickoff", "", true, false, false, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error when binary not found")
 	}
@@ -908,7 +908,7 @@ func TestLaunchAgent_headless(t *testing.T) {
 	chdirTemp(t, dir)
 
 	var out bytes.Buffer
-	err := launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", "", true, false, false, &out)
+	err := launchAgent("echoagent", dir, "42", "42", "3010", "sess-abc", "do the thing", "", true, false, false, &out)
 	if err != nil {
 		t.Fatalf("launchAgent headless: %v", err)
 	}
@@ -949,7 +949,7 @@ func TestLaunchAgent_headless_withSDD_showsResumeHint(t *testing.T) {
 	chdirTemp(t, dir)
 
 	var out bytes.Buffer
-	err := launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", "plain", true, false, false, &out)
+	err := launchAgent("echoagent", dir, "42", "42", "3010", "sess-abc", "do the thing", "plain", true, false, false, &out)
 	if err != nil {
 		t.Fatalf("launchAgent headless SDD: %v", err)
 	}
@@ -991,7 +991,7 @@ func TestLaunchAgent_headless_notify(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	err := launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", "", true, false, true, &out)
+	err := launchAgent("echoagent", dir, "42", "42", "3010", "sess-abc", "do the thing", "", true, false, true, &out)
 	if err != nil {
 		t.Fatalf("launchAgent headless notify: %v", err)
 	}
@@ -1148,7 +1148,7 @@ func TestLaunchAgent_nonHeadless_exitsWhenAgentDone(t *testing.T) {
 	// Ctrl+C or any other intervention.
 	done := make(chan error, 1)
 	go func() {
-		done <- launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", "", false, false, false, &bytes.Buffer{})
+		done <- launchAgent("echoagent", dir, "42", "42", "3010", "sess-abc", "do the thing", "", false, false, false, &bytes.Buffer{})
 	}()
 
 	select {
@@ -1187,7 +1187,7 @@ func TestLaunchAgent_nonHeadless_exitNoPR_printsNoPR(t *testing.T) {
 	var out bytes.Buffer
 	done := make(chan error, 1)
 	go func() {
-		done <- launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", "", false, false, false, &out)
+		done <- launchAgent("echoagent", dir, "42", "42", "3010", "sess-abc", "do the thing", "", false, false, false, &out)
 	}()
 
 	select {
@@ -1245,7 +1245,7 @@ func TestLaunchAgent_nonHeadless_withSDD_showsSpecPath(t *testing.T) {
 	var out bytes.Buffer
 	done := make(chan error, 1)
 	go func() {
-		done <- launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", "plain", false, false, false, &out)
+		done <- launchAgent("echoagent", dir, "42", "42", "3010", "sess-abc", "do the thing", "plain", false, false, false, &out)
 	}()
 
 	select {
@@ -1278,7 +1278,7 @@ func TestLaunchAgent_nonClaudeNonHeadless_outputStreamed(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- launchAgent("echoagent2", dir, "42", "3010", "sess-abc", "do the thing", "", false, false, false, &bytes.Buffer{})
+		done <- launchAgent("echoagent2", dir, "42", "42", "3010", "sess-abc", "do the thing", "", false, false, false, &bytes.Buffer{})
 	}()
 
 	select {
@@ -1320,7 +1320,7 @@ func TestLaunchAgent_claudeNonHeadlessInjectsStreamJsonAndVerbose(t *testing.T) 
 
 	done := make(chan error, 1)
 	go func() {
-		done <- launchAgent("claude", dir, "42", "3010", "sess-abc", "kickoff text", "", false, false, false, &bytes.Buffer{})
+		done <- launchAgent("claude", dir, "42", "42", "3010", "sess-abc", "kickoff text", "", false, false, false, &bytes.Buffer{})
 	}()
 
 	select {
@@ -1371,7 +1371,7 @@ func TestLaunchAgent_claudeHeadlessUsesStreamJson(t *testing.T) {
 	writeLocalAdapter(t, dir, "claude", "binary: "+scriptPath+"\nsession: --session\n")
 	chdirTemp(t, dir)
 
-	if err := launchAgent("claude", dir, "42", "3010", "sess-abc", "kickoff text", "", true, false, false, &bytes.Buffer{}); err != nil {
+	if err := launchAgent("claude", dir, "42", "42", "3010", "sess-abc", "kickoff text", "", true, false, false, &bytes.Buffer{}); err != nil {
 		t.Fatalf("launchAgent headless: %v", err)
 	}
 
@@ -1415,7 +1415,7 @@ func TestLaunchAgent_nonHeadless_sigintPrintsHints(t *testing.T) {
 	var outBuf bytes.Buffer
 	done := make(chan error, 1)
 	go func() {
-		done <- launchAgent("sleepagent", dir, "42", "3010", "sess-abc", "do the thing", "", false, false, false, &outBuf)
+		done <- launchAgent("sleepagent", dir, "42", "42", "3010", "sess-abc", "do the thing", "", false, false, false, &outBuf)
 	}()
 
 	// Give launchAgent time to start the agent process and register its signal
@@ -1645,7 +1645,7 @@ func TestLaunchAgent_nonZeroExitLogsToStderr(t *testing.T) {
 	// closed, which happens after fmt.Fprintf(os.Stderr, ...) in the reaper
 	// goroutine — so by the time launchAgent returns, the message is already
 	// captured in the pipe.
-	launchErr := launchAgent("falseagent", dir, "42", "3010", "sess-abc", "do the thing", "", false, false, false, &bytes.Buffer{})
+	launchErr := launchAgent("falseagent", dir, "42", "42", "3010", "sess-abc", "do the thing", "", false, false, false, &bytes.Buffer{})
 
 	// Close the write end and restore stderr before reading.
 	w.Close()
@@ -1672,7 +1672,7 @@ func TestLaunchAgent_headless_immediateNonZeroExitReturnsError(t *testing.T) {
 	chdirTemp(t, dir)
 
 	var out bytes.Buffer
-	err := launchAgent("falseagent", dir, "42", "3010", "sess-abc", "do the thing", "", true, false, false, &out)
+	err := launchAgent("falseagent", dir, "42", "42", "3010", "sess-abc", "do the thing", "", true, false, false, &out)
 	if err == nil {
 		t.Fatal("expected error for immediate non-zero headless exit, got nil")
 	}
@@ -1692,7 +1692,7 @@ func TestLaunchAgent_nonHeadless_nonZeroExitPrintsErrorHint(t *testing.T) {
 	var out bytes.Buffer
 	done := make(chan error, 1)
 	go func() {
-		done <- launchAgent("falseagent", dir, "42", "3010", "sess-abc", "do the thing", "", false, false, false, &out)
+		done <- launchAgent("falseagent", dir, "42", "42", "3010", "sess-abc", "do the thing", "", false, false, false, &out)
 	}()
 
 	select {
@@ -2041,7 +2041,7 @@ func TestLaunchAgent_homeIsolation(t *testing.T) {
 	writeLocalAdapter(t, dir, "envagent", "binary: "+scriptPath+"\nsession: --session\n")
 	chdirTemp(t, dir)
 
-	if err := launchAgent("envagent", dir, "42", "3010", "sess-abc", "do the thing", "", true, false, false, &bytes.Buffer{}); err != nil {
+	if err := launchAgent("envagent", dir, "42", "42", "3010", "sess-abc", "do the thing", "", true, false, false, &bytes.Buffer{}); err != nil {
 		t.Fatalf("launchAgent headless: %v", err)
 	}
 
@@ -3449,7 +3449,7 @@ func TestLaunchAgent_claudeHeadlessWritesSettingsJson(t *testing.T) {
 	writeLocalAdapter(t, dir, "claude", "binary: "+scriptPath+"\nsession: --session\n")
 	chdirTemp(t, dir)
 
-	if err := launchAgent("claude", dir, "42", "3010", "sess-abc", "kickoff text", "", true, false, false, &bytes.Buffer{}); err != nil {
+	if err := launchAgent("claude", dir, "42", "42", "3010", "sess-abc", "kickoff text", "", true, false, false, &bytes.Buffer{}); err != nil {
 		t.Fatalf("launchAgent headless: %v", err)
 	}
 
@@ -3477,7 +3477,7 @@ func TestLaunchAgent_nonClaudeDoesNotWriteSettingsJson(t *testing.T) {
 	writeLocalAdapter(t, dir, "echoagent", "binary: echo\nsession: --session\n")
 	chdirTemp(t, dir)
 
-	if err := launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", "", true, false, false, &bytes.Buffer{}); err != nil {
+	if err := launchAgent("echoagent", dir, "42", "42", "3010", "sess-abc", "do the thing", "", true, false, false, &bytes.Buffer{}); err != nil {
 		t.Fatalf("launchAgent headless: %v", err)
 	}
 

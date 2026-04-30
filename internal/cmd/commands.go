@@ -229,7 +229,7 @@ func startOne(issue, slug, agentName, sddName string, headless, quiet, sendNotif
 		kickoff = m.KickoffPrompt(issueNum, portStr)
 	}
 
-	if err := launchAgent(agentName, wtPath, issueNum, portStr, sessionID, kickoff, sddName, headless, quiet, sendNotify, out); err != nil {
+	if err := launchAgent(agentName, wtPath, issueNum, ghIssueArg, portStr, sessionID, kickoff, sddName, headless, quiet, sendNotify, out); err != nil {
 		cleanupOnError = false
 		if cleanupErr := cleanupFailedStart(repoRoot, wtPath, branch, devPID); cleanupErr != nil {
 			return fmt.Errorf("%w\ncleanup warning: %v", err, cleanupErr)
@@ -1912,7 +1912,11 @@ func findWorktreePath(issue string) (string, error) {
 // then either returns immediately (headless) or streams agent.log to stdout
 // until the agent exits (non-headless). quiet suppresses log lines, showing
 // only the spinner/heartbeat.
-func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName string, headless, quiet, sendNotify bool, out io.Writer) error {
+// issueArg is the original user-supplied argument (bare number or full GitHub
+// issue URL); it is used only in display hints so the user can copy-paste the
+// exact same argument they used with `start`. issue is the bare number used
+// for internal operations (PR linking, spec path globs, etc.).
+func launchAgent(adapterName, wtPath, issue, issueArg, port, sessionID, kickoff, sddName string, headless, quiet, sendNotify bool, out io.Writer) error {
 	// --quiet uses the detached subprocess log router so the converter
 	// survives if the user Ctrl+C's out of the foreground spinner.
 	if quiet {
@@ -2131,11 +2135,11 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 		}
 
 		fmt.Fprintf(out, "Agent PID %d — log: %s\n", pid, logPath)
-		fmt.Fprintf(out, "agentctl logs %s      # follow log\n", issue)
-		fmt.Fprintf(out, "agentctl attach %s    # stream live and wait\n", issue)
-		fmt.Fprintf(out, "agentctl discard %s   # abandon\n", issue)
+		fmt.Fprintf(out, "agentctl logs %s      # follow log\n", issueArg)
+		fmt.Fprintf(out, "agentctl attach %s    # stream live and wait\n", issueArg)
+		fmt.Fprintf(out, "agentctl discard %s   # abandon\n", issueArg)
 		if sddName != "" {
-			fmt.Fprintf(out, "agentctl resume %s [feedback]   # approve spec or send revisions\n", issue)
+			fmt.Fprintf(out, "agentctl resume %s [feedback]   # approve spec or send revisions\n", issueArg)
 		}
 		if sendNotify {
 			maybeFireTestNotification(issue, out)
@@ -2169,7 +2173,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			close(logDone)
 			wg.Wait()
 			if agentExitErr != nil {
-				fmt.Fprintf(out, "agent exited with error — check the log: agentctl logs %s\n", issue)
+				fmt.Fprintf(out, "agent exited with error — check the log: agentctl logs %s\n", issueArg)
 				return nil
 			}
 			branch, branchErr := git.CurrentBranch(wtPath)
@@ -2184,10 +2188,10 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 				if specPath := findSpecPath(wtPath, issue); specPath != "" {
 					fmt.Fprintf(out, "Spec: %s\n", specPath)
 				}
-				fmt.Fprintf(out, resumeHintFmt, issue)
+				fmt.Fprintf(out, resumeHintFmt, issueArg)
 			}
 			if hasPR {
-				fmt.Fprintf(out, "agentctl cleanup %s   # delete worktree + branch after PR is merged\n", issue)
+				fmt.Fprintf(out, "agentctl cleanup %s   # delete worktree + branch after PR is merged\n", issueArg)
 			}
 			return nil
 		case <-sigCh:
@@ -2195,9 +2199,9 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			close(logDone)
 			wg.Wait()
 			fmt.Fprintf(out, "agent still running in background\n")
-			fmt.Fprintf(out, "  agentctl logs %s     # follow log\n", issue)
-			fmt.Fprintf(out, "  agentctl attach %s   # stream live output\n", issue)
-			fmt.Fprintf(out, "  agentctl discard %s  # permanently delete worktree and branches\n", issue)
+			fmt.Fprintf(out, "  agentctl logs %s     # follow log\n", issueArg)
+			fmt.Fprintf(out, "  agentctl attach %s   # stream live output\n", issueArg)
+			fmt.Fprintf(out, "  agentctl discard %s  # permanently delete worktree and branches\n", issueArg)
 			return nil
 		}
 	}
