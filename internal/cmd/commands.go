@@ -1224,6 +1224,7 @@ func startDevServerOnPort(dir string, cfg *config.AgentctlConfig, portStr string
 	devCmd.Dir = dir
 	devCmd.Stdout = devLog
 	devCmd.Stderr = devLog
+	detachProcess(devCmd)
 	if err := devCmd.Start(); err != nil {
 		devLog.Close()
 		return "", fmt.Errorf("start dev server: %w", err)
@@ -1798,6 +1799,7 @@ func startCustomDevServer(dir string, cfg *config.AgentctlConfig, out io.Writer)
 	devCmd.Dir = dir
 	devCmd.Stdout = devLog
 	devCmd.Stderr = devLog
+	detachProcess(devCmd)
 	if err := devCmd.Start(); err != nil {
 		devLog.Close()
 		return "", "", fmt.Errorf("start dev server: %w", err)
@@ -2768,6 +2770,30 @@ func agentEnv(wtPath string) ([]string, error) {
 
 	if err := os.MkdirAll(agentHome, 0o755); err != nil {
 		return nil, fmt.Errorf("agentEnv: create agent home dir: %w", err)
+	}
+
+	// Write a .gitignore that ignores all contents of .agent-home. This
+	// prevents build tools that respect .gitignore (e.g. Turbopack) from
+	// following symlinks inside here that point outside the project root.
+	gitignorePath := filepath.Join(agentHome, ".gitignore")
+	if _, err := os.Stat(gitignorePath); os.IsNotExist(err) {
+		_ = os.WriteFile(gitignorePath, []byte("*\n"), 0o644)
+	}
+
+	// Also add .agent-home to the worktree-local git exclude so it doesn't
+	// appear in git status. This file lives in the worktree's own git metadata
+	// dir and is never committed.
+	if out, err := exec.Command("git", "-C", wtPath, "rev-parse", "--git-dir").Output(); err == nil {
+		gitDir := strings.TrimSpace(string(out))
+		if !filepath.IsAbs(gitDir) {
+			gitDir = filepath.Join(wtPath, gitDir)
+		}
+		excludePath := filepath.Join(gitDir, "info", "exclude")
+		if content, err := os.ReadFile(excludePath); err == nil {
+			if !strings.Contains(string(content), ".agent-home") {
+				_ = os.WriteFile(excludePath, append(content, []byte(".agent-home\n")...), 0o644)
+			}
+		}
 	}
 
 	realHome, err := os.UserHomeDir()
