@@ -3228,8 +3228,15 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 			if branchErr != nil {
 				branch = ""
 			}
-			hasPR := reportPRStatus(os.Stdout, wtPath, branch, issue, false)
-			if hasPR {
+			af2, _ := state.Read(wtPath)
+			resumeSDD := af2.SDD
+			hasPR := reportPRStatus(os.Stdout, wtPath, branch, issue, resumeSDD != "")
+			if resumeSDD != "" {
+				if specPath := findSpecPath(wtPath, issue); specPath != "" {
+					fmt.Fprintf(os.Stdout, "Spec: %s\n", specPath)
+				}
+				fmt.Fprintf(os.Stdout, resumeHintFmt, issue)
+			} else if hasPR {
 				fmt.Fprintf(os.Stdout, "agentctl cleanup %s   # after PR is merged\n", issue)
 			}
 			return nil
