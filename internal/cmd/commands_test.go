@@ -1806,12 +1806,15 @@ func TestAgentResume_headless_hints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		r.Close()
+		os.Stdout = oldStdout
+	})
 	os.Stdout = w
 
 	resumeErr := agentResume("echoagent", dir, "42", "sess-123", "my feedback", true, false, false)
 
 	w.Close()
-	os.Stdout = oldStdout
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, r); err != nil {
 		t.Fatal(err)

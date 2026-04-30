@@ -2250,12 +2250,12 @@ func sendCompletionNotification(issue, wtPath, sddName string, exitErr error) {
 	if branch != "" {
 		branchPart = " (" + branch + ")"
 	}
+	specPath := findSpecPath(wtPath, issue)
 	var message string
 	switch {
 	case exitErr != nil:
 		message = fmt.Sprintf("Agent failed — issue #%s%s: check agentctl logs %s", issue, branchPart, issue)
-	case sddName != "" && findSpecPath(wtPath, issue) != "":
-		specPath := findSpecPath(wtPath, issue)
+	case sddName != "" && specPath != "":
 		message = fmt.Sprintf("Spec ready for review — issue #%s%s: %s — agentctl resume %s", issue, branchPart, specPath, issue)
 	default:
 		message = fmt.Sprintf("Agent finished — issue #%s%s: succeeded", issue, branchPart)
