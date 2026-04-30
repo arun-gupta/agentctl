@@ -1920,11 +1920,10 @@ func findWorktreePath(issue string) (string, error) {
 // exact same argument they used with `start`. issue is the bare number used
 // for internal operations (PR linking, spec path globs, etc.).
 func launchAgent(adapterName, wtPath, issue, issueArg, port, sessionID, kickoff, sddName string, headless, quiet, sendNotify bool, out io.Writer) error {
-	// --quiet uses the detached subprocess log router so the converter
-	// survives if the user Ctrl+C's out of the foreground spinner.
-	if quiet {
-		headless = true
-	}
+	// --quiet uses the detached subprocess log router (same as headless) so
+	// the converter survives if the user Ctrl+C's, but the parent still waits
+	// for the agent to finish (foreground behaviour is preserved).
+	detachedRouter := headless || quiet
 
 	ad, err := adapters.Get(adapterName)
 	if err != nil {
@@ -1961,7 +1960,7 @@ func launchAgent(adapterName, wtPath, issue, issueArg, port, sessionID, kickoff,
 	// the file; Claude headless uses a pipe fed to a detached __stream-log
 	// subprocess so intermediate tool steps are captured progressively.
 	var pr, pw *os.File
-	if !headless {
+	if !detachedRouter {
 		pr, pw, err = os.Pipe()
 		if err != nil {
 			logFile.Close()
@@ -1979,9 +1978,8 @@ func launchAgent(adapterName, wtPath, issue, issueArg, port, sessionID, kickoff,
 	} else {
 		if adapterName == "claude" {
 			// Use stream-json so intermediate tool steps are captured progressively.
-			// Since the parent exits immediately in headless mode, a detached
-			// __stream-log subprocess converts the pipe to human-readable text in
-			// agent.log.
+			// A detached __stream-log subprocess converts the pipe to human-readable
+			// text in agent.log and survives the parent exiting.
 			agentCmd.Args = append(agentCmd.Args, "--output-format", "stream-json", "--verbose")
 			pr, pw, err = os.Pipe()
 			if err != nil {
@@ -2018,7 +2016,7 @@ func launchAgent(adapterName, wtPath, issue, issueArg, port, sessionID, kickoff,
 	// convWg tracks the converter goroutine so we can drain all remaining pipe
 	// content into the log file before signalling followLog to do its final read.
 	var convWg sync.WaitGroup
-	if headless {
+	if detachedRouter {
 		if pw != nil {
 			// Spawn a detached converter process. Its stdout is the already-open
 			// logFile fd so it never opens files by path (avoids race with test
