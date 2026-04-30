@@ -1897,7 +1897,9 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 		timer := time.NewTimer(500 * time.Millisecond)
 		select {
 		case <-exitCh:
-			timer.Stop()
+			if !timer.Stop() {
+				<-timer.C
+			}
 			if agentExitErr != nil {
 				exitCode := "unknown"
 				var exitErr *exec.ExitError
