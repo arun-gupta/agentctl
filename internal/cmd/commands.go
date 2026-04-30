@@ -2179,7 +2179,8 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 					fmt.Fprintf(out, "Spec: %s\n", specPath)
 				}
 				fmt.Fprintf(out, resumeHintFmt, issue)
-			} else if hasPR {
+			}
+			if hasPR {
 				fmt.Fprintf(out, "agentctl cleanup %s   # after PR is merged\n", issue)
 			}
 			return nil
@@ -3242,7 +3243,8 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 					fmt.Fprintf(os.Stdout, "Spec: %s\n", specPath)
 				}
 				fmt.Fprintf(os.Stdout, resumeHintFmt, issue)
-			} else if hasPR {
+			}
+			if hasPR {
 				fmt.Fprintf(os.Stdout, "agentctl cleanup %s   # after PR is merged\n", issue)
 			}
 			return nil
