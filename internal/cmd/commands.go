@@ -1760,8 +1760,8 @@ func seedEnvLocal(src, dst string) error {
 //  1. .agentctl.yml with dev_server field  → run that command with {port} substituted
 //  2. otherwise                            → silently skip, return ("","",nil)
 //
-// On success the allocated port is written back to .agentctl.yml so it serves
-// as the single source of truth for all agentctl repo config.
+// On success the URL is printed to out and the PID/port are returned to the
+// caller for storage in the .agent state file. .agentctl.yml is not modified.
 func startDevServer(dir string, out io.Writer) (devPID, portStr string, err error) {
 	cfg, err := config.Read(dir)
 	if err != nil {
