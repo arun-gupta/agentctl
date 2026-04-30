@@ -3,13 +3,14 @@
 //
 // Command surface:
 //
-//	agentctl start   [--agent name] [--headless] [--sdd=name] <issue> [slug]
-//	agentctl resume  <issue> [feedback]
-//	agentctl discard [issue]
-//	agentctl cleanup [issue | --all]
-//	agentctl status  [--verbose]
-//	agentctl logs    [--lines N] [--no-follow] <issue>
-//	agentctl attach  <issue>
+//	agentctl start      [--agent name] [--headless] [--sdd=name] <issue> [slug]
+//	agentctl resume     <issue> [feedback]
+//	agentctl discard    [issue]
+//	agentctl cleanup    [issue | --all]
+//	agentctl status     [--verbose]
+//	agentctl logs       [--lines N] [--no-follow] <issue>
+//	agentctl attach     <issue>
+//	agentctl dev start  [--quiet] [issue]
 package main
 
 import (
@@ -48,6 +49,7 @@ func newRootCmd() *cobra.Command {
 		cmd.NewStatusCmd(),
 		cmd.NewLogsCmd(),
 		cmd.NewAttachCmd(),
+		cmd.NewDevCmd(),
 		cmd.NewStreamLogCmd(),
 		cmd.NewStreamLogOpenHandsCmd(),
 	)

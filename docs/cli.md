@@ -190,6 +190,43 @@ Error cases:
 | `.agent` file missing or no PID | `no agent PID recorded for issue N — was it started headless?` |
 | `agent.log` missing after 10s | `agent log not found — is the agent running? (looked for <path>)` |
 
+### `agentctl dev start`
+
+```bash
+agentctl dev start [issue]
+agentctl dev start [issue] --quiet
+```
+
+Launches the `dev_server` command from `.agentctl.yml` using the port already recorded in `.agent`. Does **not** allocate a new port — use this when the dev server was skipped during `agentctl start` (e.g. `.agentctl.yml` was added mid-PR) or after it crashed.
+
+Run without arguments inside a linked worktree to infer the issue number from the current branch.
+
+Flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--quiet` | `false` | Suppress log streaming; only print the ready URL |
+
+Behavior:
+
+- Reads the port from `.agent` (set by `agentctl start`).
+- Checks that the dev server is not already running; exits 1 if it is.
+- Starts `dev_server` with `{port}` substituted, writing output to `dev.log`.
+- Prints `Dev server ready → http://localhost:<port>` to stdout.
+- Sends an OS notification when ready if `notify: true` in `.agentctl.yml`.
+- Default: streams `dev.log` to stdout until Ctrl+C or the process exits.
+- `--quiet`: prints the URL and exits immediately.
+- Records the new dev server PID in `.agent` so `agentctl cleanup` can tear it down.
+
+Error cases:
+
+| Condition | Error message |
+|-----------|---------------|
+| `dev_server` not set in `.agentctl.yml` | `dev_server not set in .agentctl.yml — nothing to start` |
+| `.agent` has no port recorded | `no port recorded in .agent — run agentctl start first` |
+| Dev server already running | `dev server already running (PID N) — run agentctl cleanup, then agentctl dev start` |
+| Port already in use | `port N already in use` (with PID if detectable) |
+
 ## Workflows
 
 ### Interactive single-issue workflow

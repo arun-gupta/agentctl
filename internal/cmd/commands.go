@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -1047,6 +1048,195 @@ func streamLog(wtPath string, lines int, noFollow bool, w io.Writer, logWait tim
 				_ = tail.Process.Kill()
 				_ = tail.Wait()
 				fmt.Fprintln(w, "\nagent process has exited — use `agentctl attach <issue>` to see the full log or `agentctl resume <issue>` to continue")
+				return nil
+			}
+		}
+	}
+}
+
+// ─── dev ──────────────────────────────────────────────────────────────────────
+
+// NewDevCmd creates the `dev` subcommand group.
+func NewDevCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "dev",
+		Short: "Dev server management",
+		Long:  `Commands for managing the dev server in a worktree session.`,
+	}
+	c.AddCommand(NewDevStartCmd())
+	return c
+}
+
+// NewDevStartCmd creates the `dev start` subcommand.
+func NewDevStartCmd() *cobra.Command {
+	var quiet bool
+	c := &cobra.Command{
+		Use:   "start [issue]",
+		Short: "Start the dev server in the current worktree",
+		Long: `Launch the dev_server command from .agentctl.yml using the port already
+recorded in .agent. Does not allocate a new port.
+
+Run without arguments inside a linked worktree to infer the issue number
+from the current branch.
+
+By default, streams the dev server's stdout/stderr to the console in
+real time. Use --quiet to suppress log streaming and only print the URL.`,
+		Args: cobra.RangeArgs(0, 1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			issue, err := resolveIssueArg("dev start", args)
+			if err != nil {
+				return err
+			}
+			wtPath, err := findWorktreePath(issue)
+			if err != nil {
+				return err
+			}
+			return runDevStart(wtPath, quiet, os.Stdout)
+		},
+	}
+	c.Flags().BoolVar(&quiet, "quiet", false, "Suppress log streaming; only print the ready URL")
+	return c
+}
+
+// runDevStart launches the dev server in wtPath using the port already
+// recorded in the .agent state file. It updates dev-pid in .agent after
+// a successful launch.
+func runDevStart(wtPath string, quiet bool, out io.Writer) error {
+	cfg, err := config.Read(wtPath)
+	if err != nil {
+		return fmt.Errorf("reading .agentctl.yml: %w", err)
+	}
+	if cfg.DevServer == "" {
+		return fmt.Errorf("dev_server not set in .agentctl.yml — nothing to start")
+	}
+
+	af, err := state.Read(wtPath)
+	if err != nil {
+		return err
+	}
+	if af.DevPort == "" {
+		return fmt.Errorf("no port recorded in .agent — run `agentctl start` first")
+	}
+
+	if process.IsAlive(af.DevPID) {
+		return fmt.Errorf("dev server already running (PID %s) — stop that process and clear the recorded dev-pid before restarting", af.DevPID)
+	}
+
+	if conflictPID, inUse := isPortInUse(af.DevPort); inUse {
+		if conflictPID != "" {
+			return fmt.Errorf("port %s already in use by PID %s", af.DevPort, conflictPID)
+		}
+		return fmt.Errorf("port %s already in use", af.DevPort)
+	}
+
+	devPID, err := startDevServerOnPort(wtPath, cfg, af.DevPort, out)
+	if err != nil {
+		return err
+	}
+
+	af.DevPID = devPID
+	if err := state.Write(wtPath, af); err != nil {
+		return fmt.Errorf("updating .agent: %w", err)
+	}
+
+	fmt.Fprintf(out, "Dev server: http://localhost:%s (log: %s/dev.log)\n", af.DevPort, wtPath)
+
+	if cfg.Notify {
+		msg := fmt.Sprintf("Dev server: http://localhost:%s", af.DevPort)
+		if quiet {
+			notify.Send("agentctl", msg)
+		} else {
+			go notify.Send("agentctl", msg)
+		}
+	}
+
+	if !quiet {
+		return streamDevLog(wtPath, devPID, out)
+	}
+	return nil
+}
+
+// isPortInUse reports whether a process is listening on port.
+// Returns the conflicting PID string if detectable.
+// It uses lsof when available, distinguishing exit-code-1 ("no listeners") from
+// other failures (e.g. lsof absent), and falls back to a cross-platform TCP
+// bind probe when lsof cannot be relied upon.
+func isPortInUse(port string) (pid string, inUse bool) {
+	lsofErr := exec.Command("lsof", fmt.Sprintf("-iTCP:%s", port), "-sTCP:LISTEN").Run()
+	if lsofErr == nil {
+		// lsof exited 0 — something is listening on the port.
+		out, _ := exec.Command("lsof", "-t", fmt.Sprintf("-iTCP:%s", port), "-sTCP:LISTEN").Output() //nolint:gosec
+		return strings.TrimSpace(string(out)), true
+	}
+	// lsof exit code 1 means "no matching processes" (port is free).
+	var exitErr *exec.ExitError
+	if errors.As(lsofErr, &exitErr) && exitErr.ExitCode() == 1 {
+		return "", false
+	}
+	// lsof unavailable or exited unexpectedly — fall back to a cross-platform TCP bind test.
+	ln, err := net.Listen("tcp", net.JoinHostPort("", port))
+	if err != nil {
+		// Cannot bind — port is already in use.
+		return "", true
+	}
+	_ = ln.Close()
+	return "", false
+}
+
+// startDevServerOnPort starts the dev server command from cfg using portStr
+// (already allocated) rather than finding a new port.
+func startDevServerOnPort(dir string, cfg *config.AgentctlConfig, portStr string, out io.Writer) (devPID string, err error) {
+	cmdStr := strings.TrimSpace(strings.ReplaceAll(cfg.DevServer, "{port}", portStr))
+	if cmdStr == "" {
+		return "", fmt.Errorf("dev_server in .agentctl.yml is empty after port substitution")
+	}
+	devLog, err := os.Create(filepath.Join(dir, "dev.log"))
+	if err != nil {
+		return "", err
+	}
+	devCmd := exec.Command("sh", "-c", cmdStr) //nolint:gosec
+	devCmd.Dir = dir
+	devCmd.Stdout = devLog
+	devCmd.Stderr = devLog
+	if err := devCmd.Start(); err != nil {
+		devLog.Close()
+		return "", fmt.Errorf("start dev server: %w", err)
+	}
+	if err := devLog.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: close dev log: %v\n", err)
+	}
+	return fmt.Sprintf("%d", devCmd.Process.Pid), nil
+}
+
+// streamDevLog tails dev.log in wtPath and blocks until the dev server
+// process exits or the user sends SIGINT/SIGTERM.
+func streamDevLog(wtPath, devPID string, w io.Writer) error {
+	logPath := filepath.Join(wtPath, "dev.log")
+	tail := exec.Command("tail", "-n", "0", "-F", logPath)
+	tail.Stdout = w
+	tail.Stderr = os.Stderr
+	if err := tail.Start(); err != nil {
+		return fmt.Errorf("tail dev.log: %w", err)
+	}
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-sigCh:
+			signal.Stop(sigCh)
+			_ = tail.Process.Kill()
+			_ = tail.Wait()
+			return nil
+		case <-ticker.C:
+			if !process.IsAlive(devPID) {
+				signal.Stop(sigCh)
+				time.Sleep(200 * time.Millisecond)
+				_ = tail.Process.Kill()
+				_ = tail.Wait()
+				fmt.Fprintln(w, "\ndev server process has exited")
 				return nil
 			}
 		}
