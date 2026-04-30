@@ -1070,7 +1070,7 @@ func streamLog(wtPath, issue string, lines int, noFollow bool, w io.Writer, logW
 					fmt.Fprintf(w, "\nDev server: http://localhost:%s\n", af2.DevPort)
 				}
 				if af2.SDD != "" && findSpecPath(wtPath, issue) != "" {
-					fmt.Fprintf(w, "Spec ready for review — agentctl resume %s\n", issue)
+					fmt.Fprintf(w, "Spec: %s\nSpec ready for review — agentctl resume %s\n", findSpecPath(wtPath, issue), issue)
 				} else {
 					fmt.Fprintf(w, "agent process has exited\n")
 				}
