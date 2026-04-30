@@ -2187,7 +2187,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 				fmt.Fprintf(out, resumeHintFmt, issue)
 			}
 			if hasPR {
-				fmt.Fprintf(out, "agentctl cleanup %s   # after PR is merged\n", issue)
+				fmt.Fprintf(out, "agentctl cleanup %s   # delete worktree + branch after PR is merged\n", issue)
 			}
 			return nil
 		case <-sigCh:
@@ -3251,7 +3251,7 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 				fmt.Fprintf(os.Stdout, resumeHintFmt, issue)
 			}
 			if hasPR {
-				fmt.Fprintf(os.Stdout, "agentctl cleanup %s   # after PR is merged\n", issue)
+				fmt.Fprintf(os.Stdout, "agentctl cleanup %s   # delete worktree + branch after PR is merged\n", issue)
 			}
 			return nil
 		case <-sigCh:
