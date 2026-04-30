@@ -1319,7 +1319,7 @@ func attachLog(wtPath, issue string, w io.Writer, logWait time.Duration) error {
 		_ = tail.Run()
 		fmt.Fprintln(w, "agent has already finished")
 		if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
-			reportPRStatus(w, wtPath, branch, issue)
+			reportPRStatus(w, wtPath, branch, issue, false)
 		}
 		return nil
 	}
@@ -1353,7 +1353,7 @@ func attachLog(wtPath, issue string, w io.Writer, logWait time.Duration) error {
 	_ = tail.Process.Kill()
 	_ = tail.Wait()
 	if branch, branchErr := git.CurrentBranch(wtPath); branchErr == nil && branch != "" {
-		reportPRStatus(w, wtPath, branch, issue)
+		reportPRStatus(w, wtPath, branch, issue, false)
 	}
 	return nil
 }
@@ -1525,13 +1525,15 @@ func linkPRToIssue(dir, branch, issueNum string) (*prInfo, error) {
 }
 
 // reportPRStatus links the PR to the issue and prints the PR URL to w.
-// Returns true when a PR was found. Prints "PR: none" when no PR exists,
-// "PR: unknown (<reason>)" when the check could not be performed, so callers
-// can always tell the user what happened.
-func reportPRStatus(w io.Writer, dir, branch, issueNum string) bool {
+// Returns true when a PR was found. When quietOnNone is false it prints
+// "PR: none" when no PR exists; when true it stays silent on no-PR so
+// callers at spec-review stage don't show a misleading "PR: none".
+func reportPRStatus(w io.Writer, dir, branch, issueNum string, quietOnNone bool) bool {
 	// An empty branch means no branch was found or created, so no PR can exist.
 	if branch == "" {
-		fmt.Fprintln(w, "PR: none")
+		if !quietOnNone {
+			fmt.Fprintln(w, "PR: none")
+		}
 		return false
 	}
 	pr, err := linkPRToIssue(dir, branch, issueNum)
@@ -1543,7 +1545,9 @@ func reportPRStatus(w io.Writer, dir, branch, issueNum string) bool {
 		fmt.Fprintf(w, "PR: #%d  %s\n", pr.Number, pr.URL)
 		return true
 	}
-	fmt.Fprintln(w, "PR: none")
+	if !quietOnNone {
+		fmt.Fprintln(w, "PR: none")
+	}
 	return false
 }
 
@@ -2160,7 +2164,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			if branchErr != nil {
 				branch = ""
 			}
-			hasPR := reportPRStatus(out, wtPath, branch, issue)
+			hasPR := reportPRStatus(out, wtPath, branch, issue, sddName != "")
 			if af3, err3 := state.Read(wtPath); err3 == nil && af3.DevPort != "" {
 				fmt.Fprintf(out, "Dev server: http://localhost:%s\n", af3.DevPort)
 			}
@@ -3224,7 +3228,7 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 			if branchErr != nil {
 				branch = ""
 			}
-			hasPR := reportPRStatus(os.Stdout, wtPath, branch, issue)
+			hasPR := reportPRStatus(os.Stdout, wtPath, branch, issue, false)
 			if hasPR {
 				fmt.Fprintf(os.Stdout, "agentctl cleanup %s   # after PR is merged\n", issue)
 			}

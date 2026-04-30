@@ -3671,7 +3671,7 @@ func TestReportPRStatus_printsPRLink(t *testing.T) {
 	prependPath(t, stubDir)
 
 	var buf bytes.Buffer
-	reportPRStatus(&buf, t.TempDir(), "2-my-feature", "2")
+	reportPRStatus(&buf, t.TempDir(), "2-my-feature", "2", false)
 
 	out := buf.String()
 	if !strings.Contains(out, "PR: #9") {
@@ -3688,7 +3688,7 @@ func TestReportPRStatus_noPR_printsNone(t *testing.T) {
 	prependPath(t, stubDir)
 
 	var buf bytes.Buffer
-	hasPR := reportPRStatus(&buf, t.TempDir(), "2-my-feature", "2")
+	hasPR := reportPRStatus(&buf, t.TempDir(), "2-my-feature", "2", false)
 
 	if hasPR {
 		t.Error("expected hasPR=false when no PR exists")
