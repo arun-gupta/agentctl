@@ -2146,15 +2146,28 @@ func TestAgentEnv_claudeJSONSymlinkReplacesStaleFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf(".agent-home/.claude.json missing: %v", err)
 	}
-	if fi.Mode()&os.ModeSymlink == 0 {
-		t.Fatal(".agent-home/.claude.json must be a symlink")
+	if fi.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Readlink(claudeJSONDst)
+		if err != nil {
+			t.Fatalf("readlink .agent-home/.claude.json: %v", err)
+		}
+		if target != claudeJSONSrc {
+			t.Errorf(".agent-home/.claude.json symlink target = %q; want %q", target, claudeJSONSrc)
+		}
+		return
 	}
-	target, err := os.Readlink(claudeJSONDst)
+
+	// Symlinks not supported (e.g. Windows without Developer Mode); verify copy fallback.
+	got, err := os.ReadFile(claudeJSONDst)
 	if err != nil {
-		t.Fatalf("readlink .agent-home/.claude.json: %v", err)
+		t.Fatalf("read .agent-home/.claude.json: %v", err)
 	}
-	if target != claudeJSONSrc {
-		t.Errorf(".agent-home/.claude.json symlink target = %q; want %q", target, claudeJSONSrc)
+	want, err := os.ReadFile(claudeJSONSrc)
+	if err != nil {
+		t.Fatalf("read source .claude.json: %v", err)
+	}
+	if string(got) != string(want) {
+		t.Errorf(".agent-home/.claude.json contents = %q; want %q", string(got), string(want))
 	}
 }
 

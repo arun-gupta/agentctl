@@ -2497,8 +2497,9 @@ func agentEnv(wtPath string) ([]string, error) {
 			src := filepath.Join(realHome, name)
 			dst := filepath.Join(agentHome, name)
 
-			// Keep existing symlinks, but replace stale regular files for entries
-			// that must always point at live host credentials.
+			// Keep existing symlinks, but plan to replace stale regular files for
+			// entries that must always point at live host credentials.
+			var dstNeedsReplacement bool
 			if dstInfo, statErr := os.Lstat(dst); statErr == nil {
 				if dstInfo.Mode()&os.ModeSymlink != 0 {
 					continue
@@ -2506,29 +2507,36 @@ func agentEnv(wtPath string) ([]string, error) {
 				if name != ".claude.json" {
 					continue
 				}
-				if removeErr := os.Remove(dst); removeErr != nil {
-					fmt.Fprintf(os.Stderr, "agentctl: warning: remove %s: %v\n", dst, removeErr)
-					continue
-				}
+				// dst is a regular .claude.json; replace it with a live symlink.
+				dstNeedsReplacement = true
 			} else if !os.IsNotExist(statErr) {
 				fmt.Fprintf(os.Stderr, "agentctl: warning: stat %s: %v\n", dst, statErr)
 				continue
 			}
 
 			// Only proceed when src actually exists; warn on unexpected src errors.
-			srcInfo, srcErr := os.Lstat(src)
-			if srcErr != nil {
+			// Removal of a stale dst is deferred until after src existence is confirmed.
+			if _, srcErr := os.Lstat(src); srcErr != nil {
 				if !os.IsNotExist(srcErr) {
 					fmt.Fprintf(os.Stderr, "agentctl: warning: stat %s: %v\n", src, srcErr)
 				}
 				continue
 			}
 
+			// src exists; now it is safe to remove the stale dst.
+			if dstNeedsReplacement {
+				if removeErr := os.Remove(dst); removeErr != nil {
+					fmt.Fprintf(os.Stderr, "agentctl: warning: remove %s: %v\n", dst, removeErr)
+					continue
+				}
+			}
+
 			if symlinkErr := os.Symlink(src, dst); symlinkErr != nil {
 				// On Windows, symlinks require Developer Mode. Fall back to
 				// copying regular files; for directories emit a warning so
 				// failures are diagnosable.
-				if !srcInfo.IsDir() {
+				// Use os.Stat to follow symlinks when determining directory-ness.
+				if srcStat, statErr := os.Stat(src); statErr != nil || !srcStat.IsDir() {
 					if copyErr := copyFile(src, dst); copyErr != nil {
 						fmt.Fprintf(os.Stderr, "agentctl: warning: copy %s: %v\n", name, copyErr)
 					}
