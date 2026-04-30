@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -1138,10 +1139,10 @@ func runDevStart(wtPath string, quiet bool, out io.Writer) error {
 		return fmt.Errorf("updating .agent: %w", err)
 	}
 
-	fmt.Fprintf(out, "Dev server ready → http://localhost:%s\n", af.DevPort)
+	fmt.Fprintf(out, "Dev server: http://localhost:%s (log: %s/dev.log)\n", af.DevPort, wtPath)
 
 	if cfg.Notify {
-		msg := fmt.Sprintf("Dev server ready → http://localhost:%s", af.DevPort)
+		msg := fmt.Sprintf("Dev server: http://localhost:%s", af.DevPort)
 		if quiet {
 			notify.Send("agentctl", msg)
 		} else {
@@ -1157,15 +1158,29 @@ func runDevStart(wtPath string, quiet bool, out io.Writer) error {
 
 // isPortInUse reports whether a process is listening on port.
 // Returns the conflicting PID string if detectable.
+// It uses lsof when available, distinguishing exit-code-1 ("no listeners") from
+// other failures (e.g. lsof absent), and falls back to a cross-platform TCP
+// bind probe when lsof cannot be relied upon.
 func isPortInUse(port string) (pid string, inUse bool) {
-	if err := exec.Command("lsof", fmt.Sprintf("-iTCP:%s", port), "-sTCP:LISTEN").Run(); err != nil {
+	lsofErr := exec.Command("lsof", fmt.Sprintf("-iTCP:%s", port), "-sTCP:LISTEN").Run()
+	if lsofErr == nil {
+		// lsof exited 0 — something is listening on the port.
+		out, _ := exec.Command("lsof", "-t", fmt.Sprintf("-iTCP:%s", port), "-sTCP:LISTEN").Output() //nolint:gosec
+		return strings.TrimSpace(string(out)), true
+	}
+	// lsof exit code 1 means "no matching processes" (port is free).
+	var exitErr *exec.ExitError
+	if errors.As(lsofErr, &exitErr) && exitErr.ExitCode() == 1 {
 		return "", false
 	}
-	out, err := exec.Command("lsof", "-t", fmt.Sprintf("-iTCP:%s", port), "-sTCP:LISTEN").Output() //nolint:gosec
-	if err == nil {
-		pid = strings.TrimSpace(string(out))
+	// lsof unavailable or exited unexpectedly — fall back to a cross-platform TCP bind test.
+	ln, err := net.Listen("tcp", net.JoinHostPort("", port))
+	if err != nil {
+		// Cannot bind — port is already in use.
+		return "", true
 	}
-	return pid, true
+	_ = ln.Close()
+	return "", false
 }
 
 // startDevServerOnPort starts the dev server command from cfg using portStr
