@@ -356,6 +356,12 @@ Use --headless to run it in the background and write output to agent.log.`,
 	c.Flags().BoolVar(&headless, "headless", false, "Run agent in background (log -> agent.log)")
 	c.Flags().BoolVar(&quiet, "quiet", false, "Suppress agent log output; show spinner/heartbeat only")
 	c.Flags().BoolVar(&sendNotify, "notify", false, "Send a desktop notification when the headless agent finishes")
+	c.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
+		if strings.Contains(err.Error(), "--agent") {
+			return fmt.Errorf("resume does not accept --agent: the agent is recorded in .agent when the worktree is created and reused automatically")
+		}
+		return err
+	})
 	return c
 }
 
