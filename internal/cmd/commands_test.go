@@ -1035,6 +1035,9 @@ func TestSendCompletionNotification_sddSpecReady(t *testing.T) {
 	if !strings.Contains(got[1], "agentctl resume 46") {
 		t.Errorf("SDD notify message must include resume command, got: %q", got[1])
 	}
+	if !strings.Contains(got[1], "spec.md") {
+		t.Errorf("SDD notify message must include spec path, got: %q", got[1])
+	}
 }
 
 // TestSendCompletionNotification_nonSDD verifies the generic finish message.
@@ -1676,11 +1679,8 @@ func TestLaunchAgent_headless_immediateNonZeroExitReturnsError(t *testing.T) {
 	if !strings.Contains(err.Error(), "Agent exited immediately") {
 		t.Fatalf("expected immediate-exit error, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "agentctl logs 42") {
-		t.Errorf("expected logs hint in error, got: %v", err)
-	}
-	if out.Len() != 0 {
-		t.Errorf("headless immediate-exit path should not print success hints, got: %q", out.String())
+	if !strings.Contains(err.Error(), "--headless") {
+		t.Errorf("expected --headless hint in error, got: %v", err)
 	}
 }
 
@@ -1790,6 +1790,44 @@ func TestAgentResume_headless_success(t *testing.T) {
 	}
 	if !strings.Contains(string(logData), "sess-123") {
 		t.Fatalf("agent.log missing resumed session output:\n%s", string(logData))
+	}
+}
+
+// TestAgentResume_headless_hints verifies that agentctl resume --headless prints
+// actionable follow-up hints (logs, attach, discard) rather than just the tail path.
+func TestAgentResume_headless_hints(t *testing.T) {
+	dir := t.TempDir()
+	writeLocalAdapter(t, dir, "echoagent", "binary: echo\nsession: --session\n")
+	chdirTemp(t, dir)
+
+	// Capture os.Stdout because agentResume uses fmt.Printf.
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		r.Close()
+		os.Stdout = oldStdout
+	})
+	os.Stdout = w
+
+	resumeErr := agentResume("echoagent", dir, "42", "sess-123", "my feedback", true, false, false)
+
+	w.Close()
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, r); err != nil {
+		t.Fatal(err)
+	}
+
+	if resumeErr != nil {
+		t.Fatalf("agentResume headless: %v", resumeErr)
+	}
+	out := buf.String()
+	for _, hint := range []string{"agentctl logs 42", "agentctl attach 42", "agentctl discard 42"} {
+		if !strings.Contains(out, hint) {
+			t.Errorf("expected hint %q in resume headless output; got: %q", hint, out)
+		}
 	}
 }
 
@@ -2326,7 +2364,7 @@ func TestStreamLog_fileExists(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := streamLog(dir, 50, true, &buf, 100*time.Millisecond); err != nil {
+	if err := streamLog(dir, "42", 50, true, &buf, 100*time.Millisecond); err != nil {
 		t.Fatalf("streamLog: %v", err)
 	}
 	out := buf.String()
@@ -2340,7 +2378,7 @@ func TestStreamLog_fileExists(t *testing.T) {
 func TestStreamLog_fileMissing(t *testing.T) {
 	dir := t.TempDir()
 	var buf bytes.Buffer
-	err := streamLog(dir, 50, true, &buf, 50*time.Millisecond)
+	err := streamLog(dir, "42", 50, true, &buf, 50*time.Millisecond)
 	if err == nil {
 		t.Fatal("expected error when agent.log is missing")
 	}
@@ -2379,7 +2417,7 @@ func TestStreamLog_followExitsOnProcessDeath(t *testing.T) {
 	var buf bytes.Buffer
 	done := make(chan error, 1)
 	go func() {
-		done <- streamLog(dir, 50, false, &buf, 100*time.Millisecond)
+		done <- streamLog(dir, "42", 50, false, &buf, 100*time.Millisecond)
 	}()
 
 	select {
@@ -2393,6 +2431,58 @@ func TestStreamLog_followExitsOnProcessDeath(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("streamLog did not return within 5s after agent process exited")
+	}
+}
+
+// TestStreamLog_followExitMessage_sdd verifies that streamLog prints the spec
+// ready hint when the agent exits and an SDD spec file is present.
+func TestStreamLog_followExitMessage_sdd(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "agent.log")
+	if err := os.WriteFile(logPath, []byte("agent started\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".agent"), []byte("agent=claude\nsdd=plain\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "specs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "specs", "spec.md"), []byte("# spec\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command("true")
+	if err := cmd.Start(); err != nil {
+		t.Skipf("could not start helper process: %v", err)
+	}
+	pid := strconv.Itoa(cmd.Process.Pid)
+	_ = cmd.Wait()
+
+	if err := state.AppendKey(dir, "agent-pid", pid); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	done := make(chan error, 1)
+	go func() {
+		done <- streamLog(dir, "42", 50, false, &buf, 100*time.Millisecond)
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("streamLog: %v", err)
+		}
+		out := buf.String()
+		if !strings.Contains(out, "Spec ready for review") {
+			t.Errorf("expected 'Spec ready for review' exit message in SDD mode; got: %q", out)
+		}
+		if !strings.Contains(out, "agentctl resume 42") {
+			t.Errorf("expected 'agentctl resume 42' hint; got: %q", out)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("streamLog did not return within 5s")
 	}
 }
 
@@ -2417,7 +2507,7 @@ func TestStreamLog_followExitsWhenPIDAppearsLate(t *testing.T) {
 	var buf bytes.Buffer
 	done := make(chan error, 1)
 	go func() {
-		done <- streamLog(dir, 50, false, &buf, 100*time.Millisecond)
+		done <- streamLog(dir, "42", 50, false, &buf, 100*time.Millisecond)
 	}()
 
 	// Write the dead PID after streamLog has started so the re-read logic

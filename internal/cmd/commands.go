@@ -1003,13 +1003,13 @@ func runLogs(issue string, lines int, noFollow bool, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return streamLog(wtPath, lines, noFollow, w, 10*time.Second)
+	return streamLog(wtPath, issue, lines, noFollow, w, 10*time.Second)
 }
 
 // streamLog is the inner implementation of the logs command.
 // logWait controls how long to wait for agent.log to appear; callers should
 // pass 10*time.Second in production and a short duration in tests.
-func streamLog(wtPath string, lines int, noFollow bool, w io.Writer, logWait time.Duration) error {
+func streamLog(wtPath, issue string, lines int, noFollow bool, w io.Writer, logWait time.Duration) error {
 	logPath := filepath.Join(wtPath, "agent.log")
 	if err := waitForFile(logPath, logWait); err != nil {
 		return fmt.Errorf("agent log not found — is the agent running? (looked for %s)", logPath)
@@ -1065,7 +1065,12 @@ func streamLog(wtPath string, lines int, noFollow bool, w io.Writer, logWait tim
 				time.Sleep(200 * time.Millisecond) // drain any final log writes
 				_ = tail.Process.Kill()
 				_ = tail.Wait()
-				fmt.Fprintln(w, "\nagent process has exited — use `agentctl attach <issue>` to see the full log or `agentctl resume <issue>` to continue")
+				af2, _ := state.Read(wtPath)
+				if af2.SDD != "" && findSpecPath(wtPath, issue) != "" {
+					fmt.Fprintf(w, "\nSpec ready for review — agentctl resume %s\n", issue)
+				} else {
+					fmt.Fprintf(w, "\nagent process has exited\n")
+				}
 				return nil
 			}
 		}
@@ -2096,7 +2101,12 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 				if errors.As(agentExitErr, &exitErr) {
 					exitCode = strconv.Itoa(exitErr.ExitCode())
 				}
-				return fmt.Errorf("Agent exited immediately (code %s) — check credentials or run `agentctl logs %s` for details.", exitCode, issue)
+				// Give the detached stream-log converter a moment to flush output.
+				time.Sleep(200 * time.Millisecond)
+				if content, readErr := os.ReadFile(logPath); readErr == nil && len(content) > 0 {
+					fmt.Fprintf(out, "%s\n", content)
+				}
+				return fmt.Errorf("Agent exited immediately (code %s) — re-run without --headless to see live output.", exitCode)
 			}
 		case <-timer.C:
 		}
@@ -2240,12 +2250,13 @@ func sendCompletionNotification(issue, wtPath, sddName string, exitErr error) {
 	if branch != "" {
 		branchPart = " (" + branch + ")"
 	}
+	specPath := findSpecPath(wtPath, issue)
 	var message string
 	switch {
 	case exitErr != nil:
 		message = fmt.Sprintf("Agent failed — issue #%s%s: check agentctl logs %s", issue, branchPart, issue)
-	case sddName != "" && findSpecPath(wtPath, issue) != "":
-		message = fmt.Sprintf("Spec ready for review — issue #%s%s: run agentctl resume %s", issue, branchPart, issue)
+	case sddName != "" && specPath != "":
+		message = fmt.Sprintf("Spec ready for review — issue #%s%s: %s — agentctl resume %s", issue, branchPart, specPath, issue)
 	default:
 		message = fmt.Sprintf("Agent finished — issue #%s%s: succeeded", issue, branchPart)
 	}
@@ -3092,7 +3103,9 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 
 	if headless {
 		fmt.Printf("Released pause for issue %s; Stage 2 running in background.\n", issue)
-		fmt.Printf("Tail: %s\n", logPath)
+		fmt.Printf("agentctl logs %s      # follow log\n", issue)
+		fmt.Printf("agentctl attach %s    # stream live and wait\n", issue)
+		fmt.Printf("agentctl discard %s   # abandon\n", issue)
 		if sendNotify {
 			maybeFireTestNotification(issue, os.Stdout)
 			go func() {
