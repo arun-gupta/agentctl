@@ -2318,8 +2318,8 @@ func isOpenHandsNoise(line string) bool {
 // and returns human-readable text, or "" to skip the event.
 func extractOpenHandsBlock(jsonBlock string) string {
 	var ev struct {
-		Kind   string `json:"kind"`
-		Source string `json:"source"`
+		Kind       string `json:"kind"`
+		Source     string `json:"source"`
 		LLMMessage *struct {
 			Content []struct {
 				Text string `json:"text"`
@@ -2682,20 +2682,30 @@ func agentEnv(wtPath string) ([]string, error) {
 
 	realHome, err := os.UserHomeDir()
 	if err == nil {
-		// Link config files/dirs so git, SSH, OpenHands, and Codex work with real credentials/settings.
-		for _, name := range []string{".gitconfig", ".ssh", ".claude", ".openhands", ".codex"} {
+		// Link config files/dirs so git, SSH, Claude, OpenHands, and Codex work with real credentials/settings.
+		for _, name := range []string{".gitconfig", ".ssh", ".claude", ".claude.json", ".openhands", ".codex"} {
 			src := filepath.Join(realHome, name)
 			dst := filepath.Join(agentHome, name)
 
-			// Skip dst if already present; treat unexpected stat errors as a warning.
-			if _, statErr := os.Lstat(dst); statErr == nil {
-				continue
+			// Keep existing symlinks, but plan to replace stale regular files for
+			// entries that must always point at live host credentials.
+			var dstNeedsReplacement bool
+			if dstInfo, statErr := os.Lstat(dst); statErr == nil {
+				if dstInfo.Mode()&os.ModeSymlink != 0 {
+					continue
+				}
+				if name != ".claude.json" {
+					continue
+				}
+				// dst is a regular .claude.json; replace it with a live symlink.
+				dstNeedsReplacement = true
 			} else if !os.IsNotExist(statErr) {
 				fmt.Fprintf(os.Stderr, "agentctl: warning: stat %s: %v\n", dst, statErr)
 				continue
 			}
 
 			// Only proceed when src actually exists; warn on unexpected src errors.
+			// Removal of a stale dst is deferred until after src existence is confirmed.
 			if _, srcErr := os.Lstat(src); srcErr != nil {
 				if !os.IsNotExist(srcErr) {
 					fmt.Fprintf(os.Stderr, "agentctl: warning: stat %s: %v\n", src, srcErr)
@@ -2703,11 +2713,20 @@ func agentEnv(wtPath string) ([]string, error) {
 				continue
 			}
 
+			// src exists; now it is safe to remove the stale dst.
+			if dstNeedsReplacement {
+				if removeErr := os.Remove(dst); removeErr != nil {
+					fmt.Fprintf(os.Stderr, "agentctl: warning: remove %s: %v\n", dst, removeErr)
+					continue
+				}
+			}
+
 			if symlinkErr := os.Symlink(src, dst); symlinkErr != nil {
 				// On Windows, symlinks require Developer Mode. Fall back to
-				// copying regular files (e.g. .gitconfig); for directories
-				// (.ssh) emit a warning so failures are diagnosable.
-				if name == ".gitconfig" {
+				// copying regular files; for directories emit a warning so
+				// failures are diagnosable.
+				// Use os.Stat to follow symlinks when determining directory-ness.
+				if srcStat, statErr := os.Stat(src); statErr != nil || !srcStat.IsDir() {
 					if copyErr := copyFile(src, dst); copyErr != nil {
 						fmt.Fprintf(os.Stderr, "agentctl: warning: copy %s: %v\n", name, copyErr)
 					}
