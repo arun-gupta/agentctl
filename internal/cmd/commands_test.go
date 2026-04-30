@@ -2116,6 +2116,48 @@ func TestAgentEnv_codexSymlink(t *testing.T) {
 	}
 }
 
+// TestAgentEnv_claudeJSONSymlinkReplacesStaleFile verifies that agentEnv
+// replaces a stale regular .agent-home/.claude.json with a symlink to the real
+// ~/.claude.json so Claude keeps using live host credentials.
+func TestAgentEnv_claudeJSONSymlinkReplacesStaleFile(t *testing.T) {
+	fakeHome := t.TempDir()
+	claudeJSONSrc := filepath.Join(fakeHome, ".claude.json")
+	if err := os.WriteFile(claudeJSONSrc, []byte("{\"token\":\"live\"}\n"), 0o600); err != nil {
+		t.Fatalf("setup fake HOME: %v", err)
+	}
+
+	t.Setenv("HOME", fakeHome)
+
+	dir := t.TempDir()
+	agentHome := filepath.Join(dir, ".agent-home")
+	if err := os.MkdirAll(agentHome, 0o755); err != nil {
+		t.Fatalf("setup agent HOME: %v", err)
+	}
+	claudeJSONDst := filepath.Join(agentHome, ".claude.json")
+	if err := os.WriteFile(claudeJSONDst, []byte("{\"token\":\"stale\"}\n"), 0o600); err != nil {
+		t.Fatalf("write stale claude config: %v", err)
+	}
+
+	if _, err := agentEnv(dir); err != nil {
+		t.Fatalf("agentEnv: %v", err)
+	}
+
+	fi, err := os.Lstat(claudeJSONDst)
+	if err != nil {
+		t.Fatalf(".agent-home/.claude.json missing: %v", err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal(".agent-home/.claude.json must be a symlink")
+	}
+	target, err := os.Readlink(claudeJSONDst)
+	if err != nil {
+		t.Fatalf("readlink .agent-home/.claude.json: %v", err)
+	}
+	if target != claudeJSONSrc {
+		t.Errorf(".agent-home/.claude.json symlink target = %q; want %q", target, claudeJSONSrc)
+	}
+}
+
 // fakeGHBin writes a small shell script to dir/gh that outputs token when
 // called as "gh auth token", and updates PATH so exec.Command("gh", …) finds it.
 func fakeGHBin(t *testing.T, token string) {
