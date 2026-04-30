@@ -2775,9 +2775,24 @@ func agentEnv(wtPath string) ([]string, error) {
 	// Write a .gitignore that ignores all contents of .agent-home. This
 	// prevents build tools that respect .gitignore (e.g. Turbopack) from
 	// following symlinks inside here that point outside the project root.
+	// Use Lstat + O_EXCL so a malicious repo cannot plant a symlink at
+	// .agent-home/.gitignore and redirect our write to a path outside the
+	// worktree.
 	gitignorePath := filepath.Join(agentHome, ".gitignore")
-	if _, err := os.Stat(gitignorePath); os.IsNotExist(err) {
-		_ = os.WriteFile(gitignorePath, []byte("*\n"), 0o644)
+	if fi, err := os.Lstat(gitignorePath); err == nil {
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("agentEnv: .agent-home/.gitignore is a symlink; refusing to write")
+		}
+	} else if os.IsNotExist(err) {
+		f, createErr := os.OpenFile(gitignorePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if createErr == nil {
+			_, _ = f.Write([]byte("*\n"))
+			_ = f.Close()
+		} else if !errors.Is(createErr, os.ErrExist) {
+			fmt.Fprintf(os.Stderr, "agentctl: warning: failed to create %s: %v\n", gitignorePath, createErr)
+		}
+	} else {
+		fmt.Fprintf(os.Stderr, "agentctl: warning: failed to stat %s: %v\n", gitignorePath, err)
 	}
 
 	// Also add .agent-home to the worktree-local git exclude so it doesn't
@@ -2790,8 +2805,20 @@ func agentEnv(wtPath string) ([]string, error) {
 		}
 		excludePath := filepath.Join(gitDir, "info", "exclude")
 		if content, err := os.ReadFile(excludePath); err == nil {
-			if !strings.Contains(string(content), ".agent-home") {
-				_ = os.WriteFile(excludePath, append(content, []byte(".agent-home\n")...), 0o644)
+			hasAgentHomeExclude := false
+			for _, line := range strings.Split(string(content), "\n") {
+				if strings.TrimSpace(line) == ".agent-home" {
+					hasAgentHomeExclude = true
+					break
+				}
+			}
+			if !hasAgentHomeExclude {
+				updatedContent := content
+				if len(updatedContent) > 0 && !bytes.HasSuffix(updatedContent, []byte("\n")) {
+					updatedContent = append(updatedContent, '\n')
+				}
+				updatedContent = append(updatedContent, []byte(".agent-home\n")...)
+				_ = os.WriteFile(excludePath, updatedContent, 0o644)
 			}
 		}
 	}
