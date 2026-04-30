@@ -1075,8 +1075,8 @@ func streamLog(wtPath, issue string, lines int, noFollow bool, w io.Writer, logW
 				if af2.DevPort != "" {
 					fmt.Fprintf(w, "\nDev server: http://localhost:%s\n", af2.DevPort)
 				}
-				if af2.SDD != "" && findSpecPath(wtPath, issue) != "" {
-					fmt.Fprintf(w, "Spec: %s\nSpec ready for review — agentctl resume %s\n", findSpecPath(wtPath, issue), issue)
+				if specPath := findSpecPath(wtPath, issue); af2.SDD != "" && specPath != "" {
+					fmt.Fprintf(w, "Spec: %s\nSpec ready for review — agentctl resume %s\n", specPath, issue)
 				} else {
 					fmt.Fprintf(w, "agent process has exited\n")
 				}
@@ -2174,7 +2174,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			if af3, err3 := state.Read(wtPath); err3 == nil && af3.DevPort != "" {
 				fmt.Fprintf(out, "Dev server: http://localhost:%s\n", af3.DevPort)
 			}
-			if sddName != "" {
+			if sddName != "" && !hasPR {
 				if specPath := findSpecPath(wtPath, issue); specPath != "" {
 					fmt.Fprintf(out, "Spec: %s\n", specPath)
 				}
@@ -3238,7 +3238,7 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 			af2, _ := state.Read(wtPath)
 			resumeSDD := af2.SDD
 			hasPR := reportPRStatus(os.Stdout, wtPath, branch, issue, resumeSDD != "")
-			if resumeSDD != "" {
+			if resumeSDD != "" && !hasPR {
 				if specPath := findSpecPath(wtPath, issue); specPath != "" {
 					fmt.Fprintf(os.Stdout, "Spec: %s\n", specPath)
 				}
