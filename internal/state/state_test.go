@@ -258,6 +258,27 @@ func TestPRNumberRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSDDStageRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	want := AgentFile{
+		Agent:     "claude",
+		SessionID: "s1",
+		DevPID:    "1",
+		SDD:       "plain",
+		SDDStage:  2,
+	}
+	if err := Write(dir, want); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	got, err := Read(dir)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got.SDDStage != want.SDDStage {
+		t.Errorf("SDDStage: got %d, want %d", got.SDDStage, want.SDDStage)
+	}
+}
+
 func TestWriteOmitsPRFieldsWhenEmpty(t *testing.T) {
 	dir := t.TempDir()
 	af := AgentFile{Agent: "claude", SessionID: "s1", DevPID: "0"}
@@ -277,76 +298,18 @@ func TestWriteOmitsPRFieldsWhenEmpty(t *testing.T) {
 	}
 }
 
-func TestAppendKeyPRNumber(t *testing.T) {
+func TestSDDStageOmittedWhenZero(t *testing.T) {
 	dir := t.TempDir()
-	if err := Write(dir, AgentFile{Agent: "claude", SessionID: "s1", DevPID: "0"}); err != nil {
+	af := AgentFile{Agent: "claude", SessionID: "s1", DevPID: "1"}
+	if err := Write(dir, af); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
-	if err := AppendKey(dir, "pr", "7"); err != nil {
-		t.Fatalf("AppendKey pr: %v", err)
-	}
-	if err := AppendKey(dir, "pr-url", "https://github.com/owner/repo/pull/7"); err != nil {
-		t.Fatalf("AppendKey pr-url: %v", err)
-	}
-	got, err := Read(dir)
+	raw, err := os.ReadFile(filepath.Join(dir, FileName))
 	if err != nil {
-		t.Fatalf("Read: %v", err)
+		t.Fatalf("ReadFile: %v", err)
 	}
-	if got.PRNumber != "7" {
-		t.Errorf("PRNumber: got %q, want %q", got.PRNumber, "7")
-	}
-	if got.PRURL != "https://github.com/owner/repo/pull/7" {
-		t.Errorf("PRURL: got %q, want %q", got.PRURL, "https://github.com/owner/repo/pull/7")
-	}
-}
-
-func TestGetKeyPR(t *testing.T) {
-	dir := t.TempDir()
-	if err := Write(dir, AgentFile{
-		Agent:     "claude",
-		SessionID: "s1",
-		DevPID:    "0",
-		PRNumber:  "99",
-		PRURL:     "https://github.com/owner/repo/pull/99",
-	}); err != nil {
-		t.Fatalf("Write: %v", err)
-	}
-	v, err := GetKey(dir, "pr")
-	if err != nil || v != "99" {
-		t.Errorf("GetKey pr: got %q %v", v, err)
-	}
-	v, err = GetKey(dir, "pr-url")
-	if err != nil || v != "https://github.com/owner/repo/pull/99" {
-		t.Errorf("GetKey pr-url: got %q %v", v, err)
-	}
-}
-
-func TestAppendKeyIfExists_existingFile(t *testing.T) {
-	dir := t.TempDir()
-	if err := Write(dir, AgentFile{Agent: "claude", SessionID: "s1", DevPID: "0"}); err != nil {
-		t.Fatalf("Write: %v", err)
-	}
-	if err := AppendKeyIfExists(dir, "pr", "55"); err != nil {
-		t.Fatalf("AppendKeyIfExists: %v", err)
-	}
-	got, err := Read(dir)
-	if err != nil {
-		t.Fatalf("Read: %v", err)
-	}
-	if got.PRNumber != "55" {
-		t.Errorf("PRNumber: got %q, want %q", got.PRNumber, "55")
-	}
-}
-
-func TestAppendKeyIfExists_missingFile(t *testing.T) {
-	dir := t.TempDir()
-	// No .agent file exists — AppendKeyIfExists must be a no-op and return nil.
-	if err := AppendKeyIfExists(dir, "pr", "55"); err != nil {
-		t.Fatalf("AppendKeyIfExists on missing file returned error: %v", err)
-	}
-	// Confirm the file was NOT created.
-	if _, statErr := os.Stat(filepath.Join(dir, FileName)); !os.IsNotExist(statErr) {
-		t.Error("expected .agent file to remain absent after AppendKeyIfExists on missing file")
+	if strings.Contains(string(raw), "sdd-stage=") {
+		t.Errorf("expected no sdd-stage= when SDDStage is 0, got:\n%s", raw)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -23,6 +24,9 @@ type AgentFile struct {
 	IssueArg  string // canonical GitHub issue URL for display hints (e.g. https://github.com/owner/repo/issues/42); empty when not set
 	PRNumber  string // PR number, e.g. "42"; empty until first agentctl status after PR opens
 	PRURL     string // full PR URL, e.g. "https://github.com/owner/repo/pull/42"; empty until first agentctl status after PR opens
+	// SDDStage tracks which SDD phase is active: 0=unset, 1=spec phase, 2=implementation phase.
+	// Written as sdd-stage=2 when agentctl resume is called for a SDD worktree.
+	SDDStage int
 	// SDDSet is true when the sdd= key was explicitly present in the .agent file,
 	// even if its value is empty. Use this to distinguish new worktrees created
 	// without --sdd (SDDSet=true, SDD="") from legacy worktrees written before the
@@ -69,6 +73,10 @@ func Read(worktreePath string) (AgentFile, error) {
 		case "sdd":
 			af.SDD = v
 			af.SDDSet = true
+		case "sdd-stage":
+			if n, err := strconv.Atoi(v); err == nil {
+				af.SDDStage = n
+			}
 		case "issue-arg":
 			af.IssueArg = v
 		case "pr":
@@ -102,6 +110,11 @@ func GetKey(worktreePath, key string) (string, error) {
 		return af.AgentPID, nil
 	case "sdd":
 		return af.SDD, nil
+	case "sdd-stage":
+		if af.SDDStage == 0 {
+			return "", nil
+		}
+		return strconv.Itoa(af.SDDStage), nil
 	case "issue-arg":
 		return af.IssueArg, nil
 	case "pr":
@@ -131,6 +144,9 @@ func Write(worktreePath string, af AgentFile) error {
 	// Always write sdd= so readers can distinguish new worktrees created without
 	// --sdd (sdd= present but empty) from legacy worktrees that predate this key.
 	lines = append(lines, "sdd="+af.SDD)
+	if af.SDDStage != 0 {
+		lines = append(lines, "sdd-stage="+strconv.Itoa(af.SDDStage))
+	}
 	if af.IssueArg != "" {
 		lines = append(lines, "issue-arg="+af.IssueArg)
 	}

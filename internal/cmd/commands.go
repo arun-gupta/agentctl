@@ -409,6 +409,11 @@ func runReleasePausedSession(issue, feedback string, headless, quiet, sendNotify
 
 	specPath := findSpecPath(wt.Path, issue)
 	prompt := buildResumePrompt(feedback, af.SDD, specPath)
+	if af.SDD != "" && strings.TrimSpace(feedback) == "" {
+		if err := state.AppendKey(wt.Path, "sdd-stage", "2"); err != nil {
+			return fmt.Errorf("persist sdd stage for issue %s: %w", issue, err)
+		}
+	}
 	return agentResume(af.Agent, wt.Path, issue, af.SessionID, prompt, headless, quiet, sendNotify)
 }
 
@@ -1138,9 +1143,18 @@ func streamLog(wtPath, issue string, lines int, noFollow bool, w io.Writer, logW
 				if id == "" {
 					id = issue
 				}
-				if specPath := findSpecPath(wtPath, issue); af2.SDD != "" && specPath != "" {
+				specPath := findSpecPath(wtPath, issue)
+				switch {
+				case af2.SDD != "" && af2.SDDStage < 2 && specPath != "":
 					fmt.Fprintf(w, "Spec: %s\nSpec ready for review — agentctl resume %s\n", specPath, id)
-				} else {
+				case af2.SDD != "" && af2.SDDStage >= 2:
+					branch, _ := git.CurrentBranch(wtPath)
+					if reportPRStatus(w, wtPath, branch, issue, false) {
+						fmt.Fprintf(w, "agentctl cleanup %s   # after PR is merged\n", id)
+					} else {
+						fmt.Fprintf(w, "agent process has exited\n")
+					}
+				default:
 					fmt.Fprintf(w, "agent process has exited\n")
 				}
 				return nil
@@ -2426,11 +2440,12 @@ func sendCompletionNotification(issue, wtPath, sddName string, exitErr error) {
 		branchPart = " (" + branch + ")"
 	}
 	specPath := findSpecPath(wtPath, issue)
+	af, _ := state.Read(wtPath)
 	var message string
 	switch {
 	case exitErr != nil:
 		message = fmt.Sprintf("Agent failed — issue #%s%s: check agentctl logs %s", issue, branchPart, issue)
-	case sddName != "" && specPath != "":
+	case sddName != "" && af.SDDStage < 2 && specPath != "":
 		message = fmt.Sprintf("Spec ready for review — issue #%s%s: %s — agentctl resume %s", issue, branchPart, specPath, issue)
 	default:
 		message = fmt.Sprintf("Agent finished — issue #%s%s: succeeded", issue, branchPart)
