@@ -3968,6 +3968,7 @@ func TestDiscardCmd_emptyTokensRejected(t *testing.T) {
 		{"comma only", ","},
 		{"spaced commas", " , "},
 		{"multiple commas", ",,"},
+		{"whitespace only", "   "},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -3980,6 +3981,71 @@ func TestDiscardCmd_emptyTokensRejected(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), "no valid issue tokens found") {
 				t.Errorf("wrong error message: %v", err)
+			}
+		})
+	}
+}
+
+// TestDiscardCmd_commaSplitAndURLNormalization verifies that comma-separated
+// inputs (including full GitHub issue URLs) are each resolved and processed
+// individually — producing a "Nothing to remove" message per token when the
+// repo has no matching worktrees or branches.
+func TestDiscardCmd_commaSplitAndURLNormalization(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found in PATH")
+	}
+
+	repo := initGitRepoForStale(t)
+	chdirTemp(t, repo)
+
+	tests := []struct {
+		name      string
+		arg       string
+		wantIssues []string // issue numbers expected in "Nothing to remove" output
+	}{
+		{
+			name:       "two bare numbers",
+			arg:        "55,56",
+			wantIssues: []string{"55", "56"},
+		},
+		{
+			name:       "bare number and URL",
+			arg:        "43,https://github.com/org/repo/issues/44",
+			wantIssues: []string{"43", "44"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Capture os.Stdout because runRemoveWorktree uses fmt.Printf.
+			oldStdout := os.Stdout
+			r, w, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			os.Stdout = w
+
+			c := NewDiscardCmd()
+			c.SilenceUsage = true
+			c.SetArgs([]string{tt.arg})
+			runErr := c.Execute()
+
+			w.Close()
+			var buf bytes.Buffer
+			if _, err := io.Copy(&buf, r); err != nil {
+				t.Fatal(err)
+			}
+			os.Stdout = oldStdout
+			r.Close()
+
+			if runErr != nil {
+				t.Fatalf("unexpected error: %v", runErr)
+			}
+			out := buf.String()
+			for _, issue := range tt.wantIssues {
+				if !strings.Contains(out, "Nothing to remove") || !strings.Contains(out, issue) {
+					t.Errorf("expected 'Nothing to remove' for issue %s in output; got: %q", issue, out)
+				}
 			}
 		})
 	}

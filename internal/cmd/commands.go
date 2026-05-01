@@ -426,7 +426,12 @@ This action is NOT recoverable. You will be prompted to type YES to confirm.
 If no issue number is given, it is inferred from the current branch when
 you are inside a linked worktree.
 
-Multiple issues may be given as a comma-separated list (e.g. 55,56,57).
+Multiple issues may be given as a comma-separated list. Each list item may
+be a bare issue number or a full GitHub issue URL, e.g.:
+
+  agentctl discard 55,56,57
+  agentctl discard 55,https://github.com/org/repo/issues/56,57
+
 Each worktree is discarded in sequence; you will be prompted to confirm
 each one.
 
