@@ -182,7 +182,8 @@ When `agentctl start <issue>` runs, it creates a linked worktree at `../<repo>-<
 
 ```
 .agent          ← key=value metadata (agent, port, session-id, agent-pid, dev-pid)
-agent.log       ← agent stdout/stderr (always written to this file; interactive mode also streams it to the terminal unless `--quiet` is used)
+agent.log       ← agent stdout/stderr (always written; also streamed to terminal in foreground mode unless --quiet)
+dev.log         ← dev-server stdout/stderr
 specs/          ← SDD artefacts (spec.md, plan.md, tasks.md)
 ```
 
