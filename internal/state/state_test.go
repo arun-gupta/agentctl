@@ -199,6 +199,38 @@ func TestReadExtraKeys(t *testing.T) {
 	}
 }
 
+func TestIssueArgRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	af := AgentFile{
+		Agent:     "claude",
+		SessionID: "s1",
+		DevPID:    "0",
+		IssueArg:  "https://github.com/owner/repo/issues/42",
+	}
+	if err := Write(dir, af); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	got, err := Read(dir)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got.IssueArg != af.IssueArg {
+		t.Errorf("IssueArg = %q, want %q", got.IssueArg, af.IssueArg)
+	}
+}
+
+func TestIssueArgOmittedWhenEmpty(t *testing.T) {
+	dir := t.TempDir()
+	af := AgentFile{Agent: "claude", SessionID: "s1", DevPID: "0"}
+	if err := Write(dir, af); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, FileName))
+	if strings.Contains(string(raw), "issue-arg") {
+		t.Errorf("expected no issue-arg line when IssueArg is empty, got:\n%s", raw)
+	}
+}
+
 func contains(s, sub string) bool {
 	return strings.Contains(s, sub)
 }
