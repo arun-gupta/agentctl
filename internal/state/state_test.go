@@ -234,6 +234,42 @@ func TestIssueArgOmittedWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestSDDStageRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	want := AgentFile{
+		Agent:     "claude",
+		SessionID: "s1",
+		DevPID:    "1",
+		SDD:       "plain",
+		SDDStage:  2,
+	}
+	if err := Write(dir, want); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	got, err := Read(dir)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got.SDDStage != want.SDDStage {
+		t.Errorf("SDDStage: got %d, want %d", got.SDDStage, want.SDDStage)
+	}
+}
+
+func TestSDDStageOmittedWhenZero(t *testing.T) {
+	dir := t.TempDir()
+	af := AgentFile{Agent: "claude", SessionID: "s1", DevPID: "1"}
+	if err := Write(dir, af); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, FileName))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if strings.Contains(string(raw), "sdd-stage=") {
+		t.Errorf("expected no sdd-stage= when SDDStage is 0, got:\n%s", raw)
+	}
+}
+
 func contains(s, sub string) bool {
 	return strings.Contains(s, sub)
 }
