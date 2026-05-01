@@ -160,3 +160,21 @@ func AppendKey(worktreePath, key, value string) error {
 	_, err = fmt.Fprintf(f, "%s=%s\n", key, value)
 	return err
 }
+
+// AppendKeyIfExists appends a single key=value line to the .agent file only
+// if the file already exists. It is a no-op (returns nil) when the file is
+// absent, so callers cannot accidentally create a .agent file in a worktree
+// that agentctl never initialised.
+func AppendKeyIfExists(worktreePath, key, value string) error {
+	path := filepath.Join(worktreePath, FileName)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = fmt.Fprintf(f, "%s=%s\n", key, value)
+	return err
+}

@@ -986,16 +986,26 @@ func runStatus(verbose bool) error {
 		if branch != "?" && branch != "HEAD" {
 			if af.PRNumber != "" {
 				// Cache hit — use stored number, call gh live for current state.
-				if ps, _, _, err := ghPRInfoWithURL(repoRoot, af.PRNumber); err == nil && ps != "" {
+				if ps, _, prURL, err := ghPRInfoWithURL(repoRoot, af.PRNumber); err == nil && ps != "" {
 					prState = fmt.Sprintf("#%s %s", af.PRNumber, ps)
+					// Backfill pr-url if it was missing (partial write or manually edited .agent).
+					if af.PRURL == "" && prURL != "" {
+						if appendErr := state.AppendKeyIfExists(wt.Path, "pr-url", prURL); appendErr != nil {
+							fmt.Fprintf(os.Stderr, "WARNING: could not cache pr-url: %v\n", appendErr)
+						}
+					}
 				}
 			} else {
 				// Cache miss — discover PR via branch name.
 				if ps, n, prURL, err := ghPRInfoWithURL(repoRoot, branch); err == nil && ps != "" {
 					if n > 0 {
 						prState = fmt.Sprintf("#%d %s", n, ps)
-						_ = state.AppendKey(wt.Path, "pr", strconv.Itoa(n))
-						_ = state.AppendKey(wt.Path, "pr-url", prURL)
+						if appendErr := state.AppendKeyIfExists(wt.Path, "pr", strconv.Itoa(n)); appendErr != nil {
+							fmt.Fprintf(os.Stderr, "WARNING: could not cache pr: %v\n", appendErr)
+						}
+						if appendErr := state.AppendKeyIfExists(wt.Path, "pr-url", prURL); appendErr != nil {
+							fmt.Fprintf(os.Stderr, "WARNING: could not cache pr-url: %v\n", appendErr)
+						}
 					} else {
 						prState = ps
 					}
@@ -1559,7 +1569,12 @@ func ghPRInfoWithURL(repoRoot, ref string) (prState string, number int, url stri
 		URL    string `json:"url"`
 	}
 	if err = json.Unmarshal(out.Bytes(), &result); err != nil {
-		return "", 0, "", fmt.Errorf("unexpected gh output: %q", out.String())
+		snippet := strings.TrimSpace(out.String())
+		runes := []rune(snippet)
+		if len(runes) > 200 {
+			snippet = string(runes[:200]) + "..."
+		}
+		return "", 0, "", fmt.Errorf("unexpected gh output: %w (output: %q)", err, snippet)
 	}
 	return result.State, result.Number, result.URL, nil
 }

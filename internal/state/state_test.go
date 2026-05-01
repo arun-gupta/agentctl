@@ -321,6 +321,35 @@ func TestGetKeyPR(t *testing.T) {
 	}
 }
 
+func TestAppendKeyIfExists_existingFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := Write(dir, AgentFile{Agent: "claude", SessionID: "s1", DevPID: "0"}); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if err := AppendKeyIfExists(dir, "pr", "55"); err != nil {
+		t.Fatalf("AppendKeyIfExists: %v", err)
+	}
+	got, err := Read(dir)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got.PRNumber != "55" {
+		t.Errorf("PRNumber: got %q, want %q", got.PRNumber, "55")
+	}
+}
+
+func TestAppendKeyIfExists_missingFile(t *testing.T) {
+	dir := t.TempDir()
+	// No .agent file exists — AppendKeyIfExists must be a no-op and return nil.
+	if err := AppendKeyIfExists(dir, "pr", "55"); err != nil {
+		t.Fatalf("AppendKeyIfExists on missing file returned error: %v", err)
+	}
+	// Confirm the file was NOT created.
+	if _, statErr := os.Stat(filepath.Join(dir, FileName)); !os.IsNotExist(statErr) {
+		t.Error("expected .agent file to remain absent after AppendKeyIfExists on missing file")
+	}
+}
+
 func contains(s, sub string) bool {
 	return strings.Contains(s, sub)
 }
