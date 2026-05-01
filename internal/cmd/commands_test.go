@@ -1092,6 +1092,36 @@ func TestSendCompletionNotification_sddSpecReady(t *testing.T) {
 	}
 }
 
+// TestSendCompletionNotification_sddStage2 verifies that when sdd-stage=2 is set
+// the notification shows the generic finish message, not "Spec ready for review".
+func TestSendCompletionNotification_sddStage2(t *testing.T) {
+	dir := t.TempDir()
+	specsDir := filepath.Join(dir, "specs")
+	if err := os.MkdirAll(specsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(specsDir, "spec.md"), []byte("# spec\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".agent"), []byte("agent=claude\nsdd=plain\nsdd-stage=2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	origFn := notify.SendFn
+	t.Cleanup(func() { notify.SendFn = origFn })
+	var got [2]string
+	notify.SendFn = func(title, message string) { got = [2]string{title, message} }
+
+	sendCompletionNotification("46", dir, "plain", nil)
+
+	if strings.Contains(got[1], "Spec ready for review") {
+		t.Errorf("stage 2 notify must not say 'Spec ready for review', got: %q", got[1])
+	}
+	if !strings.Contains(got[1], "Agent finished") {
+		t.Errorf("stage 2 notify must say 'Agent finished', got: %q", got[1])
+	}
+}
+
 // TestSendCompletionNotification_nonSDD verifies the generic finish message.
 func TestSendCompletionNotification_nonSDD(t *testing.T) {
 	origFn := notify.SendFn
@@ -2676,6 +2706,63 @@ func TestStreamLog_followExitMessage_sdd(t *testing.T) {
 		}
 		if !strings.Contains(out, "agentctl resume 42") {
 			t.Errorf("expected 'agentctl resume 42' hint; got: %q", out)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("streamLog did not return within 5s")
+	}
+}
+
+// TestStreamLog_followExitMessage_sddStage2 verifies that streamLog shows the
+// cleanup hint (not "Spec ready for review") when sdd-stage=2 is set, even
+// when the spec file is still present (the spec is never deleted after resume).
+func TestStreamLog_followExitMessage_sddStage2(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "agent.log")
+	if err := os.WriteFile(logPath, []byte("agent started\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".agent"), []byte("agent=claude\nsdd=plain\nsdd-stage=2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// spec file still present — the bug was that this caused "Spec ready for review"
+	if err := os.MkdirAll(filepath.Join(dir, "specs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "specs", "spec.md"), []byte("# spec\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command("true")
+	if err := cmd.Start(); err != nil {
+		t.Skipf("could not start helper process: %v", err)
+	}
+	pid := strconv.Itoa(cmd.Process.Pid)
+	_ = cmd.Wait()
+
+	if err := state.AppendKey(dir, "agent-pid", pid); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	done := make(chan error, 1)
+	go func() {
+		done <- streamLog(dir, "42", 50, false, &buf, 100*time.Millisecond)
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("streamLog: %v", err)
+		}
+		out := buf.String()
+		if strings.Contains(out, "Spec ready for review") {
+			t.Errorf("stage 2: must not show 'Spec ready for review'; got: %q", out)
+		}
+		if strings.Contains(out, "agentctl resume") {
+			t.Errorf("stage 2: must not show 'agentctl resume'; got: %q", out)
+		}
+		if !strings.Contains(out, "agentctl cleanup 42") {
+			t.Errorf("stage 2: must show 'agentctl cleanup 42'; got: %q", out)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("streamLog did not return within 5s")
