@@ -4686,3 +4686,38 @@ func TestRunDevStart_success(t *testing.T) {
 	}
 	t.Cleanup(func() { process.Kill(af.DevPID) })
 }
+
+func TestGhPRInfoWithURL_found(t *testing.T) {
+	stubDir := t.TempDir()
+	viewJSON := `{"state":"OPEN","number":42,"url":"https://github.com/owner/repo/pull/42"}`
+	makeGHStub(t, stubDir, viewJSON, "", false)
+	prependPath(t, stubDir)
+
+	prState, number, url, err := ghPRInfoWithURL(t.TempDir(), "my-feature-branch")
+	if err != nil {
+		t.Fatalf("ghPRInfoWithURL: %v", err)
+	}
+	if prState != "OPEN" {
+		t.Errorf("prState: got %q, want %q", prState, "OPEN")
+	}
+	if number != 42 {
+		t.Errorf("number: got %d, want %d", number, 42)
+	}
+	if url != "https://github.com/owner/repo/pull/42" {
+		t.Errorf("url: got %q, want %q", url, "https://github.com/owner/repo/pull/42")
+	}
+}
+
+func TestGhPRInfoWithURL_noPR(t *testing.T) {
+	stubDir := t.TempDir()
+	makeGHStub(t, stubDir, "", "", false)
+	prependPath(t, stubDir)
+
+	prState, number, url, err := ghPRInfoWithURL(t.TempDir(), "my-feature-branch")
+	if err == nil {
+		t.Fatal("expected error when no PR exists, got nil")
+	}
+	if prState != "" || number != 0 || url != "" {
+		t.Errorf("expected zero values on error, got prState=%q number=%d url=%q", prState, number, url)
+	}
+}

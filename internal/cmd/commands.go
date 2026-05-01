@@ -984,11 +984,21 @@ func runStatus(verbose bool) error {
 
 		prState := "none"
 		if branch != "?" && branch != "HEAD" {
-			if ps, n, err := ghPRInfo(repoRoot, branch); err == nil && ps != "" {
-				if n > 0 {
-					prState = fmt.Sprintf("#%d %s", n, ps)
-				} else {
-					prState = ps
+			if af.PRNumber != "" {
+				// Cache hit — use stored number, call gh live for current state.
+				if ps, _, _, err := ghPRInfoWithURL(repoRoot, af.PRNumber); err == nil && ps != "" {
+					prState = fmt.Sprintf("#%s %s", af.PRNumber, ps)
+				}
+			} else {
+				// Cache miss — discover PR via branch name.
+				if ps, n, prURL, err := ghPRInfoWithURL(repoRoot, branch); err == nil && ps != "" {
+					if n > 0 {
+						prState = fmt.Sprintf("#%d %s", n, ps)
+						_ = state.AppendKey(wt.Path, "pr", strconv.Itoa(n))
+						_ = state.AppendKey(wt.Path, "pr-url", prURL)
+					} else {
+						prState = ps
+					}
 				}
 			}
 		}
@@ -1529,6 +1539,29 @@ func ghHasPR(repoRoot, branch string) (bool, error) {
 func ghPRState(repoRoot, branch string) (string, error) {
 	state, _, err := ghPRInfo(repoRoot, branch)
 	return state, err
+}
+
+// ghPRInfoWithURL calls `gh pr view <ref>` in repoRoot and returns the PR state,
+// number, and URL. ref can be a branch name or a PR number string — gh accepts both.
+// All are zero-values on error.
+func ghPRInfoWithURL(repoRoot, ref string) (prState string, number int, url string, err error) {
+	cmd := exec.Command("gh", "pr", "view", ref, "--json", "state,number,url")
+	cmd.Dir = repoRoot
+	var out, errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+	if err = cmd.Run(); err != nil {
+		return "", 0, "", fmt.Errorf("%w: %s", err, strings.TrimSpace(errBuf.String()))
+	}
+	var result struct {
+		State  string `json:"state"`
+		Number int    `json:"number"`
+		URL    string `json:"url"`
+	}
+	if err = json.Unmarshal(out.Bytes(), &result); err != nil {
+		return "", 0, "", fmt.Errorf("unexpected gh output: %q", out.String())
+	}
+	return result.State, result.Number, result.URL, nil
 }
 
 type prInfo struct {

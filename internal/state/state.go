@@ -21,6 +21,8 @@ type AgentFile struct {
 	AgentPID  string // PID of the background agent process (headless only)
 	SDD       string // SDD methodology name, e.g. "plain", "speckit"; empty if none
 	IssueArg  string // canonical GitHub issue URL for display hints (e.g. https://github.com/owner/repo/issues/42); empty when not set
+	PRNumber  string // PR number, e.g. "42"; empty until first agentctl status after PR opens
+	PRURL     string // full PR URL, e.g. "https://github.com/owner/repo/pull/42"; empty until first agentctl status after PR opens
 	// SDDSet is true when the sdd= key was explicitly present in the .agent file,
 	// even if its value is empty. Use this to distinguish new worktrees created
 	// without --sdd (SDDSet=true, SDD="") from legacy worktrees written before the
@@ -69,6 +71,10 @@ func Read(worktreePath string) (AgentFile, error) {
 			af.SDDSet = true
 		case "issue-arg":
 			af.IssueArg = v
+		case "pr":
+			af.PRNumber = v
+		case "pr-url":
+			af.PRURL = v
 		default:
 			af.Extra[k] = v
 		}
@@ -98,6 +104,10 @@ func GetKey(worktreePath, key string) (string, error) {
 		return af.SDD, nil
 	case "issue-arg":
 		return af.IssueArg, nil
+	case "pr":
+		return af.PRNumber, nil
+	case "pr-url":
+		return af.PRURL, nil
 	default:
 		return af.Extra[key], nil
 	}
@@ -123,6 +133,12 @@ func Write(worktreePath string, af AgentFile) error {
 	lines = append(lines, "sdd="+af.SDD)
 	if af.IssueArg != "" {
 		lines = append(lines, "issue-arg="+af.IssueArg)
+	}
+	if af.PRNumber != "" {
+		lines = append(lines, "pr="+af.PRNumber)
+	}
+	if af.PRURL != "" {
+		lines = append(lines, "pr-url="+af.PRURL)
 	}
 	for k, v := range af.Extra {
 		lines = append(lines, k+"="+v)

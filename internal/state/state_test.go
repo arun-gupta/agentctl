@@ -234,6 +234,93 @@ func TestIssueArgOmittedWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestPRNumberRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	want := AgentFile{
+		Agent:     "claude",
+		SessionID: "s1",
+		DevPID:    "1234",
+		PRNumber:  "42",
+		PRURL:     "https://github.com/owner/repo/pull/42",
+	}
+	if err := Write(dir, want); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	got, err := Read(dir)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got.PRNumber != want.PRNumber {
+		t.Errorf("PRNumber: got %q, want %q", got.PRNumber, want.PRNumber)
+	}
+	if got.PRURL != want.PRURL {
+		t.Errorf("PRURL: got %q, want %q", got.PRURL, want.PRURL)
+	}
+}
+
+func TestWriteOmitsPRFieldsWhenEmpty(t *testing.T) {
+	dir := t.TempDir()
+	af := AgentFile{Agent: "claude", SessionID: "s1", DevPID: "0"}
+	if err := Write(dir, af); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, FileName))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	content := string(raw)
+	if strings.Contains(content, "pr=") {
+		t.Error("expected no pr= line when PRNumber is empty")
+	}
+	if strings.Contains(content, "pr-url=") {
+		t.Error("expected no pr-url= line when PRURL is empty")
+	}
+}
+
+func TestAppendKeyPRNumber(t *testing.T) {
+	dir := t.TempDir()
+	if err := Write(dir, AgentFile{Agent: "claude", SessionID: "s1", DevPID: "0"}); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if err := AppendKey(dir, "pr", "7"); err != nil {
+		t.Fatalf("AppendKey pr: %v", err)
+	}
+	if err := AppendKey(dir, "pr-url", "https://github.com/owner/repo/pull/7"); err != nil {
+		t.Fatalf("AppendKey pr-url: %v", err)
+	}
+	got, err := Read(dir)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got.PRNumber != "7" {
+		t.Errorf("PRNumber: got %q, want %q", got.PRNumber, "7")
+	}
+	if got.PRURL != "https://github.com/owner/repo/pull/7" {
+		t.Errorf("PRURL: got %q, want %q", got.PRURL, "https://github.com/owner/repo/pull/7")
+	}
+}
+
+func TestGetKeyPR(t *testing.T) {
+	dir := t.TempDir()
+	if err := Write(dir, AgentFile{
+		Agent:     "claude",
+		SessionID: "s1",
+		DevPID:    "0",
+		PRNumber:  "99",
+		PRURL:     "https://github.com/owner/repo/pull/99",
+	}); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	v, err := GetKey(dir, "pr")
+	if err != nil || v != "99" {
+		t.Errorf("GetKey pr: got %q %v", v, err)
+	}
+	v, err = GetKey(dir, "pr-url")
+	if err != nil || v != "https://github.com/owner/repo/pull/99" {
+		t.Errorf("GetKey pr-url: got %q %v", v, err)
+	}
+}
+
 func contains(s, sub string) bool {
 	return strings.Contains(s, sub)
 }
