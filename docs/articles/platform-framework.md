@@ -86,7 +86,19 @@ Every team has a definition of done. Almost no team enforces it consistently, be
 
 Automate it. Build a subagent whose only job is to verify that a PR meets the definition of done before a human reviewer spends any time on it.
 
-For repo-pulse, this is the [`dod-verifier`](https://github.com/arun-gupta/repo-pulse/blob/main/.claude/agents/dod-verifier.md) — a Claude Code sub-agent running on the haiku model that mechanically walks the project's Definition of Done before any PR is marked ready for review. It checks nine criteria: acceptance criteria satisfied (flagged for human sign-off), tests passing, lint clean, build succeeding, no TODOs or `console.log` statements in changed files, PR body containing a test plan, README updated for user-facing changes, DEVELOPMENT.md implementation-order row updated, and constitution compliance (flagged for human sign-off). Each check reports `SATISFIED`, `BLOCKED` with evidence, or `REQUIRES HUMAN SIGN-OFF`. The subagent never edits source files — its role is verification only.
+For repo-pulse, this is the [`dod-verifier`](https://github.com/arun-gupta/repo-pulse/blob/main/.claude/agents/dod-verifier.md) — a Claude Code sub-agent running on the haiku model that mechanically walks the project's Definition of Done before any PR is marked ready for review. It checks nine criteria:
+
+- Acceptance criteria satisfied (flagged for human sign-off)
+- Tests passing
+- Lint clean
+- Build succeeding
+- No TODOs or `console.log` statements in changed files
+- PR body containing a test plan
+- README updated for user-facing changes
+- DEVELOPMENT.md implementation-order row updated
+- Constitution compliance (flagged for human sign-off)
+
+Each check reports `SATISFIED`, `BLOCKED` with evidence, or `REQUIRES HUMAN SIGN-OFF`. The subagent never edits source files — its role is verification only.
 
 A human reviewer never sees a PR that fails any of the mechanical checks. By the time a human looks at the code, the automatable questions are already answered. They can focus on the things that require judgment: architecture, naming, edge cases the tests do not cover.
 
