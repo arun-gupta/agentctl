@@ -234,6 +234,30 @@ func TestIssueArgOmittedWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestPRNumberRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	want := AgentFile{
+		Agent:     "claude",
+		SessionID: "s1",
+		DevPID:    "1234",
+		PRNumber:  "42",
+		PRURL:     "https://github.com/owner/repo/pull/42",
+	}
+	if err := Write(dir, want); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	got, err := Read(dir)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got.PRNumber != want.PRNumber {
+		t.Errorf("PRNumber: got %q, want %q", got.PRNumber, want.PRNumber)
+	}
+	if got.PRURL != want.PRURL {
+		t.Errorf("PRURL: got %q, want %q", got.PRURL, want.PRURL)
+	}
+}
+
 func TestSDDStageRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	want := AgentFile{
@@ -252,6 +276,25 @@ func TestSDDStageRoundTrip(t *testing.T) {
 	}
 	if got.SDDStage != want.SDDStage {
 		t.Errorf("SDDStage: got %d, want %d", got.SDDStage, want.SDDStage)
+	}
+}
+
+func TestWriteOmitsPRFieldsWhenEmpty(t *testing.T) {
+	dir := t.TempDir()
+	af := AgentFile{Agent: "claude", SessionID: "s1", DevPID: "0"}
+	if err := Write(dir, af); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, FileName))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	content := string(raw)
+	if strings.Contains(content, "pr=") {
+		t.Error("expected no pr= line when PRNumber is empty")
+	}
+	if strings.Contains(content, "pr-url=") {
+		t.Error("expected no pr-url= line when PRURL is empty")
 	}
 }
 

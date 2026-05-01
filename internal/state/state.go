@@ -22,6 +22,8 @@ type AgentFile struct {
 	AgentPID  string // PID of the background agent process (headless only)
 	SDD       string // SDD methodology name, e.g. "plain", "speckit"; empty if none
 	IssueArg  string // canonical GitHub issue URL for display hints (e.g. https://github.com/owner/repo/issues/42); empty when not set
+	PRNumber  string // PR number, e.g. "42"; empty until first agentctl status after PR opens
+	PRURL     string // full PR URL, e.g. "https://github.com/owner/repo/pull/42"; empty until first agentctl status after PR opens
 	// SDDStage tracks which SDD phase is active: 0=unset, 1=spec phase, 2=implementation phase.
 	// Written as sdd-stage=2 when agentctl resume is called for a SDD worktree.
 	SDDStage int
@@ -77,6 +79,10 @@ func Read(worktreePath string) (AgentFile, error) {
 			}
 		case "issue-arg":
 			af.IssueArg = v
+		case "pr":
+			af.PRNumber = v
+		case "pr-url":
+			af.PRURL = v
 		default:
 			af.Extra[k] = v
 		}
@@ -111,6 +117,10 @@ func GetKey(worktreePath, key string) (string, error) {
 		return strconv.Itoa(af.SDDStage), nil
 	case "issue-arg":
 		return af.IssueArg, nil
+	case "pr":
+		return af.PRNumber, nil
+	case "pr-url":
+		return af.PRURL, nil
 	default:
 		return af.Extra[key], nil
 	}
@@ -140,6 +150,12 @@ func Write(worktreePath string, af AgentFile) error {
 	if af.IssueArg != "" {
 		lines = append(lines, "issue-arg="+af.IssueArg)
 	}
+	if af.PRNumber != "" {
+		lines = append(lines, "pr="+af.PRNumber)
+	}
+	if af.PRURL != "" {
+		lines = append(lines, "pr-url="+af.PRURL)
+	}
 	for k, v := range af.Extra {
 		lines = append(lines, k+"="+v)
 	}
@@ -153,6 +169,24 @@ func Write(worktreePath string, af AgentFile) error {
 func AppendKey(worktreePath, key, value string) error {
 	path := filepath.Join(worktreePath, FileName)
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = fmt.Fprintf(f, "%s=%s\n", key, value)
+	return err
+}
+
+// AppendKeyIfExists appends a single key=value line to the .agent file only
+// if the file already exists. It is a no-op (returns nil) when the file is
+// absent, so callers cannot accidentally create a .agent file in a worktree
+// that agentctl never initialised.
+func AppendKeyIfExists(worktreePath, key, value string) error {
+	path := filepath.Join(worktreePath, FileName)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if os.IsNotExist(err) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
