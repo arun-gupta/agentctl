@@ -20,6 +20,7 @@ type AgentFile struct {
 	DevPort   string // port allocated for the dev server; empty when no dev server
 	AgentPID  string // PID of the background agent process (headless only)
 	SDD       string // SDD methodology name, e.g. "plain", "speckit"; empty if none
+	IssueArg  string // canonical GitHub issue URL for display hints (e.g. https://github.com/owner/repo/issues/42); empty when not set
 	// SDDSet is true when the sdd= key was explicitly present in the .agent file,
 	// even if its value is empty. Use this to distinguish new worktrees created
 	// without --sdd (SDDSet=true, SDD="") from legacy worktrees written before the
@@ -66,6 +67,8 @@ func Read(worktreePath string) (AgentFile, error) {
 		case "sdd":
 			af.SDD = v
 			af.SDDSet = true
+		case "issue-arg":
+			af.IssueArg = v
 		default:
 			af.Extra[k] = v
 		}
@@ -93,6 +96,8 @@ func GetKey(worktreePath, key string) (string, error) {
 		return af.AgentPID, nil
 	case "sdd":
 		return af.SDD, nil
+	case "issue-arg":
+		return af.IssueArg, nil
 	default:
 		return af.Extra[key], nil
 	}
@@ -116,6 +121,9 @@ func Write(worktreePath string, af AgentFile) error {
 	// Always write sdd= so readers can distinguish new worktrees created without
 	// --sdd (sdd= present but empty) from legacy worktrees that predate this key.
 	lines = append(lines, "sdd="+af.SDD)
+	if af.IssueArg != "" {
+		lines = append(lines, "issue-arg="+af.IssueArg)
+	}
 	for k, v := range af.Extra {
 		lines = append(lines, k+"="+v)
 	}

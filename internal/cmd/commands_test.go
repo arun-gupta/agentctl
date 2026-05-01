@@ -411,13 +411,13 @@ func TestResolveIssueArg_withArg(t *testing.T) {
 	}
 }
 
-func TestResolveIssueArg_rejectsURL(t *testing.T) {
-	_, err := resolveIssueArg("discard", []string{"https://github.com/myorg/myrepo/issues/42"})
-	if err == nil {
-		t.Error("expected error when a full issue URL is passed")
+func TestResolveIssueArg_acceptsURL(t *testing.T) {
+	issue, err := resolveIssueArg("discard", []string{"https://github.com/myorg/myrepo/issues/42"})
+	if err != nil {
+		t.Fatalf("unexpected error for URL arg: %v", err)
 	}
-	if !strings.Contains(err.Error(), "bare issue number") {
-		t.Errorf("expected 'bare issue number' in error, got: %v", err)
+	if issue != "42" {
+		t.Errorf("got %q, want %q", issue, "42")
 	}
 }
 
@@ -547,6 +547,48 @@ func TestMatchesGitHubOrigin_noOrigin(t *testing.T) {
 	}
 }
 
+// ─── githubIssueURL ──────────────────────────────────────────────────────────
+
+func TestGithubIssueURL_https(t *testing.T) {
+	dir := initGitRepoWithOrigin(t, "https://github.com/myorg/myrepo.git")
+	got := githubIssueURL(dir, "42")
+	want := "https://github.com/myorg/myrepo/issues/42"
+	if got != want {
+		t.Errorf("githubIssueURL (HTTPS) = %q, want %q", got, want)
+	}
+}
+
+func TestGithubIssueURL_ssh(t *testing.T) {
+	dir := initGitRepoWithOrigin(t, "git@github.com:myorg/myrepo.git")
+	got := githubIssueURL(dir, "7")
+	want := "https://github.com/myorg/myrepo/issues/7"
+	if got != want {
+		t.Errorf("githubIssueURL (SSH) = %q, want %q", got, want)
+	}
+}
+
+func TestGithubIssueURL_sshURL(t *testing.T) {
+	dir := initGitRepoWithOrigin(t, "ssh://git@github.com/myorg/myrepo.git")
+	got := githubIssueURL(dir, "5")
+	want := "https://github.com/myorg/myrepo/issues/5"
+	if got != want {
+		t.Errorf("githubIssueURL (ssh://) = %q, want %q", got, want)
+	}
+}
+
+func TestGithubIssueURL_noOrigin(t *testing.T) {
+	dir := t.TempDir()
+	cmd := exec.Command("git", "init")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	got := githubIssueURL(dir, "1")
+	if got != "" {
+		t.Errorf("githubIssueURL without origin = %q, want empty string", got)
+	}
+}
+
 // ─── locateOrCloneRepo ───────────────────────────────────────────────────────
 
 func TestLocateOrCloneRepo_cwdMatch(t *testing.T) {
@@ -655,8 +697,8 @@ func TestRepoRootForIssue_bareNumber(t *testing.T) {
 	if issueNum != "42" {
 		t.Errorf("issueNum = %q, want %q", issueNum, "42")
 	}
-	if ghArg != "42" {
-		t.Errorf("ghArg = %q, want %q", ghArg, "42")
+	if ghArg != "https://github.com/myorg/myrepo/issues/42" {
+		t.Errorf("ghArg = %q, want full GitHub URL", ghArg)
 	}
 }
 

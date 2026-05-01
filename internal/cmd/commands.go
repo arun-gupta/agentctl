@@ -213,6 +213,7 @@ func startOne(issue, slug, agentName, sddName string, headless, quiet, sendNotif
 		DevPID:    devPID,
 		DevPort:   portStr,
 		SDD:       sddName,
+		IssueArg:  ghIssueArg,
 	}
 	if err := state.Write(wtPath, af); err != nil {
 		return err
@@ -366,6 +367,11 @@ Use --headless to run it in the background and write output to agent.log.`,
 }
 
 func runReleasePausedSession(issue, feedback string, headless, quiet, sendNotify bool) error {
+	// Accept full GitHub issue URLs; extract the bare number for local lookup.
+	if _, _, num, ok := parseIssueURL(issue); ok {
+		issue = num
+	}
+
 	repoRoot, err := git.RepoRoot()
 	if err != nil {
 		return fmt.Errorf("cannot determine repo root: %w", err)
@@ -1005,6 +1011,9 @@ Ctrl+C. Use --no-follow to print history and exit immediately.`,
 
 // runLogs resolves the worktree for issue and streams its agent.log.
 func runLogs(issue string, lines int, noFollow bool, w io.Writer) error {
+	if _, _, num, ok := parseIssueURL(issue); ok {
+		issue = num
+	}
 	wtPath, err := findWorktreePath(issue)
 	if err != nil {
 		return err
@@ -1075,8 +1084,12 @@ func streamLog(wtPath, issue string, lines int, noFollow bool, w io.Writer, logW
 				if af2.DevPort != "" {
 					fmt.Fprintf(w, "\nDev server: http://localhost:%s\n", af2.DevPort)
 				}
+				id := af2.IssueArg
+				if id == "" {
+					id = issue
+				}
 				if specPath := findSpecPath(wtPath, issue); af2.SDD != "" && specPath != "" {
-					fmt.Fprintf(w, "Spec: %s\nSpec ready for review — agentctl resume %s\n", specPath, issue)
+					fmt.Fprintf(w, "Spec: %s\nSpec ready for review — agentctl resume %s\n", specPath, id)
 				} else {
 					fmt.Fprintf(w, "agent process has exited\n")
 				}
@@ -1292,11 +1305,15 @@ and the command exits with "agent has already finished".
 Press Ctrl+C to detach without stopping the agent.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			wtPath, err := findWorktreePath(args[0])
+			arg := args[0]
+			if _, _, num, ok := parseIssueURL(arg); ok {
+				arg = num
+			}
+			wtPath, err := findWorktreePath(arg)
 			if err != nil {
 				return err
 			}
-			return attachLog(wtPath, args[0], os.Stdout, 10*time.Second)
+			return attachLog(wtPath, arg, os.Stdout, 10*time.Second)
 		},
 	}
 }
@@ -1591,6 +1608,32 @@ func matchesGitHubOrigin(repoRoot, owner, repoName string) bool {
 	return strings.HasSuffix(u, "/"+suffix) || strings.HasSuffix(u, ":"+suffix)
 }
 
+// githubIssueURL builds the canonical https://github.com/<owner>/<repo>/issues/<num>
+// URL from the git origin of repoRoot. Returns "" when the origin is not a
+// recognised GitHub remote (so callers can fall back gracefully).
+func githubIssueURL(repoRoot, issueNum string) string {
+	u, err := git.OriginURL(repoRoot)
+	if err != nil {
+		return ""
+	}
+	u = strings.TrimSuffix(strings.TrimSpace(u), ".git")
+	// HTTPS: https://github.com/owner/repo
+	if strings.HasPrefix(u, "https://github.com/") {
+		return u + "/issues/" + issueNum
+	}
+	// SSH scp-style: git@github.com:owner/repo
+	const sshPrefix = "git@github.com:"
+	if strings.HasPrefix(u, sshPrefix) {
+		return "https://github.com/" + strings.TrimPrefix(u, sshPrefix) + "/issues/" + issueNum
+	}
+	// SSH URL-style: ssh://git@github.com/owner/repo
+	const sshURLPrefix = "ssh://git@github.com/"
+	if strings.HasPrefix(u, sshURLPrefix) {
+		return "https://github.com/" + strings.TrimPrefix(u, sshURLPrefix) + "/issues/" + issueNum
+	}
+	return ""
+}
+
 // locateOrCloneRepo returns the local git repo root for github.com/<owner>/<repoName>.
 // It searches in order:
 //  1. The repo that contains the current working directory.
@@ -1642,6 +1685,11 @@ func repoRootForIssue(arg string, out io.Writer) (repoRoot, issueNum, ghIssueArg
 		if err != nil {
 			return "", "", "", fmt.Errorf("cannot determine repo root: %w", err)
 		}
+		// Resolve bare number to a full GitHub URL so IssueArg is always
+		// unambiguous regardless of how the issue was supplied.
+		if fullURL := githubIssueURL(root, arg); fullURL != "" {
+			return root, arg, fullURL, nil
+		}
 		return root, arg, arg, nil
 	}
 	root, err := locateOrCloneRepo(owner, repoName, out)
@@ -1659,13 +1707,28 @@ func repoRootForIssue(arg string, out io.Writer) (repoRoot, issueNum, ghIssueArg
 // and a bare worktree with no .agent file.
 func worktreeExistsError(wtPath, issueNum string) error {
 	af, readErr := state.Read(wtPath)
+	id := issueNum
+	if readErr == nil && af.IssueArg != "" {
+		id = af.IssueArg
+	}
 	if readErr == nil && af.AgentPID != "" && process.IsAlive(af.AgentPID) {
-		return fmt.Errorf("Worktree already exists for issue %s — agent is still running.\nWorktree: %s\n\n  agentctl attach %s   to follow its output\n  agentctl discard %s   to delete the worktree and start over", issueNum, wtPath, issueNum, issueNum)
+		return fmt.Errorf("Worktree already exists for issue %s — agent is still running.\nWorktree: %s\n\n  agentctl attach %s   to follow its output\n  agentctl discard %s   to delete the worktree and start over", issueNum, wtPath, id, id)
 	}
 	if readErr == nil && af.AgentPID != "" {
-		return fmt.Errorf("Worktree already exists for issue %s — agent has finished.\nWorktree: %s\n\n  agentctl cleanup %s   if the PR is merged\n  agentctl discard %s   to delete the worktree and start over", issueNum, wtPath, issueNum, issueNum)
+		return fmt.Errorf("Worktree already exists for issue %s — agent has finished.\nWorktree: %s\n\n  agentctl cleanup %s   if the PR is merged\n  agentctl discard %s   to delete the worktree and start over", issueNum, wtPath, id, id)
 	}
-	return fmt.Errorf("Worktree already exists for issue %s.\nWorktree: %s\n\n  agentctl discard %s   to delete the worktree and start over", issueNum, wtPath, issueNum)
+	return fmt.Errorf("Worktree already exists for issue %s.\nWorktree: %s\n\n  agentctl discard %s   to delete the worktree and start over", issueNum, wtPath, id)
+}
+
+// issueDisplayFor reads the issue-arg stored in the .agent state file and
+// returns it when non-empty. Falls back to fallback (the bare issue number)
+// when the state cannot be read or the field is absent, so callers always get
+// a usable string regardless of worktree age.
+func issueDisplayFor(wtPath, fallback string) string {
+	if af, err := state.Read(wtPath); err == nil && af.IssueArg != "" {
+		return af.IssueArg
+	}
+	return fallback
 }
 
 func cleanupFailedStart(repoRoot, wtPath, branch, devPID string) error {
@@ -1847,8 +1910,8 @@ func generateUUID() (string, error) {
 // it from the current branch when inside a linked worktree.
 func resolveIssueArg(flag string, args []string) (string, error) {
 	if len(args) == 1 && args[0] != "" {
-		if _, _, _, ok := parseIssueURL(args[0]); ok {
-			return "", fmt.Errorf("issue URLs are not accepted here; re-run with the bare issue number:\n  agentctl %s <issue>", flag)
+		if _, _, num, ok := parseIssueURL(args[0]); ok {
+			return num, nil
 		}
 		return args[0], nil
 	}
@@ -2133,12 +2196,13 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 		case <-timer.C:
 		}
 
+		id := issueDisplayFor(wtPath, issue)
 		fmt.Fprintf(out, "Agent PID %d — log: %s\n", pid, logPath)
-		fmt.Fprintf(out, "agentctl logs %s      # follow log\n", issue)
-		fmt.Fprintf(out, "agentctl attach %s    # stream live and wait\n", issue)
-		fmt.Fprintf(out, "agentctl discard %s   # abandon\n", issue)
+		fmt.Fprintf(out, "agentctl logs %s      # follow log\n", id)
+		fmt.Fprintf(out, "agentctl attach %s    # stream live and wait\n", id)
+		fmt.Fprintf(out, "agentctl discard %s   # abandon\n", id)
 		if sddName != "" {
-			fmt.Fprintf(out, "agentctl resume %s [feedback]   # approve spec or send revisions\n", issue)
+			fmt.Fprintf(out, "agentctl resume %s [feedback]   # approve spec or send revisions\n", id)
 		}
 		if sendNotify {
 			maybeFireTestNotification(issue, out)
@@ -2172,7 +2236,8 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			close(logDone)
 			wg.Wait()
 			if agentExitErr != nil {
-				fmt.Fprintf(out, "agent exited with error — check the log: agentctl logs %s\n", issue)
+				id2 := issueDisplayFor(wtPath, issue)
+				fmt.Fprintf(out, "agent exited with error — check the log: agentctl logs %s\n", id2)
 				return nil
 			}
 			branch, branchErr := git.CurrentBranch(wtPath)
@@ -2180,27 +2245,33 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 				branch = ""
 			}
 			hasPR := reportPRStatus(out, wtPath, branch, issue, sddName != "")
-			if af3, err3 := state.Read(wtPath); err3 == nil && af3.DevPort != "" {
+			af3, _ := state.Read(wtPath)
+			if af3.DevPort != "" {
 				fmt.Fprintf(out, "Dev server: http://localhost:%s\n", af3.DevPort)
+			}
+			id3 := af3.IssueArg
+			if id3 == "" {
+				id3 = issue
 			}
 			if sddName != "" && !hasPR {
 				if specPath := findSpecPath(wtPath, issue); specPath != "" {
 					fmt.Fprintf(out, "Spec: %s\n", specPath)
 				}
-				fmt.Fprintf(out, resumeHintFmt, issue)
+				fmt.Fprintf(out, resumeHintFmt, id3)
 			}
 			if hasPR {
-				fmt.Fprintf(out, "agentctl cleanup %s   # delete worktree + branch after PR is merged\n", issue)
+				fmt.Fprintf(out, "agentctl cleanup %s   # delete worktree + branch after PR is merged\n", id3)
 			}
 			return nil
 		case <-sigCh:
 			signal.Stop(sigCh)
 			close(logDone)
 			wg.Wait()
+			id4 := issueDisplayFor(wtPath, issue)
 			fmt.Fprintf(out, "agent still running in background\n")
-			fmt.Fprintf(out, "  agentctl logs %s     # follow log\n", issue)
-			fmt.Fprintf(out, "  agentctl attach %s   # stream live output\n", issue)
-			fmt.Fprintf(out, "  agentctl discard %s  # permanently delete worktree and branches\n", issue)
+			fmt.Fprintf(out, "  agentctl logs %s     # follow log\n", id4)
+			fmt.Fprintf(out, "  agentctl attach %s   # stream live output\n", id4)
+			fmt.Fprintf(out, "  agentctl discard %s  # permanently delete worktree and branches\n", id4)
 			return nil
 		}
 	}
@@ -3179,10 +3250,11 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 	}
 
 	if headless {
+		id := issueDisplayFor(wtPath, issue)
 		fmt.Printf("Released pause for issue %s; Stage 2 running in background.\n", issue)
-		fmt.Printf("agentctl logs %s      # follow log\n", issue)
-		fmt.Printf("agentctl attach %s    # stream live and wait\n", issue)
-		fmt.Printf("agentctl discard %s   # abandon\n", issue)
+		fmt.Printf("agentctl logs %s      # follow log\n", id)
+		fmt.Printf("agentctl attach %s    # stream live and wait\n", id)
+		fmt.Printf("agentctl discard %s   # abandon\n", id)
 		if sendNotify {
 			maybeFireTestNotification(issue, os.Stdout)
 			go func() {
@@ -3298,24 +3370,29 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 			af2, _ := state.Read(wtPath)
 			resumeSDD := af2.SDD
 			hasPR := reportPRStatus(os.Stdout, wtPath, branch, issue, resumeSDD != "")
+			id := af2.IssueArg
+			if id == "" {
+				id = issue
+			}
 			if resumeSDD != "" && !hasPR {
 				if specPath := findSpecPath(wtPath, issue); specPath != "" {
 					fmt.Fprintf(os.Stdout, "Spec: %s\n", specPath)
 				}
-				fmt.Fprintf(os.Stdout, resumeHintFmt, issue)
+				fmt.Fprintf(os.Stdout, resumeHintFmt, id)
 			}
 			if hasPR {
-				fmt.Fprintf(os.Stdout, "agentctl cleanup %s   # delete worktree + branch after PR is merged\n", issue)
+				fmt.Fprintf(os.Stdout, "agentctl cleanup %s   # delete worktree + branch after PR is merged\n", id)
 			}
 			return nil
 		case <-sigCh:
 			signal.Stop(sigCh)
 			close(logDone)
 			wg.Wait()
+			id2 := issueDisplayFor(wtPath, issue)
 			fmt.Fprintf(os.Stdout, "agent still running in background\n")
-			fmt.Fprintf(os.Stdout, "  agentctl logs %s     # follow log\n", issue)
-			fmt.Fprintf(os.Stdout, "  agentctl attach %s   # stream live output\n", issue)
-			fmt.Fprintf(os.Stdout, "  agentctl discard %s  # permanently delete worktree and branches\n", issue)
+			fmt.Fprintf(os.Stdout, "  agentctl logs %s     # follow log\n", id2)
+			fmt.Fprintf(os.Stdout, "  agentctl attach %s   # stream live output\n", id2)
+			fmt.Fprintf(os.Stdout, "  agentctl discard %s  # permanently delete worktree and branches\n", id2)
 			return nil
 		}
 	}
