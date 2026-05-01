@@ -409,8 +409,10 @@ func runReleasePausedSession(issue, feedback string, headless, quiet, sendNotify
 
 	specPath := findSpecPath(wt.Path, issue)
 	prompt := buildResumePrompt(feedback, af.SDD, specPath)
-	if af.SDD != "" {
-		_ = state.AppendKey(wt.Path, "sdd-stage", "2")
+	if af.SDD != "" && strings.TrimSpace(feedback) == "" {
+		if err := state.AppendKey(wt.Path, "sdd-stage", "2"); err != nil {
+			return fmt.Errorf("persist sdd stage for issue %s: %w", issue, err)
+		}
 	}
 	return agentResume(af.Agent, wt.Path, issue, af.SessionID, prompt, headless, quiet, sendNotify)
 }
@@ -1127,8 +1129,11 @@ func streamLog(wtPath, issue string, lines int, noFollow bool, w io.Writer, logW
 					fmt.Fprintf(w, "Spec: %s\nSpec ready for review — agentctl resume %s\n", specPath, id)
 				case af2.SDD != "" && af2.SDDStage >= 2:
 					branch, _ := git.CurrentBranch(wtPath)
-					reportPRStatus(w, wtPath, branch, issue, false)
-					fmt.Fprintf(w, "agentctl cleanup %s   # after PR is merged\n", id)
+					if reportPRStatus(w, wtPath, branch, issue, false) {
+						fmt.Fprintf(w, "agentctl cleanup %s   # after PR is merged\n", id)
+					} else {
+						fmt.Fprintf(w, "agent process has exited\n")
+					}
 				default:
 					fmt.Fprintf(w, "agent process has exited\n")
 				}

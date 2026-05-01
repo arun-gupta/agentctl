@@ -2761,8 +2761,9 @@ func TestStreamLog_followExitMessage_sddStage2(t *testing.T) {
 		if strings.Contains(out, "agentctl resume") {
 			t.Errorf("stage 2: must not show 'agentctl resume'; got: %q", out)
 		}
-		if !strings.Contains(out, "agentctl cleanup 42") {
-			t.Errorf("stage 2: must show 'agentctl cleanup 42'; got: %q", out)
+		// No git/gh setup in temp dir → reportPRStatus returns false → fallback message.
+		if !strings.Contains(out, "agent process has exited") {
+			t.Errorf("stage 2 (no PR): must show 'agent process has exited'; got: %q", out)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("streamLog did not return within 5s")
