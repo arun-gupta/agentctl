@@ -567,6 +567,15 @@ func TestGithubIssueURL_ssh(t *testing.T) {
 	}
 }
 
+func TestGithubIssueURL_sshURL(t *testing.T) {
+	dir := initGitRepoWithOrigin(t, "ssh://git@github.com/myorg/myrepo.git")
+	got := githubIssueURL(dir, "5")
+	want := "https://github.com/myorg/myrepo/issues/5"
+	if got != want {
+		t.Errorf("githubIssueURL (ssh://) = %q, want %q", got, want)
+	}
+}
+
 func TestGithubIssueURL_noOrigin(t *testing.T) {
 	dir := t.TempDir()
 	cmd := exec.Command("git", "init")

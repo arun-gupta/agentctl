@@ -225,7 +225,10 @@ func TestIssueArgOmittedWhenEmpty(t *testing.T) {
 	if err := Write(dir, af); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
-	raw, _ := os.ReadFile(filepath.Join(dir, FileName))
+	raw, err := os.ReadFile(filepath.Join(dir, FileName))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
 	if strings.Contains(string(raw), "issue-arg") {
 		t.Errorf("expected no issue-arg line when IssueArg is empty, got:\n%s", raw)
 	}

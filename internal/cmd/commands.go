@@ -1011,6 +1011,9 @@ Ctrl+C. Use --no-follow to print history and exit immediately.`,
 
 // runLogs resolves the worktree for issue and streams its agent.log.
 func runLogs(issue string, lines int, noFollow bool, w io.Writer) error {
+	if _, _, num, ok := parseIssueURL(issue); ok {
+		issue = num
+	}
 	wtPath, err := findWorktreePath(issue)
 	if err != nil {
 		return err
@@ -1302,11 +1305,15 @@ and the command exits with "agent has already finished".
 Press Ctrl+C to detach without stopping the agent.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			wtPath, err := findWorktreePath(args[0])
+			arg := args[0]
+			if _, _, num, ok := parseIssueURL(arg); ok {
+				arg = num
+			}
+			wtPath, err := findWorktreePath(arg)
 			if err != nil {
 				return err
 			}
-			return attachLog(wtPath, args[0], os.Stdout, 10*time.Second)
+			return attachLog(wtPath, arg, os.Stdout, 10*time.Second)
 		},
 	}
 }
@@ -1614,10 +1621,15 @@ func githubIssueURL(repoRoot, issueNum string) string {
 	if strings.HasPrefix(u, "https://github.com/") {
 		return u + "/issues/" + issueNum
 	}
-	// SSH: git@github.com:owner/repo
+	// SSH scp-style: git@github.com:owner/repo
 	const sshPrefix = "git@github.com:"
 	if strings.HasPrefix(u, sshPrefix) {
 		return "https://github.com/" + strings.TrimPrefix(u, sshPrefix) + "/issues/" + issueNum
+	}
+	// SSH URL-style: ssh://git@github.com/owner/repo
+	const sshURLPrefix = "ssh://git@github.com/"
+	if strings.HasPrefix(u, sshURLPrefix) {
+		return "https://github.com/" + strings.TrimPrefix(u, sshURLPrefix) + "/issues/" + issueNum
 	}
 	return ""
 }

@@ -20,7 +20,7 @@ type AgentFile struct {
 	DevPort   string // port allocated for the dev server; empty when no dev server
 	AgentPID  string // PID of the background agent process (headless only)
 	SDD       string // SDD methodology name, e.g. "plain", "speckit"; empty if none
-	IssueArg  string // original user-supplied arg (URL or bare number); used for display hints
+	IssueArg  string // canonical GitHub issue URL for display hints (e.g. https://github.com/owner/repo/issues/42); empty when not set
 	// SDDSet is true when the sdd= key was explicitly present in the .agent file,
 	// even if its value is empty. Use this to distinguish new worktrees created
 	// without --sdd (SDDSet=true, SDD="") from legacy worktrees written before the
@@ -96,6 +96,8 @@ func GetKey(worktreePath, key string) (string, error) {
 		return af.AgentPID, nil
 	case "sdd":
 		return af.SDD, nil
+	case "issue-arg":
+		return af.IssueArg, nil
 	default:
 		return af.Extra[key], nil
 	}
