@@ -367,6 +367,11 @@ Use --headless to run it in the background and write output to agent.log.`,
 }
 
 func runReleasePausedSession(issue, feedback string, headless, quiet, sendNotify bool) error {
+	// Accept full GitHub issue URLs; extract the bare number for local lookup.
+	if _, _, num, ok := parseIssueURL(issue); ok {
+		issue = num
+	}
+
 	repoRoot, err := git.RepoRoot()
 	if err != nil {
 		return fmt.Errorf("cannot determine repo root: %w", err)
@@ -1893,8 +1898,8 @@ func generateUUID() (string, error) {
 // it from the current branch when inside a linked worktree.
 func resolveIssueArg(flag string, args []string) (string, error) {
 	if len(args) == 1 && args[0] != "" {
-		if _, _, _, ok := parseIssueURL(args[0]); ok {
-			return "", fmt.Errorf("issue URLs are not accepted here; re-run with the bare issue number:\n  agentctl %s <issue>", flag)
+		if _, _, num, ok := parseIssueURL(args[0]); ok {
+			return num, nil
 		}
 		return args[0], nil
 	}

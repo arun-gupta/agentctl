@@ -411,13 +411,13 @@ func TestResolveIssueArg_withArg(t *testing.T) {
 	}
 }
 
-func TestResolveIssueArg_rejectsURL(t *testing.T) {
-	_, err := resolveIssueArg("discard", []string{"https://github.com/myorg/myrepo/issues/42"})
-	if err == nil {
-		t.Error("expected error when a full issue URL is passed")
+func TestResolveIssueArg_acceptsURL(t *testing.T) {
+	issue, err := resolveIssueArg("discard", []string{"https://github.com/myorg/myrepo/issues/42"})
+	if err != nil {
+		t.Fatalf("unexpected error for URL arg: %v", err)
 	}
-	if !strings.Contains(err.Error(), "bare issue number") {
-		t.Errorf("expected 'bare issue number' in error, got: %v", err)
+	if issue != "42" {
+		t.Errorf("got %q, want %q", issue, "42")
 	}
 }
 
