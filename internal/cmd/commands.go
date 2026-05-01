@@ -418,13 +418,22 @@ func runReleasePausedSession(issue, feedback string, headless, quiet, sendNotify
 func NewDiscardCmd() *cobra.Command {
 	var stale bool
 	c := &cobra.Command{
-		Use:   "discard [issue]",
+		Use:   "discard [issue[,issue...]]",
 		Short: "Permanently delete a worktree and its local/remote branches",
 		Long: `Discard the worktree for an issue and delete the local and remote branches.
 This action is NOT recoverable. You will be prompted to type YES to confirm.
 
 If no issue number is given, it is inferred from the current branch when
 you are inside a linked worktree.
+
+Multiple issues may be given as a comma-separated list. Each list item may
+be a bare issue number or a full GitHub issue URL, e.g.:
+
+  agentctl discard 55,56,57
+  agentctl discard 55,https://github.com/org/repo/issues/56,57
+
+Each worktree is discarded in sequence; you will be prompted to confirm
+each one.
 
 Use --stale to discard all worktrees that have no running agent and no PR.`,
 		Args: cobra.RangeArgs(0, 1),
@@ -435,11 +444,32 @@ Use --stale to discard all worktrees that have no running agent and no PR.`,
 				}
 				return runDiscardStale()
 			}
-			issue, err := resolveIssueArg("discard", args)
-			if err != nil {
-				return err
+			if len(args) == 0 {
+				issue, err := resolveIssueArg("discard", nil)
+				if err != nil {
+					return err
+				}
+				return runRemoveWorktree(issue)
 			}
-			return runRemoveWorktree(issue)
+			rawIssues := strings.Split(args[0], ",")
+			issues := make([]string, 0, len(rawIssues))
+			for _, iss := range rawIssues {
+				if s := strings.TrimSpace(iss); s != "" {
+					if _, _, num, ok := parseIssueURL(s); ok {
+						s = num
+					}
+					issues = append(issues, s)
+				}
+			}
+			if len(issues) == 0 {
+				return fmt.Errorf("no valid issue tokens found in %q", args[0])
+			}
+			for _, issue := range issues {
+				if err := runRemoveWorktree(issue); err != nil {
+					return err
+				}
+			}
+			return nil
 		},
 	}
 	c.Flags().BoolVar(&stale, "stale", false, "Discard all worktrees with no running agent and no PR")

@@ -3949,6 +3949,113 @@ func TestDiscardCmd_staleMutuallyExclusiveWithIssue(t *testing.T) {
 	}
 }
 
+// TestDiscardCmd_useFieldIncludesCommaSyntax verifies that the discard command
+// advertises comma-separated input in its Use string.
+func TestDiscardCmd_useFieldIncludesCommaSyntax(t *testing.T) {
+	c := NewDiscardCmd()
+	if !strings.Contains(c.Use, ",") {
+		t.Errorf("discard Use field should advertise comma-separated issues; got: %q", c.Use)
+	}
+}
+
+// TestDiscardCmd_emptyTokensRejected verifies that a comma-only or
+// whitespace-only issue argument returns a user-facing error.
+func TestDiscardCmd_emptyTokensRejected(t *testing.T) {
+	tests := []struct {
+		name string
+		arg  string
+	}{
+		{"comma only", ","},
+		{"spaced commas", " , "},
+		{"multiple commas", ",,"},
+		{"whitespace only", "   "},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := NewDiscardCmd()
+			c.SilenceUsage = true
+			c.SetArgs([]string{tt.arg})
+			err := c.Execute()
+			if err == nil {
+				t.Fatal("expected error for empty issue tokens, got nil")
+			}
+			if !strings.Contains(err.Error(), "no valid issue tokens found") {
+				t.Errorf("wrong error message: %v", err)
+			}
+		})
+	}
+}
+
+// TestDiscardCmd_commaSplitAndURLNormalization verifies that comma-separated
+// inputs (including full GitHub issue URLs) are each resolved and processed
+// individually — producing a "Nothing to remove" message per token when the
+// repo has no matching worktrees or branches.
+func TestDiscardCmd_commaSplitAndURLNormalization(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found in PATH")
+	}
+
+	repo := initGitRepoForStale(t)
+	chdirTemp(t, repo)
+
+	tests := []struct {
+		name      string
+		arg       string
+		wantIssues []string // issue numbers expected in "Nothing to remove" output
+	}{
+		{
+			name:       "two bare numbers",
+			arg:        "55,56",
+			wantIssues: []string{"55", "56"},
+		},
+		{
+			name:       "bare number and URL",
+			arg:        "43,https://github.com/org/repo/issues/44",
+			wantIssues: []string{"43", "44"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Capture os.Stdout because runRemoveWorktree uses fmt.Printf.
+			oldStdout := os.Stdout
+			r, w, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			os.Stdout = w
+
+			c := NewDiscardCmd()
+			c.SilenceUsage = true
+			c.SetArgs([]string{tt.arg})
+			runErr := c.Execute()
+
+			w.Close()
+			var buf bytes.Buffer
+			if _, err := io.Copy(&buf, r); err != nil {
+				t.Fatal(err)
+			}
+			os.Stdout = oldStdout
+			r.Close()
+
+			if runErr != nil {
+				t.Fatalf("unexpected error: %v", runErr)
+			}
+			out := buf.String()
+			for _, issue := range tt.wantIssues {
+				// runRemoveWorktree emits exactly:
+				//   "Nothing to remove: no worktree or branch found for issue <N>.\n"
+				// Check that the complete phrase appears so we don't get a false
+				// positive when multiple issues share digit substrings.
+				want := fmt.Sprintf("Nothing to remove: no worktree or branch found for issue %s.", issue)
+				if !strings.Contains(out, want) {
+					t.Errorf("expected %q in output; got: %q", want, out)
+				}
+			}
+		})
+	}
+}
+
 func TestIsAgentRunning_noAgentFile(t *testing.T) {
 	dir := t.TempDir()
 	if isAgentRunning(dir) {
