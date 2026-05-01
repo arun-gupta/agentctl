@@ -3949,6 +3949,42 @@ func TestDiscardCmd_staleMutuallyExclusiveWithIssue(t *testing.T) {
 	}
 }
 
+// TestDiscardCmd_useFieldIncludesCommaSyntax verifies that the discard command
+// advertises comma-separated input in its Use string.
+func TestDiscardCmd_useFieldIncludesCommaSyntax(t *testing.T) {
+	c := NewDiscardCmd()
+	if !strings.Contains(c.Use, ",") {
+		t.Errorf("discard Use field should advertise comma-separated issues; got: %q", c.Use)
+	}
+}
+
+// TestDiscardCmd_emptyTokensRejected verifies that a comma-only or
+// whitespace-only issue argument returns a user-facing error.
+func TestDiscardCmd_emptyTokensRejected(t *testing.T) {
+	tests := []struct {
+		name string
+		arg  string
+	}{
+		{"comma only", ","},
+		{"spaced commas", " , "},
+		{"multiple commas", ",,"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := NewDiscardCmd()
+			c.SilenceUsage = true
+			c.SetArgs([]string{tt.arg})
+			err := c.Execute()
+			if err == nil {
+				t.Fatal("expected error for empty issue tokens, got nil")
+			}
+			if !strings.Contains(err.Error(), "no valid issue tokens found") {
+				t.Errorf("wrong error message: %v", err)
+			}
+		})
+	}
+}
+
 func TestIsAgentRunning_noAgentFile(t *testing.T) {
 	dir := t.TempDir()
 	if isAgentRunning(dir) {
