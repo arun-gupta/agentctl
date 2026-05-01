@@ -4043,8 +4043,13 @@ func TestDiscardCmd_commaSplitAndURLNormalization(t *testing.T) {
 			}
 			out := buf.String()
 			for _, issue := range tt.wantIssues {
-				if !strings.Contains(out, "Nothing to remove") || !strings.Contains(out, issue) {
-					t.Errorf("expected 'Nothing to remove' for issue %s in output; got: %q", issue, out)
+				// runRemoveWorktree emits exactly:
+				//   "Nothing to remove: no worktree or branch found for issue <N>.\n"
+				// Check that the complete phrase appears so we don't get a false
+				// positive when multiple issues share digit substrings.
+				want := fmt.Sprintf("Nothing to remove: no worktree or branch found for issue %s.", issue)
+				if !strings.Contains(out, want) {
+					t.Errorf("expected %q in output; got: %q", want, out)
 				}
 			}
 		})
