@@ -1591,6 +1591,27 @@ func matchesGitHubOrigin(repoRoot, owner, repoName string) bool {
 	return strings.HasSuffix(u, "/"+suffix) || strings.HasSuffix(u, ":"+suffix)
 }
 
+// githubIssueURL builds the canonical https://github.com/<owner>/<repo>/issues/<num>
+// URL from the git origin of repoRoot. Returns "" when the origin is not a
+// recognised GitHub remote (so callers can fall back gracefully).
+func githubIssueURL(repoRoot, issueNum string) string {
+	u, err := git.OriginURL(repoRoot)
+	if err != nil {
+		return ""
+	}
+	u = strings.TrimSuffix(strings.TrimSpace(u), ".git")
+	// HTTPS: https://github.com/owner/repo
+	if strings.HasPrefix(u, "https://github.com/") {
+		return u + "/issues/" + issueNum
+	}
+	// SSH: git@github.com:owner/repo
+	const sshPrefix = "git@github.com:"
+	if strings.HasPrefix(u, sshPrefix) {
+		return "https://github.com/" + strings.TrimPrefix(u, sshPrefix) + "/issues/" + issueNum
+	}
+	return ""
+}
+
 // locateOrCloneRepo returns the local git repo root for github.com/<owner>/<repoName>.
 // It searches in order:
 //  1. The repo that contains the current working directory.
@@ -1641,6 +1662,11 @@ func repoRootForIssue(arg string, out io.Writer) (repoRoot, issueNum, ghIssueArg
 		root, err := git.RepoRoot()
 		if err != nil {
 			return "", "", "", fmt.Errorf("cannot determine repo root: %w", err)
+		}
+		// Resolve bare number to a full GitHub URL so IssueArg is always
+		// unambiguous regardless of how the issue was supplied.
+		if fullURL := githubIssueURL(root, arg); fullURL != "" {
+			return root, arg, fullURL, nil
 		}
 		return root, arg, arg, nil
 	}
