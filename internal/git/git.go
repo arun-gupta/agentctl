@@ -114,8 +114,11 @@ func LinkedWorktrees(repoRoot string) ([]Worktree, error) {
 	return result, nil
 }
 
-// FindWorktreeByIssue returns the first linked worktree whose path contains
-// "-<issue>-" (matching the naming convention "<repo>-<issue>-<slug>").
+// FindWorktreeByIssue returns the first linked worktree for the given issue.
+// It prefers an exact match on the parsed Issue field (e.g. wt.Issue == "42"),
+// falling back to a path substring match ("-<issue>-") only for worktrees
+// where the Issue field is empty (detached HEAD). This prevents issue "42"
+// from incorrectly matching paths that contain "-142-".
 func FindWorktreeByIssue(repoRoot, issue string) (Worktree, bool, error) {
 	wts, err := LinkedWorktrees(repoRoot)
 	if err != nil {
@@ -123,15 +126,22 @@ func FindWorktreeByIssue(repoRoot, issue string) (Worktree, bool, error) {
 	}
 	needle := "-" + issue + "-"
 	for _, wt := range wts {
-		if strings.Contains(wt.Path, needle) {
+		if wt.Issue != "" {
+			if wt.Issue == issue {
+				return wt, true, nil
+			}
+		} else if strings.Contains(wt.Path, needle) {
 			return wt, true, nil
 		}
 	}
 	return Worktree{}, false, nil
 }
 
-// FindWorktreesByIssue returns all linked worktrees whose path contains
-// "-<issue>-" (matching the naming convention "<repo>-<issue>-<slug>[-agent]").
+// FindWorktreesByIssue returns all linked worktrees for the given issue.
+// It prefers an exact match on the parsed Issue field (e.g. wt.Issue == "42"),
+// falling back to a path substring match ("-<issue>-") only for worktrees
+// where the Issue field is empty (detached HEAD). This prevents issue "42"
+// from incorrectly matching paths that contain "-142-".
 // Unlike FindWorktreeByIssue, this returns all matches, enabling callers to
 // detect multi-agent worktrees created with --agent claude,codex.
 func FindWorktreesByIssue(repoRoot, issue string) ([]Worktree, error) {
@@ -142,7 +152,11 @@ func FindWorktreesByIssue(repoRoot, issue string) ([]Worktree, error) {
 	needle := "-" + issue + "-"
 	var result []Worktree
 	for _, wt := range wts {
-		if strings.Contains(wt.Path, needle) {
+		if wt.Issue != "" {
+			if wt.Issue == issue {
+				result = append(result, wt)
+			}
+		} else if strings.Contains(wt.Path, needle) {
 			result = append(result, wt)
 		}
 	}

@@ -104,7 +104,28 @@ Use --sdd <name> to opt into a spec-driven development (SDD) methodology
 			for i, ag := range agents {
 				agents[i] = strings.TrimSpace(ag)
 			}
+			// Drop empty entries (e.g. from trailing commas like "claude,").
+			{
+				filtered := agents[:0]
+				for _, ag := range agents {
+					if ag != "" {
+						filtered = append(filtered, ag)
+					}
+				}
+				agents = filtered
+			}
+			if len(agents) == 0 {
+				return fmt.Errorf("--agent flag requires at least one agent name")
+			}
 			if len(agents) > 1 {
+				// Reject duplicate agent names to avoid racing to create the same worktree.
+				seen := make(map[string]struct{}, len(agents))
+				for _, ag := range agents {
+					if _, dup := seen[ag]; dup {
+						return fmt.Errorf("duplicate agent %q in --agent flag", ag)
+					}
+					seen[ag] = struct{}{}
+				}
 				if len(issues) > 1 {
 					return fmt.Errorf("cannot combine multiple issues with multiple agents; specify a single issue")
 				}
@@ -220,6 +241,11 @@ func startOne(issue, slug, agentName, sddName, agentSuffix string, headless, qui
 			return err
 		}
 		fmt.Fprintf(out, "Derived slug from issue title: %s\n", slug)
+	}
+
+	// Validate agentSuffix before using it in branch/path construction.
+	if err := validateAgentSuffix(agentSuffix); err != nil {
+		return err
 	}
 
 	branch, wtPath := worktreeNames(repoName, issueNum, slug, agentSuffix, parentDir)
@@ -439,6 +465,24 @@ func runBatch(issues []string, agentName, sddName string, quiet, sendNotify bool
 // its own worktree with an agent-name suffix (e.g. repo-42-slug-claude).
 // All agents always run in headless mode; foreground is not supported here.
 func runMultiAgent(issue string, agents []string, sddName string, quiet, sendNotify bool, out, errOut io.Writer) error {
+	// Validate all adapters and resolve (possibly clone) the repo once before
+	// spawning goroutines. This prevents concurrent `gh repo clone` races when
+	// issue is a GitHub URL, and surfaces adapter/token errors early.
+	if err := ensureGHToken(); err != nil {
+		return err
+	}
+	for _, ag := range agents {
+		if err := validateAdapter(ag); err != nil {
+			return err
+		}
+		if err := validateAgentSuffix(ag); err != nil {
+			return err
+		}
+	}
+	if _, _, _, err := repoRootForIssue(issue, out); err != nil {
+		return err
+	}
+
 	type agentResult struct {
 		agent  string
 		output string
@@ -806,6 +850,9 @@ func runRemoveWorktree(issue, agentSuffix string) error {
 		branch = wt.Branch
 	} else if errors.Is(resolveErr, errAmbiguousWorktree) {
 		return resolveErr
+	} else if !errors.Is(resolveErr, errWorktreeNotFound) {
+		// Real error (e.g. git worktree list failure) — don't silently fall through.
+		return resolveErr
 	}
 
 	// If no registered worktree, try to find a local branch.
@@ -952,6 +999,8 @@ func runMerge(issue, strategy, agentSuffix string, noDelete, dryRun bool) error 
 			}
 		}
 	} else if errors.Is(resolveErr, errAmbiguousWorktree) {
+		return resolveErr
+	} else if !errors.Is(resolveErr, errWorktreeNotFound) {
 		return resolveErr
 	} else {
 		branch, _ = git.FindBranchByIssuePrefix(repoRoot, issue)
@@ -1123,8 +1172,11 @@ func cleanupMerged(repoRoot, issue, agentSuffix string) error {
 		}
 	} else if errors.Is(resolveErr, errAmbiguousWorktree) {
 		return resolveErr
+	} else if !errors.Is(resolveErr, errWorktreeNotFound) {
+		// Real error (e.g. git worktree list failure) — don't silently fall through.
+		return resolveErr
 	} else {
-		// Recovery path: worktree is no longer registered.
+		// Recovery path: worktree is no longer registered but branches may exist.
 		if isNumericIssue(issue) {
 			branch, _ = git.FindBranchByIssuePrefix(repoRoot, issue)
 		}
@@ -2758,6 +2810,28 @@ func validateSDD(sddName, repoRoot string) error {
 // exist for an issue and no --agent flag was supplied to disambiguate.
 var errAmbiguousWorktree = errors.New("ambiguous worktree")
 
+// errWorktreeNotFound is returned by resolveWorktree when no worktree matches
+// the given issue (and optional agent suffix), as distinct from a real git error.
+var errWorktreeNotFound = errors.New("worktree not found")
+
+// agentSuffixRe restricts agent names used as worktree/branch suffixes to safe
+// characters. Slashes, spaces, and other special chars would create nested
+// directories or invalid git branch names.
+var agentSuffixRe = regexp.MustCompile(`^[a-z0-9_-]+$`)
+
+// validateAgentSuffix returns an error when suffix contains characters that
+// would create an invalid git branch name or unexpected filesystem path.
+// An empty suffix is always valid (single-agent mode).
+func validateAgentSuffix(suffix string) error {
+	if suffix == "" {
+		return nil
+	}
+	if !agentSuffixRe.MatchString(suffix) {
+		return fmt.Errorf("invalid agent name %q: must match [a-z0-9_-]+", suffix)
+	}
+	return nil
+}
+
 // worktreeNames computes the branch name and filesystem path for a worktree.
 // When agentSuffix is non-empty (multi-agent mode) it is appended to both so
 // each agent gets an isolated workspace: <issue>-<slug>-<agent> / <repo>-<issue>-<slug>-<agent>.
@@ -2781,6 +2855,8 @@ func worktreeNames(repoName, issueNum, slug, agentSuffix, parentDir string) (bra
 //
 // For non-numeric refs (e.g. task-mode branch names like "task/refactor-auth"),
 // falls back to an exact branch lookup via FindWorktreeByBranch.
+//
+// Returns errWorktreeNotFound (wrapped) when no matching worktree exists.
 func resolveWorktree(repoRoot, issue, agentSuffix string) (git.Worktree, error) {
 	wts, err := git.FindWorktreesByIssue(repoRoot, issue)
 	if err != nil {
@@ -2797,7 +2873,7 @@ func resolveWorktree(repoRoot, issue, agentSuffix string) (git.Worktree, error) 
 		if found {
 			return wt, nil
 		}
-		return git.Worktree{}, fmt.Errorf("no worktree found for issue %s — has it been started?", issue)
+		return git.Worktree{}, fmt.Errorf("no worktree found for issue %s — has it been started?: %w", issue, errWorktreeNotFound)
 	}
 
 	if agentSuffix != "" {
@@ -2807,12 +2883,12 @@ func resolveWorktree(repoRoot, issue, agentSuffix string) (git.Worktree, error) 
 				return wt, nil
 			}
 		}
-		return git.Worktree{}, fmt.Errorf("no worktree found for issue %s (agent: %s) — has it been started?", issue, agentSuffix)
+		return git.Worktree{}, fmt.Errorf("no worktree found for issue %s (agent: %s) — has it been started?: %w", issue, agentSuffix, errWorktreeNotFound)
 	}
 
 	switch len(wts) {
 	case 0:
-		return git.Worktree{}, fmt.Errorf("no worktree found for issue %s — has it been started?", issue)
+		return git.Worktree{}, fmt.Errorf("no worktree found for issue %s — has it been started?: %w", issue, errWorktreeNotFound)
 	case 1:
 		return wts[0], nil
 	default:

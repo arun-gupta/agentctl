@@ -5594,14 +5594,19 @@ func TestCleanupCmd_agentFlagExists(t *testing.T) {
 
 func TestStartCmd_multiAgent_rejectsSlug(t *testing.T) {
 	c := NewStartCmd()
+	if err := c.Flags().Set("agent", "claude,codex"); err != nil {
+		t.Fatalf("set --agent: %v", err)
+	}
 	c.SilenceUsage = true
 	c.SilenceErrors = true
-	// Multi-agent + slug should error.
+	// Multi-agent + slug should be rejected before any network calls.
 	err := c.RunE(c, []string{"42", "my-slug"})
-	// Note: with "--agent claude,codex", slug is rejected. But here agentName
-	// defaults to "claude" (single agent), so no error expected for slug alone.
-	// We test the multi-agent + slug rejection by checking the logic directly.
-	_ = err // just verifying no panic
+	if err == nil {
+		t.Error("expected error when slug is given with multiple agents")
+	}
+	if !strings.Contains(err.Error(), "slug") {
+		t.Errorf("unexpected error: %v", err)
+	}
 }
 
 func TestStartCmd_multiAgent_rejectsMultipleIssues(t *testing.T) {
@@ -5622,4 +5627,58 @@ func TestStartCmd_multiAgent_rejectsMultipleIssues(t *testing.T) {
 	if !strings.Contains(err.Error(), "multiple issues") && !strings.Contains(err.Error(), "single issue") {
 		t.Errorf("unexpected error: %v", err)
 	}
+}
+
+func TestValidateAgentSuffix(t *testing.T) {
+	valid := []string{"", "claude", "codex", "gpt-4", "my_agent", "agent-1"}
+	for _, s := range valid {
+		t.Run("valid/"+s, func(t *testing.T) {
+			if err := validateAgentSuffix(s); err != nil {
+				t.Errorf("validateAgentSuffix(%q) unexpected error: %v", s, err)
+			}
+		})
+	}
+
+	invalid := []string{"Claude", "CLAUDE", "gpt/4", "my agent", "bad@name", "../evil"}
+	for _, s := range invalid {
+		t.Run("invalid/"+s, func(t *testing.T) {
+			if err := validateAgentSuffix(s); err == nil {
+				t.Errorf("validateAgentSuffix(%q) expected error, got nil", s)
+			}
+		})
+	}
+}
+
+func TestStartCmd_agentFlag_filtersEmptyAndRejectsDuplicates(t *testing.T) {
+	t.Run("trailing comma does not trigger duplicate error", func(t *testing.T) {
+		c := NewStartCmd()
+		c.SilenceUsage = true
+		c.SilenceErrors = true
+		if err := c.Flags().Set("agent", "claude,"); err != nil {
+			t.Fatalf("set --agent: %v", err)
+		}
+		// After filtering the empty token we have only "claude" — single-agent path,
+		// which will fail on ensureGHToken (expected in unit test, not a panic).
+		// Verify no "duplicate" error for this case.
+		err := c.RunE(c, []string{"42"})
+		if err != nil && strings.Contains(err.Error(), "duplicate") {
+			t.Errorf("trailing comma should not trigger duplicate error: %v", err)
+		}
+	})
+
+	t.Run("duplicate agent rejected", func(t *testing.T) {
+		c := NewStartCmd()
+		c.SilenceUsage = true
+		c.SilenceErrors = true
+		if err := c.Flags().Set("agent", "claude,claude"); err != nil {
+			t.Fatalf("set --agent: %v", err)
+		}
+		err := c.RunE(c, []string{"42"})
+		if err == nil {
+			t.Error("expected error for duplicate agents")
+		}
+		if err != nil && !strings.Contains(err.Error(), "duplicate") {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
 }
