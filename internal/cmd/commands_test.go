@@ -2678,9 +2678,16 @@ func TestAgentEnv_preservesExistingToken(t *testing.T) {
 }
 
 // TestEnsureGHToken_failsWhenAbsent verifies that ensureGHToken returns an
-// error when neither GITHUB_TOKEN nor GH_TOKEN is set, rather than falling
-// back to the macOS keychain via `gh auth token`.
+// error when neither GITHUB_TOKEN nor GH_TOKEN is set and gh auth token fails.
+// It also checks that gh's stderr diagnostic is included in the error message.
 func TestEnsureGHToken_failsWhenAbsent(t *testing.T) {
+	// Stub gh to exit non-zero with a diagnostic on stderr so the fallback fails.
+	stubDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stubDir, "gh"), []byte("#!/bin/sh\necho 'not logged in' >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prependPath(t, stubDir)
+
 	origGH, hadGH := os.LookupEnv("GITHUB_TOKEN")
 	origGHT, hadGHT := os.LookupEnv("GH_TOKEN")
 	os.Unsetenv("GITHUB_TOKEN")
@@ -2698,8 +2705,46 @@ func TestEnsureGHToken_failsWhenAbsent(t *testing.T) {
 		}
 	})
 
-	if err := ensureGHToken(); err == nil {
-		t.Fatal("expected error when GITHUB_TOKEN and GH_TOKEN are both absent")
+	err := ensureGHToken()
+	if err == nil {
+		t.Fatal("expected error when GITHUB_TOKEN, GH_TOKEN, and gh auth token are all absent/failing")
+	}
+	if !strings.Contains(err.Error(), "not logged in") {
+		t.Errorf("error should include gh stderr diagnostic; got: %v", err)
+	}
+}
+
+// TestEnsureGHToken_fallsBackToGHAuthToken verifies that ensureGHToken uses
+// `gh auth token` when env vars are absent, and sets GITHUB_TOKEN from its output.
+func TestEnsureGHToken_fallsBackToGHAuthToken(t *testing.T) {
+	stubDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stubDir, "gh"), []byte("#!/bin/sh\necho 'ghp_stubtoken'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prependPath(t, stubDir)
+
+	origGH, hadGH := os.LookupEnv("GITHUB_TOKEN")
+	origGHT, hadGHT := os.LookupEnv("GH_TOKEN")
+	os.Unsetenv("GITHUB_TOKEN")
+	os.Unsetenv("GH_TOKEN")
+	t.Cleanup(func() {
+		if hadGH {
+			os.Setenv("GITHUB_TOKEN", origGH)
+		} else {
+			os.Unsetenv("GITHUB_TOKEN")
+		}
+		if hadGHT {
+			os.Setenv("GH_TOKEN", origGHT)
+		} else {
+			os.Unsetenv("GH_TOKEN")
+		}
+	})
+
+	if err := ensureGHToken(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := os.Getenv("GITHUB_TOKEN"); got != "ghp_stubtoken" {
+		t.Errorf("GITHUB_TOKEN = %q; want %q", got, "ghp_stubtoken")
 	}
 }
 
@@ -2729,6 +2774,68 @@ func TestEnsureGHToken_normalizesGHToken(t *testing.T) {
 	}
 	if got := os.Getenv("GITHUB_TOKEN"); got != "gh-token-value" {
 		t.Errorf("GITHUB_TOKEN = %q; want %q", got, "gh-token-value")
+	}
+}
+
+// TestEnsureGHToken_githubTokenWinsOverGHAuthToken verifies that when GITHUB_TOKEN
+// is already set, ensureGHToken does NOT call `gh auth token` and leaves the token
+// unchanged, so explicit env always wins over the fallback.
+func TestEnsureGHToken_githubTokenWinsOverGHAuthToken(t *testing.T) {
+	// Stub gh: write a marker file when called so we can assert it was never invoked.
+	stubDir := t.TempDir()
+	markerFile := filepath.Join(stubDir, "gh-was-called")
+	stubScript := "#!/bin/sh\ntouch " + markerFile + "\necho 'ghp_should_not_be_used'\n"
+	if err := os.WriteFile(filepath.Join(stubDir, "gh"), []byte(stubScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prependPath(t, stubDir)
+
+	t.Setenv("GITHUB_TOKEN", "explicit-github-token")
+	t.Setenv("GH_TOKEN", "")
+
+	if err := ensureGHToken(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := os.Getenv("GITHUB_TOKEN"); got != "explicit-github-token" {
+		t.Errorf("GITHUB_TOKEN = %q; want %q (explicit GITHUB_TOKEN must not be overwritten)", got, "explicit-github-token")
+	}
+	if _, err := os.Stat(markerFile); err == nil {
+		t.Error("gh stub was invoked; GITHUB_TOKEN env var should have short-circuited the fallback")
+	}
+}
+
+// TestEnsureGHToken_ghTokenWinsOverGHAuthToken verifies that when GH_TOKEN is set
+// but GITHUB_TOKEN is not, ensureGHToken copies GH_TOKEN without invoking `gh auth
+// token`, so the explicit env still wins over the fallback.
+func TestEnsureGHToken_ghTokenWinsOverGHAuthToken(t *testing.T) {
+	// Stub gh: write a marker file when called so we can assert it was never invoked.
+	stubDir := t.TempDir()
+	markerFile := filepath.Join(stubDir, "gh-was-called")
+	stubScript := "#!/bin/sh\ntouch " + markerFile + "\necho 'ghp_should_not_be_used'\n"
+	if err := os.WriteFile(filepath.Join(stubDir, "gh"), []byte(stubScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prependPath(t, stubDir)
+
+	origGH, hadGH := os.LookupEnv("GITHUB_TOKEN")
+	os.Unsetenv("GITHUB_TOKEN")
+	t.Cleanup(func() {
+		if hadGH {
+			os.Setenv("GITHUB_TOKEN", origGH)
+		} else {
+			os.Unsetenv("GITHUB_TOKEN")
+		}
+	})
+	t.Setenv("GH_TOKEN", "explicit-gh-token")
+
+	if err := ensureGHToken(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := os.Getenv("GITHUB_TOKEN"); got != "explicit-gh-token" {
+		t.Errorf("GITHUB_TOKEN = %q; want %q (GH_TOKEN must win over gh auth token fallback)", got, "explicit-gh-token")
+	}
+	if _, err := os.Stat(markerFile); err == nil {
+		t.Error("gh stub was invoked; GH_TOKEN env var should have short-circuited the fallback")
 	}
 }
 
