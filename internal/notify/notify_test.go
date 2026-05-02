@@ -1,6 +1,7 @@
 package notify_test
 
 import (
+	"os"
 	"testing"
 
 	"github.com/arun-gupta/agentctl/internal/notify"
@@ -8,7 +9,12 @@ import (
 
 // TestSend_doesNotPanic verifies that Send does not panic on any supported
 // platform, even when the notification tool is unavailable (e.g. in CI).
+// Skipped by default to avoid firing a real OS notification during `go test`.
+// Run with AGENTCTL_TEST_NOTIFY=1 to exercise the real notification path.
 func TestSend_doesNotPanic(t *testing.T) {
+	if os.Getenv("AGENTCTL_TEST_NOTIFY") != "1" {
+		t.Skip("set AGENTCTL_TEST_NOTIFY=1 to run")
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			t.Errorf("Send panicked: %v", r)
