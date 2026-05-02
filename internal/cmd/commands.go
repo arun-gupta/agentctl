@@ -1887,7 +1887,16 @@ func runDiff(issue, base string, stat, noPager bool) error {
 		return err
 	}
 
-	args := []string{"diff", "--color=always"}
+	// Use --color=always only when piping to the pager: git detects a pipe
+	// and disables colour on its own, but we want colour in the pager.
+	// For all other paths (--no-pager, --stat, non-TTY) let git auto-detect.
+	usePager := !noPager && !stat && isTerminal(os.Stdout)
+	colorFlag := "--color=auto"
+	if usePager {
+		colorFlag = "--color=always"
+	}
+
+	args := []string{"diff", colorFlag}
 	if stat {
 		args = append(args, "--stat")
 	}
@@ -1901,25 +1910,54 @@ func runDiff(issue, base string, stat, noPager bool) error {
 	gitCmd.Dir = wtPath
 	gitCmd.Stderr = os.Stderr
 
-	if noPager || stat || !isTerminal(os.Stdout) {
+	if !usePager {
 		gitCmd.Stdout = os.Stdout
 		return gitCmd.Run()
 	}
 
-	pager := os.Getenv("PAGER")
-	if pager == "" {
-		pager = "less"
+	// Build the pager command.  When $PAGER is set, invoke it via "sh -c" so
+	// complex values like "less -FRSX" or "delta" are handled correctly.
+	// When $PAGER is unset, default to "less -R".
+	var pagerCmd *exec.Cmd
+	if pagerEnv := os.Getenv("PAGER"); pagerEnv != "" {
+		pagerCmd = exec.Command("sh", "-c", pagerEnv)
+	} else {
+		pagerCmd = exec.Command("less", "-R")
 	}
-	pagerCmd := exec.Command(pager, "-R")
-	pagerCmd.Stdin, _ = gitCmd.StdoutPipe()
+
+	pipe, err := gitCmd.StdoutPipe()
+	if err != nil {
+		gitCmd.Stdout = os.Stdout
+		return gitCmd.Run()
+	}
+	pagerCmd.Stdin = pipe
 	pagerCmd.Stdout = os.Stdout
 	pagerCmd.Stderr = os.Stderr
 	if err := pagerCmd.Start(); err != nil {
 		gitCmd.Stdout = os.Stdout
 		return gitCmd.Run()
 	}
-	_ = gitCmd.Run()
-	return pagerCmd.Wait()
+	gitErr := gitCmd.Run()
+	pagerErr := pagerCmd.Wait()
+	// git exits with SIGPIPE when the pager quits early (user pressed 'q');
+	// treat that as success and surface the pager exit status instead.
+	if gitErr != nil && !isSignalError(gitErr, syscall.SIGPIPE) {
+		return gitErr
+	}
+	return pagerErr
+}
+
+// isSignalError reports whether err is an *exec.ExitError caused by the given
+// Unix signal.  Returns false on non-Unix platforms or when err is not an
+// ExitError.
+func isSignalError(err error, sig syscall.Signal) bool {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		if ws, ok := exitErr.Sys().(syscall.WaitStatus); ok {
+			return ws.Signaled() && ws.Signal() == sig
+		}
+	}
+	return false
 }
 
 func isTerminal(f *os.File) bool {

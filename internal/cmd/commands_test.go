@@ -5171,14 +5171,88 @@ func TestRunDiff_withBase_unknownIssue(t *testing.T) {
 	}
 }
 
-func TestIsTerminal_pipe(t *testing.T) {
-	// A pipe is not a terminal — os.Stdin in tests is a pipe.
-	if isTerminal(os.Stdin) {
-		t.Log("stdin appears to be a terminal — skipping assertion (running interactively?)")
-		return
+// initDiffTestRepo creates a git repo with a linked worktree named so that
+// findWorktreePath can locate it by issue number, and cd's into the repo root.
+// Returns the issue number (as string) and the repo root path.
+func initDiffTestRepo(t *testing.T) (issue string, root string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found in PATH")
 	}
-	if isTerminal(os.Stdin) {
-		t.Error("expected isTerminal(os.Stdin) == false in test environment")
+	root = t.TempDir()
+	issue = "191"
+
+	gitAt := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	gitAt(root, "init")
+	gitAt(root, "config", "user.email", "test@example.com")
+	gitAt(root, "config", "user.name", "Test")
+	gitAt(root, "config", "commit.gpgsign", "false")
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitAt(root, "add", ".")
+	gitAt(root, "commit", "-m", "init")
+
+	// The worktree path must contain "-<issue>-" so FindWorktreeByIssue matches.
+	wtPath := filepath.Join(t.TempDir(), "repo-"+issue+"-diff-test")
+	gitAt(root, "worktree", "add", "-b", issue+"-diff-test", wtPath)
+
+	chdirTemp(t, root)
+	return issue, root
+}
+
+func TestRunDiff_noPager_noBase(t *testing.T) {
+	// runDiff with --no-pager and no --base should succeed on a real worktree
+	// and produce output on stdout (we only check for no error here).
+	issue, _ := initDiffTestRepo(t)
+	if err := runDiff(issue, "", false, true); err != nil {
+		t.Fatalf("runDiff noPager: %v", err)
+	}
+}
+
+func TestRunDiff_stat_noPager(t *testing.T) {
+	// --stat implies no pager; should succeed without error.
+	issue, _ := initDiffTestRepo(t)
+	if err := runDiff(issue, "", true, true); err != nil {
+		t.Fatalf("runDiff --stat: %v", err)
+	}
+}
+
+func TestRunDiff_withBase_noPager(t *testing.T) {
+	// --base should produce a three-dot diff; no error expected on a real repo.
+	issue, root := initDiffTestRepo(t)
+	// Detect default branch name (main or master) using the repo root we already have.
+	out, err := exec.Command("git", "-C", root, "rev-parse", "--abbrev-ref", "HEAD").Output()
+	defaultBranchName := "main"
+	if err == nil {
+		defaultBranchName = strings.TrimSpace(string(out))
+	}
+	if err := runDiff(issue, defaultBranchName, false, true); err != nil {
+		t.Fatalf("runDiff --base %s: %v", defaultBranchName, err)
+	}
+}
+
+func TestIsTerminal_pipe(t *testing.T) {
+	// Create a real OS pipe and verify that neither end is reported as a terminal.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	defer r.Close()
+	defer w.Close()
+	if isTerminal(r) {
+		t.Error("expected isTerminal(pipe read-end) == false, got true")
+	}
+	if isTerminal(w) {
+		t.Error("expected isTerminal(pipe write-end) == false, got true")
 	}
 }
 
