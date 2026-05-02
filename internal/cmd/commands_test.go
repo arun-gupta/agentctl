@@ -4916,3 +4916,60 @@ func TestGhPRInfoWithURL_noPR(t *testing.T) {
 		t.Errorf("expected zero values on error, got prState=%q number=%d url=%q", prState, number, url)
 	}
 }
+
+// ─── runDiff ──────────────────────────────────────────────────────────────────
+
+func TestRunDiff_unknownIssue(t *testing.T) {
+	err := runDiff("99999", "", false, true)
+	if err == nil {
+		t.Fatal("expected error for unknown issue")
+	}
+	if !strings.Contains(err.Error(), "no worktree found") {
+		t.Errorf("error should contain 'no worktree found'; got: %v", err)
+	}
+}
+
+func TestRunDiff_issueURL(t *testing.T) {
+	// A full GitHub URL should be resolved to a bare issue number and then
+	// fail with the same "no worktree found" error (not a URL-parsing error).
+	err := runDiff("https://github.com/owner/repo/issues/99999", "", false, true)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "no worktree found") {
+		t.Errorf("expected 'no worktree found'; got: %v", err)
+	}
+}
+
+func TestRunDiff_statFlag_unknownIssue(t *testing.T) {
+	// --stat with unknown issue should fail at worktree lookup, not panic.
+	err := runDiff("99999", "", true, true)
+	if err == nil {
+		t.Fatal("expected error for unknown issue")
+	}
+	if !strings.Contains(err.Error(), "no worktree found") {
+		t.Errorf("unexpected error; got: %v", err)
+	}
+}
+
+func TestRunDiff_withBase_unknownIssue(t *testing.T) {
+	// --base with unknown issue should fail at worktree lookup.
+	err := runDiff("99999", "main", false, true)
+	if err == nil {
+		t.Fatal("expected error for unknown issue")
+	}
+	if !strings.Contains(err.Error(), "no worktree found") {
+		t.Errorf("unexpected error; got: %v", err)
+	}
+}
+
+func TestIsTerminal_pipe(t *testing.T) {
+	// A pipe is not a terminal — os.Stdin in tests is a pipe.
+	if isTerminal(os.Stdin) {
+		t.Log("stdin appears to be a terminal — skipping assertion (running interactively?)")
+		return
+	}
+	if isTerminal(os.Stdin) {
+		t.Error("expected isTerminal(os.Stdin) == false in test environment")
+	}
+}

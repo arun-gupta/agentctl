@@ -1708,6 +1708,81 @@ func attachLog(wtPath, issue string, w io.Writer, logWait time.Duration) error {
 	return nil
 }
 
+// NewDiffCmd creates the `diff` subcommand.
+func NewDiffCmd() *cobra.Command {
+	var stat bool
+	var base string
+	var noPager bool
+	c := &cobra.Command{
+		Use:   "diff <issue>",
+		Short: "Show what the agent has changed in a worktree",
+		Long: `Show the git diff for the agent's worktree.
+
+By default prints all uncommitted changes (staged + unstaged) and pipes the
+output through the configured pager ($PAGER, defaulting to less -R).
+
+Use --base to compare against a branch, e.g. --base main shows everything the
+agent added since branching from main.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDiff(args[0], base, stat, noPager)
+		},
+	}
+	c.Flags().BoolVar(&stat, "stat", false, "Show changed-file summary instead of full diff")
+	c.Flags().StringVar(&base, "base", "", "Diff base branch (default: show uncommitted changes)")
+	c.Flags().BoolVar(&noPager, "no-pager", false, "Print to stdout without paging")
+	return c
+}
+
+func runDiff(issue, base string, stat, noPager bool) error {
+	if _, _, num, ok := parseIssueURL(issue); ok {
+		issue = num
+	}
+	wtPath, err := findWorktreePath(issue)
+	if err != nil {
+		return err
+	}
+
+	args := []string{"diff", "--color=always"}
+	if stat {
+		args = append(args, "--stat")
+	}
+	if base != "" {
+		args = append(args, base+"...HEAD")
+	} else {
+		args = append(args, "HEAD")
+	}
+
+	gitCmd := exec.Command("git", args...)
+	gitCmd.Dir = wtPath
+	gitCmd.Stderr = os.Stderr
+
+	if noPager || stat || !isTerminal(os.Stdout) {
+		gitCmd.Stdout = os.Stdout
+		return gitCmd.Run()
+	}
+
+	pager := os.Getenv("PAGER")
+	if pager == "" {
+		pager = "less"
+	}
+	pagerCmd := exec.Command(pager, "-R")
+	pagerCmd.Stdin, _ = gitCmd.StdoutPipe()
+	pagerCmd.Stdout = os.Stdout
+	pagerCmd.Stderr = os.Stderr
+	if err := pagerCmd.Start(); err != nil {
+		gitCmd.Stdout = os.Stdout
+		return gitCmd.Run()
+	}
+	_ = gitCmd.Run()
+	return pagerCmd.Wait()
+}
+
+func isTerminal(f *os.File) bool {
+	fi, err := f.Stat()
+	return err == nil && (fi.Mode()&os.ModeCharDevice) != 0
+}
+
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 func dash(s string) string {
