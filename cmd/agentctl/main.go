@@ -11,6 +11,7 @@
 //	agentctl status     [--verbose]
 //	agentctl logs       [--lines N] [--no-follow] <issue>
 //	agentctl attach     <issue>
+//	agentctl diff       [--stat] [--base branch] [--no-pager] <issue>
 //	agentctl dev start  [--quiet] [issue]
 package main
 
@@ -51,6 +52,7 @@ func newRootCmd() *cobra.Command {
 		cmd.NewStatusCmd(),
 		cmd.NewLogsCmd(),
 		cmd.NewAttachCmd(),
+		cmd.NewDiffCmd(),
 		cmd.NewDevCmd(),
 		cmd.NewStreamLogCmd(),
 		cmd.NewStreamLogOpenHandsCmd(),

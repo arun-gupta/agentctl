@@ -1852,6 +1852,119 @@ func attachLog(wtPath, issue string, w io.Writer, logWait time.Duration) error {
 	return nil
 }
 
+// NewDiffCmd creates the `diff` subcommand.
+func NewDiffCmd() *cobra.Command {
+	var stat bool
+	var base string
+	var noPager bool
+	c := &cobra.Command{
+		Use:   "diff <issue>",
+		Short: "Show what the agent has changed in a worktree",
+		Long: `Show the git diff for the agent's worktree.
+
+By default prints all uncommitted changes (staged + unstaged) and pipes the
+output through the configured pager ($PAGER, defaulting to less -R).
+
+Use --base to compare against a branch, e.g. --base main shows everything the
+agent added since branching from main.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDiff(args[0], base, stat, noPager)
+		},
+	}
+	c.Flags().BoolVar(&stat, "stat", false, "Show changed-file summary instead of full diff")
+	c.Flags().StringVar(&base, "base", "", "Diff base branch (default: show uncommitted changes)")
+	c.Flags().BoolVar(&noPager, "no-pager", false, "Print to stdout without paging")
+	return c
+}
+
+func runDiff(issue, base string, stat, noPager bool) error {
+	if _, _, num, ok := parseIssueURL(issue); ok {
+		issue = num
+	}
+	wtPath, err := findWorktreePath(issue)
+	if err != nil {
+		return err
+	}
+
+	// Use --color=always only when piping to the pager: git detects a pipe
+	// and disables colour on its own, but we want colour in the pager.
+	// For all other paths (--no-pager, --stat, non-TTY) let git auto-detect.
+	usePager := !noPager && !stat && isTerminal(os.Stdout)
+	colorFlag := "--color=auto"
+	if usePager {
+		colorFlag = "--color=always"
+	}
+
+	args := []string{"diff", colorFlag}
+	if stat {
+		args = append(args, "--stat")
+	}
+	if base != "" {
+		args = append(args, base+"...HEAD")
+	} else {
+		args = append(args, "HEAD")
+	}
+
+	gitCmd := exec.Command("git", args...)
+	gitCmd.Dir = wtPath
+	gitCmd.Stderr = os.Stderr
+
+	if !usePager {
+		gitCmd.Stdout = os.Stdout
+		return gitCmd.Run()
+	}
+
+	// Build the pager command.  When $PAGER is set, invoke it via "sh -c" so
+	// complex values like "less -FRSX" or "delta" are handled correctly.
+	// When $PAGER is unset, default to "less -R".
+	var pagerCmd *exec.Cmd
+	if pagerEnv := os.Getenv("PAGER"); pagerEnv != "" {
+		pagerCmd = exec.Command("sh", "-c", pagerEnv)
+	} else {
+		pagerCmd = exec.Command("less", "-R")
+	}
+
+	pipe, err := gitCmd.StdoutPipe()
+	if err != nil {
+		gitCmd.Stdout = os.Stdout
+		return gitCmd.Run()
+	}
+	pagerCmd.Stdin = pipe
+	pagerCmd.Stdout = os.Stdout
+	pagerCmd.Stderr = os.Stderr
+	if err := pagerCmd.Start(); err != nil {
+		gitCmd.Stdout = os.Stdout
+		return gitCmd.Run()
+	}
+	gitErr := gitCmd.Run()
+	pagerErr := pagerCmd.Wait()
+	// git exits with SIGPIPE when the pager quits early (user pressed 'q');
+	// treat that as success and surface the pager exit status instead.
+	if gitErr != nil && !isSignalError(gitErr, syscall.SIGPIPE) {
+		return gitErr
+	}
+	return pagerErr
+}
+
+// isSignalError reports whether err is an *exec.ExitError caused by the given
+// Unix signal.  Returns false on non-Unix platforms or when err is not an
+// ExitError.
+func isSignalError(err error, sig syscall.Signal) bool {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		if ws, ok := exitErr.Sys().(syscall.WaitStatus); ok {
+			return ws.Signaled() && ws.Signal() == sig
+		}
+	}
+	return false
+}
+
+func isTerminal(f *os.File) bool {
+	fi, err := f.Stat()
+	return err == nil && (fi.Mode()&os.ModeCharDevice) != 0
+}
+
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 func dash(s string) string {
