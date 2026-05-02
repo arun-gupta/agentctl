@@ -338,6 +338,19 @@ func TestBuildKickoff_isAgentNeutral(t *testing.T) {
 	}
 }
 
+func TestBuildKickoffFromTask_noPortUsesTaskDescription(t *testing.T) {
+	kickoff := buildKickoffFromTask("Refactor the auth middleware to use JWT", "")
+	if !strings.Contains(kickoff, "Refactor the auth middleware to use JWT") {
+		t.Fatalf("task kickoff must include the task description, got:\n%s", kickoff)
+	}
+	if strings.Contains(kickoff, "GitHub issue #") {
+		t.Fatalf("task kickoff must not mention a GitHub issue, got:\n%s", kickoff)
+	}
+	if strings.Contains(kickoff, "port") {
+		t.Fatalf("task kickoff with empty port must not mention a port, got:\n%s", kickoff)
+	}
+}
+
 func TestStartCmd_noSDDFlagRemoved(t *testing.T) {
 	c := NewStartCmd()
 	if f := c.Flags().Lookup("no-sdd"); f != nil {
@@ -353,6 +366,44 @@ func TestStartCmd_sddFlagExists(t *testing.T) {
 	}
 	if f.DefValue != "" {
 		t.Errorf("--sdd default should be '' (empty), got %q", f.DefValue)
+	}
+}
+
+func TestStartCmd_taskAndBranchFlagsExist(t *testing.T) {
+	c := NewStartCmd()
+	if f := c.Flags().Lookup("task"); f == nil {
+		t.Fatal("--task flag must be registered")
+	}
+	if f := c.Flags().Lookup("branch"); f == nil {
+		t.Fatal("--branch flag must be registered")
+	}
+}
+
+func TestStartCmd_taskMutuallyExclusiveWithIssue(t *testing.T) {
+	c := NewStartCmd()
+	c.SilenceUsage = true
+	c.SetArgs([]string{"42", "--task", "Refactor auth middleware"})
+
+	err := c.Execute()
+	if err == nil {
+		t.Fatal("expected mutual exclusivity error")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("expected mutual exclusivity error, got: %v", err)
+	}
+}
+
+func TestStartCmd_branchRequiresTask(t *testing.T) {
+	c := NewStartCmd()
+	c.SilenceUsage = true
+	c.SetArgs([]string{"42", "--branch", "task/refactor-auth"})
+
+	err := c.Execute()
+	if err == nil {
+		t.Fatal("expected --branch requires --task error")
+	}
+	if !strings.Contains(err.Error(), "--branch requires --task") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -421,12 +472,44 @@ func TestResolveIssueArg_acceptsURL(t *testing.T) {
 	}
 }
 
+func TestResolveIssueArg_infersTaskBranchInsideLinkedWorktree(t *testing.T) {
+	repo := initGitRepoForStale(t)
+	wtPath := filepath.Join(t.TempDir(), "repo-task-refactor-auth")
+	addWorktree(t, repo, wtPath, "task/refactor-auth")
+	chdirTemp(t, wtPath)
+
+	issue, err := resolveIssueArg("discard", []string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if issue != "task/refactor-auth" {
+		t.Fatalf("got %q, want %q", issue, "task/refactor-auth")
+	}
+}
+
 func TestResolveIssueArg_noArgs_notLinked(t *testing.T) {
 	// Running from the primary worktree (not a linked one) must return an error.
 	chdirTemp(t, t.TempDir())
 	_, err := resolveIssueArg("test", []string{})
 	if err == nil {
 		t.Error("expected error when no arg given and not inside a linked worktree")
+	}
+}
+
+func TestFindWorktreePath_acceptsTaskBranch(t *testing.T) {
+	repo := initGitRepoForStale(t)
+	wtPath := filepath.Join(t.TempDir(), "repo-task-refactor-auth")
+	addWorktree(t, repo, wtPath, "task/refactor-auth")
+	chdirTemp(t, repo)
+
+	got, err := findWorktreePath("task/refactor-auth")
+	if err != nil {
+		t.Fatalf("findWorktreePath: %v", err)
+	}
+	gotResolved, _ := filepath.EvalSymlinks(got)
+	wantResolved, _ := filepath.EvalSymlinks(wtPath)
+	if gotResolved != wantResolved {
+		t.Fatalf("got %q, want %q", got, wtPath)
 	}
 }
 
@@ -928,6 +1011,38 @@ func TestGenerateUUID(t *testing.T) {
 	}
 	if uuid != strings.ToLower(uuid) {
 		t.Errorf("UUID not lowercase: %q", uuid)
+	}
+}
+
+func TestSlugFromTask(t *testing.T) {
+	tests := []struct {
+		name string
+		task string
+		want string
+	}{
+		{
+			name: "first six words",
+			task: "Refactor the auth middleware to use JWT tokens everywhere",
+			want: "task/refactor-the-auth-middleware-to-use",
+		},
+		{
+			name: "punctuation stripped and capped",
+			task: "Clean up auth!!! middleware??? now; please, thanks.",
+			want: "task/clean-up-auth-middleware-now-please",
+		},
+		{
+			name: "empty falls back to task",
+			task: "!!!",
+			want: "task/task",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := slugFromTask(tt.task); got != tt.want {
+				t.Fatalf("slugFromTask(%q) = %q, want %q", tt.task, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -1908,6 +2023,99 @@ func TestStartOne_headlessImmediateExitCleansUpWorktree(t *testing.T) {
 	for _, wt := range wts {
 		if wt.Path == wtPath {
 			t.Fatalf("worktree %s should not remain registered after failed start", wtPath)
+		}
+	}
+}
+
+func TestStartTask_headlessCreatesTaskBranchAndOmitsIssueArg(t *testing.T) {
+	repo := initGitRepoForStale(t)
+	writeLocalAdapter(t, repo, "echoagent", "binary: echo\nsession: --session\n")
+	chdirTemp(t, repo)
+
+	task := "Refactor the auth middleware to use JWT tokens everywhere"
+	wantBranch := "task/refactor-the-auth-middleware-to-use"
+	wantWorktree := filepath.Join(filepath.Dir(repo), filepath.Base(repo)+"-task-refactor-the-auth-middleware-to-use")
+
+	var out bytes.Buffer
+	if err := startTask(task, "", "echoagent", "", true, false, false, &out); err != nil {
+		t.Fatalf("startTask: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = git.RemoveWorktree(repo, wantWorktree)
+		_ = git.DeleteLocalBranch(repo, wantBranch)
+	})
+
+	if _, err := os.Stat(wantWorktree); err != nil {
+		t.Fatalf("worktree not created: %v", err)
+	}
+
+	af, err := state.Read(wantWorktree)
+	if err != nil {
+		t.Fatalf("state.Read: %v", err)
+	}
+	if af.IssueArg != "" {
+		t.Fatalf("IssueArg = %q, want empty", af.IssueArg)
+	}
+	if af.Agent != "echoagent" {
+		t.Fatalf("Agent = %q, want %q", af.Agent, "echoagent")
+	}
+
+	branch, err := git.CurrentBranch(wantWorktree)
+	if err != nil {
+		t.Fatalf("CurrentBranch: %v", err)
+	}
+	if branch != wantBranch {
+		t.Fatalf("branch = %q, want %q", branch, wantBranch)
+	}
+}
+
+func TestStartTask_writeTaskModeFlag(t *testing.T) {
+	repo := initGitRepoForStale(t)
+	writeLocalAdapter(t, repo, "echoagent", "binary: echo\nsession: --session\n")
+	chdirTemp(t, repo)
+
+	task := "Add OAuth2 login flow"
+	wantBranch := "task/add-oauth2-login-flow"
+	wantWorktree := filepath.Join(filepath.Dir(repo), filepath.Base(repo)+"-task-add-oauth2-login-flow")
+
+	var out bytes.Buffer
+	if err := startTask(task, "", "echoagent", "", true, false, false, &out); err != nil {
+		t.Fatalf("startTask: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = git.RemoveWorktree(repo, wantWorktree)
+		_ = git.DeleteLocalBranch(repo, wantBranch)
+	})
+
+	af, err := state.Read(wantWorktree)
+	if err != nil {
+		t.Fatalf("state.Read: %v", err)
+	}
+	if !af.TaskMode {
+		t.Fatalf("TaskMode = false, want true in task-mode worktree")
+	}
+}
+
+// TestEffectiveSpecKey verifies that effectiveSpecKey returns "task" for task-mode
+// worktrees regardless of the branch name, and falls back to specLookupKey otherwise.
+func TestEffectiveSpecKey(t *testing.T) {
+	tests := []struct {
+		issue    string
+		taskMode bool
+		want     string
+	}{
+		{issue: "42", taskMode: false, want: "42"},
+		{issue: "task/refactor-auth", taskMode: false, want: "task"},
+		{issue: "refactor-auth", taskMode: false, want: "refactor-auth"},
+		{issue: "refactor-auth", taskMode: true, want: "task"},
+		{issue: "my-feature", taskMode: true, want: "task"},
+		{issue: "task/my-feature", taskMode: true, want: "task"},
+	}
+	for _, tt := range tests {
+		af := state.AgentFile{TaskMode: tt.taskMode}
+		got := effectiveSpecKey(tt.issue, af)
+		if got != tt.want {
+			t.Errorf("effectiveSpecKey(%q, taskMode=%v) = %q, want %q", tt.issue, tt.taskMode, got, tt.want)
 		}
 	}
 }
