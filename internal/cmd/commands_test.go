@@ -746,6 +746,75 @@ func TestRemoveBranchRefs_alreadyRemovedIsQuiet(t *testing.T) {
 	}
 }
 
+func TestRunCleanupAllMerged_prunesRemoteOnlyMergedBranch(t *testing.T) {
+	repo := initGitRepoWithBareOrigin(t)
+
+	createCommittedFile(t, repo, "tracked.txt", "initial\n")
+	gitRun(t, repo, "checkout", "-b", "main")
+	gitRun(t, repo, "add", ".")
+	gitRun(t, repo, "commit", "-m", "initial")
+	gitRun(t, repo, "push", "-u", "origin", "main")
+
+	const orphanedBranch = "251-cleanup-remote-only"
+	const nonAgentBranch = "feature-without-issue-prefix"
+
+	gitRun(t, repo, "checkout", "-b", orphanedBranch)
+	gitRun(t, repo, "push", "-u", "origin", orphanedBranch)
+	gitRun(t, repo, "checkout", "main")
+	gitRun(t, repo, "checkout", "-b", nonAgentBranch)
+	gitRun(t, repo, "push", "-u", "origin", nonAgentBranch)
+	gitRun(t, repo, "checkout", "main")
+	gitRun(t, repo, "branch", "-D", orphanedBranch)
+	gitRun(t, repo, "branch", "-D", nonAgentBranch)
+
+	stubDir := t.TempDir()
+	makeGHCleanupStateStub(t, stubDir, "MERGED 251")
+	prependPath(t, stubDir)
+
+	chdirTemp(t, repo)
+
+	if err := runCleanupAllMerged(); err != nil {
+		t.Fatalf("runCleanupAllMerged: %v", err)
+	}
+
+	if out := gitRun(t, repo, "ls-remote", "--heads", "origin", orphanedBranch); strings.TrimSpace(out) != "" {
+		t.Fatalf("expected remote branch %q to be deleted, still found %q", orphanedBranch, out)
+	}
+	if out := gitRun(t, repo, "ls-remote", "--heads", "origin", nonAgentBranch); strings.TrimSpace(out) == "" {
+		t.Fatalf("expected non-agent remote branch %q to be preserved", nonAgentBranch)
+	}
+}
+
+func TestRunCleanupAllMerged_skipsRemoteOnlyOpenBranch(t *testing.T) {
+	repo := initGitRepoWithBareOrigin(t)
+
+	createCommittedFile(t, repo, "tracked.txt", "initial\n")
+	gitRun(t, repo, "checkout", "-b", "main")
+	gitRun(t, repo, "add", ".")
+	gitRun(t, repo, "commit", "-m", "initial")
+	gitRun(t, repo, "push", "-u", "origin", "main")
+
+	const openBranch = "252-open-pr-branch"
+	gitRun(t, repo, "checkout", "-b", openBranch)
+	gitRun(t, repo, "push", "-u", "origin", openBranch)
+	gitRun(t, repo, "checkout", "main")
+	gitRun(t, repo, "branch", "-D", openBranch)
+
+	stubDir := t.TempDir()
+	makeGHCleanupStateStub(t, stubDir, "OPEN 252")
+	prependPath(t, stubDir)
+
+	chdirTemp(t, repo)
+
+	if err := runCleanupAllMerged(); err != nil {
+		t.Fatalf("runCleanupAllMerged: %v", err)
+	}
+
+	if out := gitRun(t, repo, "ls-remote", "--heads", "origin", openBranch); strings.TrimSpace(out) == "" {
+		t.Fatalf("expected remote branch %q to be preserved", openBranch)
+	}
+}
+
 func contains(s, sub string) bool {
 	return strings.Contains(s, sub)
 }
@@ -2360,7 +2429,6 @@ func TestAgentEnv_claudeJSONSymlinkReplacesStaleFile(t *testing.T) {
 	}
 }
 
-
 // TestAgentEnv_passesTokenToEnv verifies that a GITHUB_TOKEN already in the
 // process environment is forwarded to the agent env unchanged. Token injection
 // is now ensureGHToken's responsibility, not agentEnv's.
@@ -3853,6 +3921,26 @@ exit 0`,
 	return callsFile
 }
 
+func makeGHCleanupStateStub(t *testing.T, stubDir, prViewOutput string) {
+	t.Helper()
+
+	script := fmt.Sprintf(`#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  printf '%%s\n' %q
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+  printf '[]\n'
+  exit 0
+fi
+exit 0
+`, prViewOutput)
+
+	if err := os.WriteFile(filepath.Join(stubDir, "gh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // prependPath prepends dir to the PATH for the duration of the test.
 func prependPath(t *testing.T, dir string) {
 	t.Helper()
@@ -4106,8 +4194,8 @@ func TestDiscardCmd_commaSplitAndURLNormalization(t *testing.T) {
 	chdirTemp(t, repo)
 
 	tests := []struct {
-		name      string
-		arg       string
+		name       string
+		arg        string
 		wantIssues []string // issue numbers expected in "Nothing to remove" output
 	}{
 		{

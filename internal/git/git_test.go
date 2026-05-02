@@ -213,6 +213,61 @@ func TestInferIssue(t *testing.T) {
 	}
 }
 
+func TestListRemoteBranches(t *testing.T) {
+	repo := initRepo(t)
+	origin := filepath.Join(t.TempDir(), "origin.git")
+
+	cmd := exec.Command("git", "init", "--bare", origin)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init --bare: %v\n%s", err, out)
+	}
+
+	cmd = exec.Command("git", "-C", repo, "remote", "add", "origin", origin)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git remote add: %v\n%s", err, out)
+	}
+
+	defaultBranch, err := CurrentBranch(repo)
+	if err != nil {
+		t.Fatalf("CurrentBranch: %v", err)
+	}
+
+	cmd = exec.Command("git", "-C", repo, "push", "-u", "origin", defaultBranch)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git push default branch: %v\n%s", err, out)
+	}
+
+	cmd = exec.Command("git", "-C", repo, "checkout", "-b", "42-feature")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git checkout -b: %v\n%s", err, out)
+	}
+
+	cmd = exec.Command("git", "-C", repo, "push", "-u", "origin", "42-feature")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git push feature branch: %v\n%s", err, out)
+	}
+
+	branches, err := ListRemoteBranches(repo)
+	if err != nil {
+		t.Fatalf("ListRemoteBranches: %v", err)
+	}
+
+	got := map[string]bool{}
+	for _, branch := range branches {
+		got[branch] = true
+	}
+
+	if !got[defaultBranch] {
+		t.Errorf("expected %q in remote branches, got %v", defaultBranch, branches)
+	}
+	if !got["42-feature"] {
+		t.Errorf("expected %q in remote branches, got %v", "42-feature", branches)
+	}
+	if got["HEAD"] {
+		t.Errorf("HEAD alias must be excluded, got %v", branches)
+	}
+}
+
 func TestLinkedWorktreesParserSmoke(t *testing.T) {
 	// Parse a synthetic --porcelain output without calling git.
 	// We exercise the parser indirectly by calling the unexported helper via

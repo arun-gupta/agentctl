@@ -203,6 +203,43 @@ func DeleteRemoteBranch(repoRoot, branch string) (string, error) {
 	return strings.TrimSpace(out.String()), err
 }
 
+// ListRemoteBranches returns the short names of all branches on origin by
+// querying the remote directly via git ls-remote, so the result is always
+// up-to-date and never includes refs from other remotes.
+func ListRemoteBranches(repoRoot string) ([]string, error) {
+	out, err := run(repoRoot, "-C", repoRoot, "ls-remote", "--heads", "origin")
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(out) == "" {
+		return nil, nil
+	}
+
+	const prefix = "refs/heads/"
+	var branches []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Each output line has the form: "<sha>\t<refname>"
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		ref := strings.TrimSpace(parts[1])
+		if !strings.HasPrefix(ref, prefix) {
+			continue
+		}
+		name := strings.TrimPrefix(ref, prefix)
+		if name == "" {
+			continue
+		}
+		branches = append(branches, name)
+	}
+	return branches, nil
+}
+
 // FindBranchByIssuePrefix returns the first local branch whose name starts
 // with "<issue>-".
 func FindBranchByIssuePrefix(repoRoot, issue string) (string, error) {
