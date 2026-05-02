@@ -1023,11 +1023,17 @@ func cleanupMerged(repoRoot, issue string) error {
 // removeAllWritable removes the directory tree at path, first making all
 // entries writable. This is required when .agent-home contains a Go module
 // cache (go/pkg/mod) whose files are intentionally read-only (0444).
+// Symlinks are skipped during chmod to avoid modifying permissions on targets
+// outside the worktree (e.g. ~/.ssh, ~/.gitconfig linked into .agent-home).
 func removeAllWritable(path string) error {
 	_ = filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
-		if err == nil {
-			_ = os.Chmod(p, 0o700)
+		if err != nil {
+			return nil
 		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			return nil
+		}
+		_ = os.Chmod(p, 0o700)
 		return nil
 	})
 	return os.RemoveAll(path)
