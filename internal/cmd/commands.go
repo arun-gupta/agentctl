@@ -874,6 +874,7 @@ func runCleanupAllMerged() error {
 	}
 
 	cleaned, skipped, failed, staleCount := 0, 0, 0, 0
+	handledBranches := make(map[string]struct{}, len(wts))
 	for _, wt := range wts {
 		branch := wt.Branch
 		if branch == "" || branch == "HEAD" {
@@ -881,6 +882,7 @@ func runCleanupAllMerged() error {
 			skipped++
 			continue
 		}
+		handledBranches[branch] = struct{}{}
 		prState, err := ghPRState(repoRoot, branch)
 		if err != nil || prState == "" {
 			if !isAgentRunning(wt.Path) {
@@ -910,7 +912,51 @@ func runCleanupAllMerged() error {
 		}
 	}
 
-	fmt.Printf("\n%d merged worktrees cleaned, %d skipped\n", cleaned, skipped)
+	orphanedPruned := 0
+	remoteBranches, err := git.ListRemoteBranches(repoRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: could not list remote branches: %v\n", err)
+	} else {
+		for _, branch := range remoteBranches {
+			if branch == "main" || branch == "master" {
+				continue
+			}
+			if _, ok := handledBranches[branch]; ok {
+				continue
+			}
+			if git.InferIssue(branch) == "" {
+				continue
+			}
+
+			prState, err := ghPRState(repoRoot, branch)
+			if err != nil || prState == "" {
+				fmt.Printf("Skipping orphaned remote branch %s: no PR found\n", branch)
+				skipped++
+				continue
+			}
+			if prState != "MERGED" && prState != "CLOSED" {
+				fmt.Printf("Skipping orphaned remote branch %s: PR is %s\n", branch, prState)
+				skipped++
+				continue
+			}
+
+			fmt.Printf("Pruning orphaned remote branch %s (PR %s, no local worktree)\n", branch, prState)
+			msg, err := git.DeleteRemoteBranch(repoRoot, branch)
+			if err != nil {
+				if strings.Contains(msg, "remote ref does not exist") {
+					continue
+				}
+				fmt.Fprintf(os.Stderr, "WARNING: could not delete remote branch %s: %s\n", branch, strings.TrimSpace(msg))
+				failed++
+				continue
+			}
+
+			fmt.Printf("Deleted remote branch origin/%s\n", branch)
+			orphanedPruned++
+		}
+	}
+
+	fmt.Printf("\n%d merged worktrees cleaned, %d orphaned remote branches pruned, %d skipped\n", cleaned, orphanedPruned, skipped)
 	if staleCount > 0 {
 		fmt.Printf("Note: %d stale worktree(s) found with no agent and no PR — run `agentctl discard --stale` to remove them.\n", staleCount)
 	}

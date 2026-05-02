@@ -203,6 +203,31 @@ func DeleteRemoteBranch(repoRoot, branch string) (string, error) {
 	return strings.TrimSpace(out.String()), err
 }
 
+// ListRemoteBranches returns the short names of all branches on origin.
+func ListRemoteBranches(repoRoot string) ([]string, error) {
+	out, err := run(repoRoot, "-C", repoRoot, "branch", "-r", "--format=%(refname:short)")
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(out) == "" {
+		return nil, nil
+	}
+
+	var branches []string
+	for _, line := range strings.Split(out, "\n") {
+		name := strings.TrimSpace(line)
+		if name == "" || name == "origin/HEAD" {
+			continue
+		}
+		name = strings.TrimPrefix(name, "origin/")
+		if name == "" || name == "HEAD" {
+			continue
+		}
+		branches = append(branches, name)
+	}
+	return branches, nil
+}
+
 // FindBranchByIssuePrefix returns the first local branch whose name starts
 // with "<issue>-".
 func FindBranchByIssuePrefix(repoRoot, issue string) (string, error) {
