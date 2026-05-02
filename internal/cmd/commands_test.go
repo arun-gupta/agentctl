@@ -1812,6 +1812,8 @@ func TestStartOne_headlessImmediateExitCleansUpWorktree(t *testing.T) {
 	writeLocalAdapter(t, repo, "falseagent", "binary: false\n")
 	chdirTemp(t, repo)
 
+	t.Setenv("GITHUB_TOKEN", "test-token")
+
 	var out bytes.Buffer
 	err := startOne("42", "plain-fails", "falseagent", "", true, false, false, &out)
 	if err == nil {
@@ -2351,34 +2353,12 @@ func TestAgentEnv_claudeJSONSymlinkReplacesStaleFile(t *testing.T) {
 	}
 }
 
-// fakeGHBin writes a small shell script to dir/gh that outputs token when
-// called as "gh auth token", and updates PATH so exec.Command("gh", …) finds it.
-func fakeGHBin(t *testing.T, token string) {
-	t.Helper()
-	dir := t.TempDir()
-	script := "#!/bin/sh\nif [ \"$1\" = \"auth\" ] && [ \"$2\" = \"token\" ]; then\n  echo " + token + "\n  exit 0\nfi\nexit 1\n"
-	bin := filepath.Join(dir, "gh")
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
-		t.Fatalf("fakeGHBin: write script: %v", err)
-	}
-	orig := os.Getenv("PATH")
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+orig)
-}
 
-// TestAgentEnv_injectsTokenWhenAbsent verifies that GITHUB_TOKEN is added to
-// the environment when it is not already present.
-func TestAgentEnv_injectsTokenWhenAbsent(t *testing.T) {
-	fakeGHBin(t, "test-token-injected")
-	// Truly unset GITHUB_TOKEN (not just set to empty) so it is absent.
-	orig, had := os.LookupEnv("GITHUB_TOKEN")
-	os.Unsetenv("GITHUB_TOKEN")
-	t.Cleanup(func() {
-		if had {
-			os.Setenv("GITHUB_TOKEN", orig)
-		} else {
-			os.Unsetenv("GITHUB_TOKEN")
-		}
-	})
+// TestAgentEnv_passesTokenToEnv verifies that a GITHUB_TOKEN already in the
+// process environment is forwarded to the agent env unchanged. Token injection
+// is now ensureGHToken's responsibility, not agentEnv's.
+func TestAgentEnv_passesTokenToEnv(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "pre-set-token")
 
 	dir := t.TempDir()
 	env, err := agentEnv(dir)
@@ -2386,17 +2366,16 @@ func TestAgentEnv_injectsTokenWhenAbsent(t *testing.T) {
 		t.Fatalf("agentEnv: %v", err)
 	}
 	for _, kv := range env {
-		if kv == "GITHUB_TOKEN=test-token-injected" {
+		if kv == "GITHUB_TOKEN=pre-set-token" {
 			return // found — pass
 		}
 	}
-	t.Error("GITHUB_TOKEN=test-token-injected not found in env")
+	t.Error("GITHUB_TOKEN=pre-set-token not found in env")
 }
 
 // TestAgentEnv_preservesExistingToken verifies that a non-empty GITHUB_TOKEN
 // already present in the environment is left unchanged.
 func TestAgentEnv_preservesExistingToken(t *testing.T) {
-	fakeGHBin(t, "should-not-be-used")
 	t.Setenv("GITHUB_TOKEN", "existing-token")
 
 	dir := t.TempDir()
@@ -2415,26 +2394,30 @@ func TestAgentEnv_preservesExistingToken(t *testing.T) {
 	t.Error("GITHUB_TOKEN not found in env at all")
 }
 
-// TestAgentEnv_replacesEmptyToken verifies that an empty GITHUB_TOKEN is
-// treated as absent and replaced with the token from `gh auth token`.
-func TestAgentEnv_replacesEmptyToken(t *testing.T) {
-	fakeGHBin(t, "replacement-token")
-	t.Setenv("GITHUB_TOKEN", "")
-
-	dir := t.TempDir()
-	env, err := agentEnv(dir)
-	if err != nil {
-		t.Fatalf("agentEnv: %v", err)
-	}
-	for _, kv := range env {
-		if strings.HasPrefix(kv, "GITHUB_TOKEN=") {
-			if kv != "GITHUB_TOKEN=replacement-token" {
-				t.Errorf("expected GITHUB_TOKEN=replacement-token, got %q", kv)
-			}
-			return
+// TestEnsureGHToken_failsWhenAbsent verifies that ensureGHToken returns an
+// error when neither GITHUB_TOKEN nor GH_TOKEN is set, rather than falling
+// back to the macOS keychain via `gh auth token`.
+func TestEnsureGHToken_failsWhenAbsent(t *testing.T) {
+	origGH, hadGH := os.LookupEnv("GITHUB_TOKEN")
+	origGHT, hadGHT := os.LookupEnv("GH_TOKEN")
+	os.Unsetenv("GITHUB_TOKEN")
+	os.Unsetenv("GH_TOKEN")
+	t.Cleanup(func() {
+		if hadGH {
+			os.Setenv("GITHUB_TOKEN", origGH)
+		} else {
+			os.Unsetenv("GITHUB_TOKEN")
 		}
+		if hadGHT {
+			os.Setenv("GH_TOKEN", origGHT)
+		} else {
+			os.Unsetenv("GH_TOKEN")
+		}
+	})
+
+	if err := ensureGHToken(); err == nil {
+		t.Fatal("expected error when GITHUB_TOKEN and GH_TOKEN are both absent")
 	}
-	t.Error("GITHUB_TOKEN not found in env at all")
 }
 
 // TestAgentEnv_gitignoreCreated verifies that agentEnv writes "*\n" into
