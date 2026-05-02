@@ -5124,3 +5124,60 @@ func TestGhPRInfoWithURL_noPR(t *testing.T) {
 		t.Errorf("expected zero values on error, got prState=%q number=%d url=%q", prState, number, url)
 	}
 }
+
+// ─── removeAllWritable ────────────────────────────────────────────────────────
+
+// TestRemoveAllWritable_readOnlyFiles verifies that removeAllWritable can delete
+// a directory tree containing read-only files (like Go module cache files).
+func TestRemoveAllWritable_readOnlyFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a nested structure with read-only files.
+	subDir := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	readOnlyFile := filepath.Join(subDir, "readonly.txt")
+	if err := os.WriteFile(readOnlyFile, []byte("data"), 0o444); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if err := removeAllWritable(dir); err != nil {
+		t.Fatalf("removeAllWritable: %v", err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("expected dir to be removed, but it still exists")
+	}
+}
+
+// TestRemoveAllWritable_symlinkTargetPermissionsUnchanged verifies that
+// removeAllWritable does not chmod symlink targets outside the tree.
+func TestRemoveAllWritable_symlinkTargetPermissionsUnchanged(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a target file outside the tree with restrictive permissions.
+	targetDir := t.TempDir()
+	targetFile := filepath.Join(targetDir, "outside.txt")
+	if err := os.WriteFile(targetFile, []byte("secret"), 0o400); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// Create a symlink inside the tree pointing to the outside file.
+	symlinkPath := filepath.Join(dir, "link")
+	if err := os.Symlink(targetFile, symlinkPath); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	if err := removeAllWritable(dir); err != nil {
+		t.Fatalf("removeAllWritable: %v", err)
+	}
+
+	// The target outside the tree must retain its original permissions.
+	info, err := os.Stat(targetFile)
+	if err != nil {
+		t.Fatalf("Stat target: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o400 {
+		t.Errorf("target permissions changed: got %04o, want 0400", got)
+	}
+}

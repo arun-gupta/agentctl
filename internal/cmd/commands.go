@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"os"
 	"os/exec"
@@ -1137,12 +1138,12 @@ func cleanupMerged(repoRoot, issue string) error {
 					return fmt.Errorf("git worktree remove failed and the worktree is still registered; aborting")
 				}
 				fmt.Printf("git worktree remove left an orphan dir at %s; removing it now.\n", wtPath)
-				if err2 := os.RemoveAll(wtPath); err2 != nil {
+				if err2 := removeAllWritable(wtPath); err2 != nil {
 					return err2
 				}
 			}
 		} else if _, statErr := os.Stat(wtPath); statErr == nil {
-			if err := os.RemoveAll(wtPath); err != nil {
+			if err := removeAllWritable(wtPath); err != nil {
 				return err
 			}
 		}
@@ -1155,6 +1156,25 @@ func cleanupMerged(repoRoot, issue string) error {
 	}
 
 	return nil
+}
+
+// removeAllWritable removes the directory tree at path, first making all
+// entries writable. This is required when .agent-home contains a Go module
+// cache (go/pkg/mod) whose files are intentionally read-only (0444).
+// Symlinks are skipped during chmod to avoid modifying permissions on targets
+// outside the worktree (e.g. ~/.ssh, ~/.gitconfig linked into .agent-home).
+func removeAllWritable(path string) error {
+	_ = filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			return nil
+		}
+		_ = os.Chmod(p, 0o700)
+		return nil
+	})
+	return os.RemoveAll(path)
 }
 
 func removeBranchRefs(repoRoot, branch string) error {
@@ -2293,7 +2313,7 @@ func cleanupFailedStart(repoRoot, wtPath, branch, devPID string) error {
 				}
 				if registered {
 					errs = append(errs, rmErr.Error())
-				} else if removeErr := os.RemoveAll(wtPath); removeErr != nil {
+				} else if removeErr := removeAllWritable(wtPath); removeErr != nil {
 					errs = append(errs, removeErr.Error())
 				}
 			}
