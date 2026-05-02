@@ -2198,12 +2198,13 @@ func cleanupFailedStart(repoRoot, wtPath, branch, devPID string) error {
 	return nil
 }
 
-// ensureGHToken ensures GITHUB_TOKEN is set in the environment so that gh
-// subprocesses never need to touch the macOS keychain. Resolution order:
+// ensureGHToken ensures GITHUB_TOKEN is set in the environment before agents
+// are launched. It checks env vars first; only when both are absent does it
+// shell out to `gh auth token` as a convenience fallback. Resolution order:
 //  1. GITHUB_TOKEN already set — use it.
 //  2. GH_TOKEN set — copy to GITHUB_TOKEN.
 //  3. `gh auth token` succeeds — set GITHUB_TOKEN from its output.
-//  4. All fail — return an actionable error.
+//  4. All fail — return an actionable error that includes any `gh` diagnostic.
 func ensureGHToken() error {
 	if os.Getenv("GITHUB_TOKEN") != "" {
 		return nil
@@ -2212,15 +2213,22 @@ func ensureGHToken() error {
 		os.Setenv("GITHUB_TOKEN", tok)
 		return nil
 	}
-	// Try gh auth token silently; works for users with a configured gh CLI.
-	out, err := exec.Command("gh", "auth", "token").Output()
-	if err == nil {
-		if tok := strings.TrimSpace(string(out)); tok != "" {
+	// Try gh auth token as a convenience fallback for users with a configured gh CLI.
+	var stdout, stderr bytes.Buffer
+	cmd := exec.Command("gh", "auth", "token")
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err == nil {
+		if tok := strings.TrimSpace(stdout.String()); tok != "" {
 			os.Setenv("GITHUB_TOKEN", tok)
 			return nil
 		}
 	}
-	return fmt.Errorf("GITHUB_TOKEN is not set\n\nSet it in your current shell (or shell profile) and re-run:\n  export GITHUB_TOKEN=<your-token>\n\nBoth GITHUB_TOKEN and GH_TOKEN are accepted. To obtain a token, run:\n  gh auth token")
+	msg := "GITHUB_TOKEN is not set\n\nSet it in your current shell (or shell profile) and re-run:\n  export GITHUB_TOKEN=<your-token>\n\nBoth GITHUB_TOKEN and GH_TOKEN are accepted. To obtain a token, run:\n  gh auth token"
+	if ghErr := strings.TrimSpace(stderr.String()); ghErr != "" {
+		msg += "\n\n`gh auth token` reported: " + ghErr
+	}
+	return fmt.Errorf("%s", msg)
 }
 
 // slugFromIssue fetches the GitHub issue title and converts it to a slug.
