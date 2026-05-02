@@ -1878,7 +1878,7 @@ func ensureGHToken() error {
 		os.Setenv("GITHUB_TOKEN", tok)
 		return nil
 	}
-	return fmt.Errorf("GITHUB_TOKEN is not set\n\nAdd the following to your shell profile (~/.zshrc or ~/.bashrc) and re-run:\n  export GITHUB_TOKEN=$(gh auth token)")
+	return fmt.Errorf("GITHUB_TOKEN is not set\n\nSet it in your current shell (or shell profile) and re-run:\n  export GITHUB_TOKEN=<your-token>\n\nBoth GITHUB_TOKEN and GH_TOKEN are accepted. To obtain a token, run:\n  gh auth token")
 }
 
 // slugFromIssue fetches the GitHub issue title and converts it to a slug.
@@ -3104,7 +3104,8 @@ func agentEnv(wtPath string) ([]string, error) {
 
 	env := os.Environ()
 
-	// GITHUB_TOKEN is guaranteed to be set by ensureGHToken() at startOne entry.
+	// GITHUB_TOKEN is guaranteed to be set by ensureGHToken(), which all
+	// agent-launch entrypoints (startOne, agentResume) call before reaching here.
 	// os.Environ() picks it up automatically; nothing extra needed here.
 
 	for i, kv := range env {
@@ -3180,6 +3181,11 @@ func writeClaudeSettings(wtPath string) error {
 // blocks until the agent exits. When headless is true it detaches immediately
 // and writes output to agent.log.
 func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless, quiet, sendNotify bool) error {
+	// Verify GITHUB_TOKEN is set before any gh calls. Never touches the keychain.
+	if err := ensureGHToken(); err != nil {
+		return err
+	}
+
 	ad, err := adapters.Get(adapterName)
 	if err != nil {
 		return err

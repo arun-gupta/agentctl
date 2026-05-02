@@ -2420,6 +2420,35 @@ func TestEnsureGHToken_failsWhenAbsent(t *testing.T) {
 	}
 }
 
+// TestEnsureGHToken_normalizesGHToken verifies that when only GH_TOKEN is set,
+// ensureGHToken copies it to GITHUB_TOKEN so agent subprocesses see the
+// conventional name, and returns nil.
+func TestEnsureGHToken_normalizesGHToken(t *testing.T) {
+	origGH, hadGH := os.LookupEnv("GITHUB_TOKEN")
+	origGHT, hadGHT := os.LookupEnv("GH_TOKEN")
+	os.Unsetenv("GITHUB_TOKEN")
+	os.Setenv("GH_TOKEN", "gh-token-value")
+	t.Cleanup(func() {
+		if hadGH {
+			os.Setenv("GITHUB_TOKEN", origGH)
+		} else {
+			os.Unsetenv("GITHUB_TOKEN")
+		}
+		if hadGHT {
+			os.Setenv("GH_TOKEN", origGHT)
+		} else {
+			os.Unsetenv("GH_TOKEN")
+		}
+	})
+
+	if err := ensureGHToken(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := os.Getenv("GITHUB_TOKEN"); got != "gh-token-value" {
+		t.Errorf("GITHUB_TOKEN = %q; want %q", got, "gh-token-value")
+	}
+}
+
 // TestAgentEnv_gitignoreCreated verifies that agentEnv writes "*\n" into
 // .agent-home/.gitignore when it does not yet exist.
 func TestAgentEnv_gitignoreCreated(t *testing.T) {
