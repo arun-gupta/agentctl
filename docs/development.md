@@ -180,6 +180,8 @@ resume_cmd: my-bot --continue {prompt} --id {session_id}
 
 When `agentctl start <issue>` runs, it creates a linked worktree at `../<repo>-<issue>-<slug>/` containing:
 
+When `agentctl start --task "<description>"` runs, it creates a linked worktree at `../<repo>-task-<slug>/` by default (or `../<repo>-<branch-with-slashes-replaced>/` when `--branch` is supplied), containing:
+
 ```
 .agent          ← key=value metadata (agent, port, session-id, agent-pid, dev-pid)
 agent.log       ← agent stdout/stderr (always written; also streamed to terminal in foreground mode unless --quiet)

@@ -338,6 +338,19 @@ func TestBuildKickoff_isAgentNeutral(t *testing.T) {
 	}
 }
 
+func TestBuildKickoffFromTask_noPortUsesTaskDescription(t *testing.T) {
+	kickoff := buildKickoffFromTask("Refactor the auth middleware to use JWT", "")
+	if !strings.Contains(kickoff, "Refactor the auth middleware to use JWT") {
+		t.Fatalf("task kickoff must include the task description, got:\n%s", kickoff)
+	}
+	if strings.Contains(kickoff, "GitHub issue #") {
+		t.Fatalf("task kickoff must not mention a GitHub issue, got:\n%s", kickoff)
+	}
+	if strings.Contains(kickoff, "port") {
+		t.Fatalf("task kickoff with empty port must not mention a port, got:\n%s", kickoff)
+	}
+}
+
 func TestStartCmd_noSDDFlagRemoved(t *testing.T) {
 	c := NewStartCmd()
 	if f := c.Flags().Lookup("no-sdd"); f != nil {
@@ -353,6 +366,44 @@ func TestStartCmd_sddFlagExists(t *testing.T) {
 	}
 	if f.DefValue != "" {
 		t.Errorf("--sdd default should be '' (empty), got %q", f.DefValue)
+	}
+}
+
+func TestStartCmd_taskAndBranchFlagsExist(t *testing.T) {
+	c := NewStartCmd()
+	if f := c.Flags().Lookup("task"); f == nil {
+		t.Fatal("--task flag must be registered")
+	}
+	if f := c.Flags().Lookup("branch"); f == nil {
+		t.Fatal("--branch flag must be registered")
+	}
+}
+
+func TestStartCmd_taskMutuallyExclusiveWithIssue(t *testing.T) {
+	c := NewStartCmd()
+	c.SilenceUsage = true
+	c.SetArgs([]string{"42", "--task", "Refactor auth middleware"})
+
+	err := c.Execute()
+	if err == nil {
+		t.Fatal("expected mutual exclusivity error")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("expected mutual exclusivity error, got: %v", err)
+	}
+}
+
+func TestStartCmd_branchRequiresTask(t *testing.T) {
+	c := NewStartCmd()
+	c.SilenceUsage = true
+	c.SetArgs([]string{"42", "--branch", "task/refactor-auth"})
+
+	err := c.Execute()
+	if err == nil {
+		t.Fatal("expected --branch requires --task error")
+	}
+	if !strings.Contains(err.Error(), "--branch requires --task") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -421,12 +472,44 @@ func TestResolveIssueArg_acceptsURL(t *testing.T) {
 	}
 }
 
+func TestResolveIssueArg_infersTaskBranchInsideLinkedWorktree(t *testing.T) {
+	repo := initGitRepoForStale(t)
+	wtPath := filepath.Join(t.TempDir(), "repo-task-refactor-auth")
+	addWorktree(t, repo, wtPath, "task/refactor-auth")
+	chdirTemp(t, wtPath)
+
+	issue, err := resolveIssueArg("discard", []string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if issue != "task/refactor-auth" {
+		t.Fatalf("got %q, want %q", issue, "task/refactor-auth")
+	}
+}
+
 func TestResolveIssueArg_noArgs_notLinked(t *testing.T) {
 	// Running from the primary worktree (not a linked one) must return an error.
 	chdirTemp(t, t.TempDir())
 	_, err := resolveIssueArg("test", []string{})
 	if err == nil {
 		t.Error("expected error when no arg given and not inside a linked worktree")
+	}
+}
+
+func TestFindWorktreePath_acceptsTaskBranch(t *testing.T) {
+	repo := initGitRepoForStale(t)
+	wtPath := filepath.Join(t.TempDir(), "repo-task-refactor-auth")
+	addWorktree(t, repo, wtPath, "task/refactor-auth")
+	chdirTemp(t, repo)
+
+	got, err := findWorktreePath("task/refactor-auth")
+	if err != nil {
+		t.Fatalf("findWorktreePath: %v", err)
+	}
+	gotResolved, _ := filepath.EvalSymlinks(got)
+	wantResolved, _ := filepath.EvalSymlinks(wtPath)
+	if gotResolved != wantResolved {
+		t.Fatalf("got %q, want %q", got, wtPath)
 	}
 }
 
@@ -859,6 +942,38 @@ func TestGenerateUUID(t *testing.T) {
 	}
 	if uuid != strings.ToLower(uuid) {
 		t.Errorf("UUID not lowercase: %q", uuid)
+	}
+}
+
+func TestSlugFromTask(t *testing.T) {
+	tests := []struct {
+		name string
+		task string
+		want string
+	}{
+		{
+			name: "first six words",
+			task: "Refactor the auth middleware to use JWT tokens everywhere",
+			want: "task/refactor-the-auth-middleware-to-use",
+		},
+		{
+			name: "punctuation stripped and capped",
+			task: "Clean up auth!!! middleware??? now; please, thanks.",
+			want: "task/clean-up-auth-middleware-now-please",
+		},
+		{
+			name: "empty falls back to task",
+			task: "!!!",
+			want: "task/task",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := slugFromTask(tt.task); got != tt.want {
+				t.Fatalf("slugFromTask(%q) = %q, want %q", tt.task, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -1843,6 +1958,48 @@ func TestStartOne_headlessImmediateExitCleansUpWorktree(t *testing.T) {
 	}
 }
 
+func TestStartTask_headlessCreatesTaskBranchAndOmitsIssueArg(t *testing.T) {
+	repo := initGitRepoForStale(t)
+	writeLocalAdapter(t, repo, "echoagent", "binary: echo\nsession: --session\n")
+	chdirTemp(t, repo)
+
+	task := "Refactor the auth middleware to use JWT tokens everywhere"
+	wantBranch := "task/refactor-the-auth-middleware-to-use"
+	wantWorktree := filepath.Join(filepath.Dir(repo), filepath.Base(repo)+"-task-refactor-the-auth-middleware-to-use")
+
+	var out bytes.Buffer
+	if err := startTask(task, "", "echoagent", "", true, false, false, &out); err != nil {
+		t.Fatalf("startTask: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = git.RemoveWorktree(repo, wantWorktree)
+		_ = git.DeleteLocalBranch(repo, wantBranch)
+	})
+
+	if _, err := os.Stat(wantWorktree); err != nil {
+		t.Fatalf("worktree not created: %v", err)
+	}
+
+	af, err := state.Read(wantWorktree)
+	if err != nil {
+		t.Fatalf("state.Read: %v", err)
+	}
+	if af.IssueArg != "" {
+		t.Fatalf("IssueArg = %q, want empty", af.IssueArg)
+	}
+	if af.Agent != "echoagent" {
+		t.Fatalf("Agent = %q, want %q", af.Agent, "echoagent")
+	}
+
+	branch, err := git.CurrentBranch(wantWorktree)
+	if err != nil {
+		t.Fatalf("CurrentBranch: %v", err)
+	}
+	if branch != wantBranch {
+		t.Fatalf("branch = %q, want %q", branch, wantBranch)
+	}
+}
+
 func TestAgentResume_headless_success(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "test-token")
 	dir := t.TempDir()
@@ -2359,7 +2516,6 @@ func TestAgentEnv_claudeJSONSymlinkReplacesStaleFile(t *testing.T) {
 		t.Errorf(".agent-home/.claude.json contents = %q; want %q", string(got), string(want))
 	}
 }
-
 
 // TestAgentEnv_passesTokenToEnv verifies that a GITHUB_TOKEN already in the
 // process environment is forwarded to the agent env unchanged. Token injection
@@ -4106,8 +4262,8 @@ func TestDiscardCmd_commaSplitAndURLNormalization(t *testing.T) {
 	chdirTemp(t, repo)
 
 	tests := []struct {
-		name      string
-		arg       string
+		name       string
+		arg        string
 		wantIssues []string // issue numbers expected in "Nothing to remove" output
 	}{
 		{
