@@ -312,17 +312,18 @@ func startTask(task, branch, agentName, sddName string, headless, quiet, sendNot
 	wtPath := filepath.Join(parentDir, repoName+"-"+worktreeSlug)
 
 	if _, statErr := os.Stat(wtPath); statErr == nil {
-		return worktreeExistsError(wtPath, branch)
+		return taskWorktreeExistsError(wtPath, branch)
 	}
 	if err := git.AddWorktree(repoRoot, wtPath, branch); err != nil {
 		return fmt.Errorf("git worktree add: %w", err)
 	}
+	var devPID, portStr string
 	cleanupOnError := true
 	defer func() {
 		if !cleanupOnError {
 			return
 		}
-		if cleanupErr := cleanupFailedStart(repoRoot, wtPath, branch, ""); cleanupErr != nil {
+		if cleanupErr := cleanupFailedStart(repoRoot, wtPath, branch, devPID); cleanupErr != nil {
 			fmt.Fprintf(out, "Warning: failed to clean up worktree after start failure (path: %s, branch: %s): %v\n", wtPath, branch, cleanupErr)
 		}
 	}()
@@ -331,7 +332,7 @@ func startTask(task, branch, agentName, sddName string, headless, quiet, sendNot
 		return err
 	}
 
-	devPID, portStr, err := startDevServer(wtPath, out)
+	devPID, portStr, err = startDevServer(wtPath, out)
 	if err != nil {
 		return err
 	}
@@ -347,6 +348,7 @@ func startTask(task, branch, agentName, sddName string, headless, quiet, sendNot
 		DevPID:    devPID,
 		DevPort:   portStr,
 		SDD:       sddName,
+		TaskMode:  true,
 	}
 	if err := state.Write(wtPath, af); err != nil {
 		return err
@@ -536,11 +538,11 @@ func runReleasePausedSession(issue, feedback string, headless, quiet, sendNotify
 	}
 
 	// For SDD runs, require the spec pause to have been reached before resuming.
-	if af.SDD != "" && computeSpecState(wt.Path, specLookupKey(issue), af.SDD, af.SDDSet) == "no-spec" {
+	if af.SDD != "" && computeSpecState(wt.Path, effectiveSpecKey(issue, af), af.SDD, af.SDDSet) == "no-spec" {
 		return fmt.Errorf("spec not yet generated for issue %s; paused state not reached.\nTail %s/agent.log to confirm and retry once the pause is reported.", issue, wt.Path)
 	}
 
-	specPath := findSpecPath(wt.Path, specLookupKey(issue))
+	specPath := findSpecPath(wt.Path, effectiveSpecKey(issue, af))
 	prompt := buildResumePrompt(feedback, af.SDD, specPath)
 	if af.SDD != "" && strings.TrimSpace(feedback) == "" {
 		if err := state.AppendKey(wt.Path, "sdd-stage", "2"); err != nil {
@@ -762,7 +764,7 @@ func runRemoveWorktree(issue string) error {
 	if branch == "" && isNumericIssue(issue) {
 		branch, _ = git.FindBranchByIssuePrefix(repoRoot, issue)
 	}
-	if branch == "" && strings.Contains(issue, "/") {
+	if branch == "" && !isNumericIssue(issue) && git.BranchExists(repoRoot, issue) {
 		branch = issue
 	}
 
@@ -882,7 +884,7 @@ func cleanupMerged(repoRoot, issue string) error {
 		if isNumericIssue(issue) {
 			branch, _ = git.FindBranchByIssuePrefix(repoRoot, issue)
 		}
-		if branch == "" && strings.Contains(issue, "/") {
+		if branch == "" && !isNumericIssue(issue) && git.BranchExists(repoRoot, issue) {
 			branch = issue
 		}
 		if branch == "" {
@@ -1126,7 +1128,7 @@ func runStatus(verbose bool) error {
 
 		devPIDStr := pidStatus(af.DevPID)
 		agentPIDStr := pidStatus(af.AgentPID)
-		specState := computeSpecState(wt.Path, worktreeSpecLookupKey(wt), af.SDD, af.SDDSet)
+		specState := computeSpecState(wt.Path, worktreeSpecLookupKey(wt, af), af.SDD, af.SDDSet)
 
 		prState := "none"
 		if branch != "?" && branch != "HEAD" {
@@ -1679,7 +1681,21 @@ func specLookupKey(issue string) string {
 	return issue
 }
 
-func worktreeSpecLookupKey(wt git.Worktree) string {
+// effectiveSpecKey returns the spec lookup key for a worktree, using the
+// task-mode flag from the .agent file when available. If the worktree was
+// started with `agentctl start --task`, the key is always "task" regardless
+// of the branch name, matching the KickoffPrompt("task", ...) used at start.
+func effectiveSpecKey(issue string, af state.AgentFile) string {
+	if af.TaskMode {
+		return "task"
+	}
+	return specLookupKey(issue)
+}
+
+func worktreeSpecLookupKey(wt git.Worktree, af state.AgentFile) string {
+	if af.TaskMode {
+		return "task"
+	}
 	if wt.Issue != "" {
 		return wt.Issue
 	}
@@ -1989,6 +2005,19 @@ func worktreeExistsError(wtPath, issueNum string) error {
 		return fmt.Errorf("Worktree already exists for issue %s — agent has finished.\nWorktree: %s\n\n  agentctl cleanup %s   if the PR is merged\n  agentctl discard %s   to delete the worktree and start over", issueNum, wtPath, id, id)
 	}
 	return fmt.Errorf("Worktree already exists for issue %s.\nWorktree: %s\n\n  agentctl discard %s   to delete the worktree and start over", issueNum, wtPath, id)
+}
+
+// taskWorktreeExistsError is like worktreeExistsError but uses "task"/"branch"
+// wording instead of "issue" for task-mode worktrees.
+func taskWorktreeExistsError(wtPath, branch string) error {
+	af, readErr := state.Read(wtPath)
+	if readErr == nil && af.AgentPID != "" && process.IsAlive(af.AgentPID) {
+		return fmt.Errorf("Worktree already exists for task branch %s — agent is still running.\nWorktree: %s\n\n  agentctl attach %s   to follow its output\n  agentctl discard %s   to delete the worktree and start over", branch, wtPath, branch, branch)
+	}
+	if readErr == nil && af.AgentPID != "" {
+		return fmt.Errorf("Worktree already exists for task branch %s — agent has finished.\nWorktree: %s\n\n  agentctl cleanup %s   if the PR is merged\n  agentctl discard %s   to delete the worktree and start over", branch, wtPath, branch, branch)
+	}
+	return fmt.Errorf("Worktree already exists for task branch %s.\nWorktree: %s\n\n  agentctl discard %s   to delete the worktree and start over", branch, wtPath, branch)
 }
 
 // issueDisplayFor reads the issue-arg stored in the .agent state file and

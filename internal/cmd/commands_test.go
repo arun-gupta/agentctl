@@ -2000,6 +2000,57 @@ func TestStartTask_headlessCreatesTaskBranchAndOmitsIssueArg(t *testing.T) {
 	}
 }
 
+func TestStartTask_writeTaskModeFlag(t *testing.T) {
+	repo := initGitRepoForStale(t)
+	writeLocalAdapter(t, repo, "echoagent", "binary: echo\nsession: --session\n")
+	chdirTemp(t, repo)
+
+	task := "Add OAuth2 login flow"
+	wantBranch := "task/add-oauth2-login-flow"
+	wantWorktree := filepath.Join(filepath.Dir(repo), filepath.Base(repo)+"-task-add-oauth2-login-flow")
+
+	var out bytes.Buffer
+	if err := startTask(task, "", "echoagent", "", true, false, false, &out); err != nil {
+		t.Fatalf("startTask: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = git.RemoveWorktree(repo, wantWorktree)
+		_ = git.DeleteLocalBranch(repo, wantBranch)
+	})
+
+	af, err := state.Read(wantWorktree)
+	if err != nil {
+		t.Fatalf("state.Read: %v", err)
+	}
+	if !af.TaskMode {
+		t.Fatalf("TaskMode = false, want true in task-mode worktree")
+	}
+}
+
+// TestEffectiveSpecKey verifies that effectiveSpecKey returns "task" for task-mode
+// worktrees regardless of the branch name, and falls back to specLookupKey otherwise.
+func TestEffectiveSpecKey(t *testing.T) {
+	tests := []struct {
+		issue    string
+		taskMode bool
+		want     string
+	}{
+		{issue: "42", taskMode: false, want: "42"},
+		{issue: "task/refactor-auth", taskMode: false, want: "task"},
+		{issue: "refactor-auth", taskMode: false, want: "refactor-auth"},
+		{issue: "refactor-auth", taskMode: true, want: "task"},
+		{issue: "my-feature", taskMode: true, want: "task"},
+		{issue: "task/my-feature", taskMode: true, want: "task"},
+	}
+	for _, tt := range tests {
+		af := state.AgentFile{TaskMode: tt.taskMode}
+		got := effectiveSpecKey(tt.issue, af)
+		if got != tt.want {
+			t.Errorf("effectiveSpecKey(%q, taskMode=%v) = %q, want %q", tt.issue, tt.taskMode, got, tt.want)
+		}
+	}
+}
+
 func TestAgentResume_headless_success(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "test-token")
 	dir := t.TempDir()
