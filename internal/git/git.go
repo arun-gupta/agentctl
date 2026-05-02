@@ -130,6 +130,21 @@ func FindWorktreeByIssue(repoRoot, issue string) (Worktree, bool, error) {
 	return Worktree{}, false, nil
 }
 
+// FindWorktreeByBranch returns the first linked worktree whose branch exactly
+// matches branch.
+func FindWorktreeByBranch(repoRoot, branch string) (Worktree, bool, error) {
+	wts, err := LinkedWorktrees(repoRoot)
+	if err != nil {
+		return Worktree{}, false, err
+	}
+	for _, wt := range wts {
+		if wt.Branch == branch {
+			return wt, true, nil
+		}
+	}
+	return Worktree{}, false, nil
+}
+
 // CurrentBranch returns the abbreviated branch name for the given directory.
 func CurrentBranch(dir string) (string, error) {
 	return run(dir, "rev-parse", "--abbrev-ref", "HEAD")

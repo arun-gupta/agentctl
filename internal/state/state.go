@@ -32,6 +32,10 @@ type AgentFile struct {
 	// without --sdd (SDDSet=true, SDD="") from legacy worktrees written before the
 	// sdd key was introduced (SDDSet=false).
 	SDDSet bool
+	// TaskMode is true when this worktree was started with `agentctl start --task`
+	// rather than for a GitHub issue. It is persisted as task-mode=true in .agent
+	// so that spec-lookup can use "task" as the key regardless of the branch name.
+	TaskMode bool
 	// Extra holds any additional key=value pairs not explicitly modelled above.
 	Extra map[string]string
 }
@@ -83,6 +87,8 @@ func Read(worktreePath string) (AgentFile, error) {
 			af.PRNumber = v
 		case "pr-url":
 			af.PRURL = v
+		case "task-mode":
+			af.TaskMode = v == "true"
 		default:
 			af.Extra[k] = v
 		}
@@ -155,6 +161,9 @@ func Write(worktreePath string, af AgentFile) error {
 	}
 	if af.PRURL != "" {
 		lines = append(lines, "pr-url="+af.PRURL)
+	}
+	if af.TaskMode {
+		lines = append(lines, "task-mode=true")
 	}
 	for k, v := range af.Extra {
 		lines = append(lines, k+"="+v)

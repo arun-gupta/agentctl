@@ -178,7 +178,7 @@ resume_cmd: my-bot --continue {prompt} --id {session_id}
 
 ## Worktree layout
 
-When `agentctl start <issue>` runs, it creates a linked worktree at `../<repo>-<issue>-<slug>/` containing:
+Both `agentctl start <issue>` and `agentctl start --task` create a linked worktree containing:
 
 ```
 .agent          ← key=value metadata (agent, port, session-id, agent-pid, dev-pid)
@@ -186,6 +186,11 @@ agent.log       ← agent stdout/stderr (always written; also streamed to termin
 dev.log         ← dev-server stdout/stderr
 specs/          ← SDD artefacts (spec.md, plan.md, tasks.md)
 ```
+
+The worktree is placed under the parent of the repository root:
+
+- **Issue mode** (`start <issue>`): `../<repo>-<issue>-<slug>/`
+- **Task mode** (`start --task "<description>"`): `../<repo>-task-<slug>/` by default, or `../<repo>-<branch>/` when `--branch` is supplied
 
 ## Testing strategy
 
