@@ -113,13 +113,12 @@ flowchart TD
     A[agentctl start --headless 210,211,212] --> B1[Agent 210 running]
     A --> B2[Agent 211 running]
     A --> B3[Agent 212 running]
-    B1 & B2 & B3 --> C[agentctl status]
-    C --> D[Review diffs and specs]
-    D --> E1[agentctl resume --headless 210]
-    D --> E2[agentctl resume --headless 211]
-    D --> E3[agentctl resume --headless 212]
-    E1 & E2 & E3 --> F[PRs opened]
-    F --> G[agentctl cleanup --all]
+    B1 --> C1[PR 210 opened]
+    B2 --> C2[PR 211 opened]
+    B3 --> C3[PR 212 opened]
+    C1 & C2 & C3 --> D[agentctl status]
+    D --> E[Review and merge PRs on GitHub]
+    E --> F[agentctl cleanup --all]
 ```
 
 ```bash
