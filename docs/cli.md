@@ -195,6 +195,39 @@ Error cases:
 | `.agent` file missing or no PID | `no agent PID recorded for issue N — was it started headless?` |
 | `agent.log` missing after 10s | `agent log not found — is the agent running? (looked for <path>)` |
 
+### `agentctl diff`
+
+```bash
+agentctl diff <issue-number-or-url>
+agentctl diff <issue-number-or-url> --stat
+agentctl diff <issue-number-or-url> --base <branch>
+agentctl diff <issue-number-or-url> --no-pager
+```
+
+Shows the git diff for the agent's worktree without leaving your primary working directory.
+
+Flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--stat` | `false` | Show changed-file summary instead of full diff |
+| `--base <branch>` | — | Diff base branch; uses `<branch>...HEAD` (three-dot) to show only commits the agent added |
+| `--no-pager` | `false` | Print raw diff to stdout without paging |
+
+Behavior:
+
+- Resolves the worktree path for the given issue (same lookup as `agentctl logs`).
+- Without `--base`: runs `git diff HEAD` — shows all uncommitted changes (staged + unstaged).
+- With `--base <branch>`: runs `git diff <branch>...HEAD` — shows everything the agent added since branching from `<branch>`.
+- Output is piped through `$PAGER` (defaulting to `less -R`) with `--color=always` when stdout is a TTY.
+- `--stat` and `--no-pager` skip the pager and print directly to stdout.
+
+Error cases:
+
+| Condition | Error message |
+|-----------|---------------|
+| Issue not found | `no worktree found for issue N — has it been started?` |
+
 ### `agentctl dev start`
 
 ```bash
