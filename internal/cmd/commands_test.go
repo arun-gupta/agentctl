@@ -502,7 +502,7 @@ func TestFindWorktreePath_acceptsTaskBranch(t *testing.T) {
 	addWorktree(t, repo, wtPath, "task/refactor-auth")
 	chdirTemp(t, repo)
 
-	got, err := findWorktreePath("task/refactor-auth")
+	got, err := findWorktreePath("task/refactor-auth", "")
 	if err != nil {
 		t.Fatalf("findWorktreePath: %v", err)
 	}
@@ -1835,7 +1835,7 @@ func TestRunReleasePausedSession_nonSDD_noSpec(t *testing.T) {
 	})
 	chdirTemp(t, repo)
 
-	err := runReleasePausedSession("42", "", false, false, false)
+	err := runReleasePausedSession("42", "", "", false, false, false)
 
 	// Must NOT block with "spec not yet generated" — the spec gate does not
 	// apply to non-SDD worktrees.
@@ -1854,7 +1854,7 @@ func TestRunReleasePausedSession_SDD_noSpec(t *testing.T) {
 	})
 	chdirTemp(t, repo)
 
-	err := runReleasePausedSession("43", "", false, false, false)
+	err := runReleasePausedSession("43", "", "", false, false, false)
 
 	if err == nil {
 		t.Fatal("expected 'spec not yet generated' error for SDD run without spec, got nil")
@@ -1882,7 +1882,7 @@ func TestRunReleasePausedSession_SDD_withSpec(t *testing.T) {
 	}
 	chdirTemp(t, repo)
 
-	err := runReleasePausedSession("44", "", false, false, false)
+	err := runReleasePausedSession("44", "", "", false, false, false)
 
 	// Must NOT block with "spec not yet generated" once spec exists.
 	if err != nil && strings.Contains(err.Error(), "spec not yet generated") {
@@ -1999,7 +1999,7 @@ func TestStartOne_headlessImmediateExitCleansUpWorktree(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "test-token")
 
 	var out bytes.Buffer
-	err := startOne("42", "plain-fails", "falseagent", "", true, false, false, &out)
+	err := startOne("42", "plain-fails", "falseagent", "", "", true, false, false, &out)
 	if err == nil {
 		t.Fatal("expected startOne to fail when headless agent exits immediately")
 	}
@@ -3219,7 +3219,7 @@ func TestStreamLog_followExitsWhenPIDAppearsLate(t *testing.T) {
 
 func TestRunLogs_unknownIssue(t *testing.T) {
 	var buf bytes.Buffer
-	err := runLogs("99999", 50, true, &buf)
+	err := runLogs("99999", 50, true, "", &buf)
 	if err == nil {
 		t.Fatal("expected error for unknown issue")
 	}
@@ -4943,7 +4943,7 @@ func TestRunBatch_allSucceed(t *testing.T) {
 	var mu sync.Mutex
 	called := map[string]bool{}
 
-	mockFn := func(issue, slug, agentName, sddName string, headless, quiet, sendNotify bool, out io.Writer) error {
+	mockFn := func(issue, slug, agentName, sddName, agentSuffix string, headless, quiet, sendNotify bool, out io.Writer) error {
 		mu.Lock()
 		called[issue] = true
 		mu.Unlock()
@@ -4976,7 +4976,7 @@ func TestRunBatch_oneFailureContinuesOthers(t *testing.T) {
 	var mu sync.Mutex
 	called := map[string]bool{}
 
-	mockFn := func(issue, slug, agentName, sddName string, headless, quiet, sendNotify bool, out io.Writer) error {
+	mockFn := func(issue, slug, agentName, sddName, agentSuffix string, headless, quiet, sendNotify bool, out io.Writer) error {
 		mu.Lock()
 		called[issue] = true
 		mu.Unlock()
@@ -5024,7 +5024,7 @@ func TestRunBatch_oneFailureContinuesOthers(t *testing.T) {
 // TestRunBatch_resultsInOrder verifies that output is printed in the original
 // issue order even when goroutines finish out of order.
 func TestRunBatch_resultsInOrder(t *testing.T) {
-	mockFn := func(issue, slug, agentName, sddName string, headless, quiet, sendNotify bool, out io.Writer) error {
+	mockFn := func(issue, slug, agentName, sddName, agentSuffix string, headless, quiet, sendNotify bool, out io.Writer) error {
 		if issue == "42" {
 			time.Sleep(50 * time.Millisecond) // finish last
 		}
@@ -5235,7 +5235,7 @@ func TestGhPRInfoWithURL_noPR(t *testing.T) {
 // ─── runDiff ──────────────────────────────────────────────────────────────────
 
 func TestRunDiff_unknownIssue(t *testing.T) {
-	err := runDiff("99999", "", false, true)
+	err := runDiff("99999", "", "", false, true)
 	if err == nil {
 		t.Fatal("expected error for unknown issue")
 	}
@@ -5247,7 +5247,7 @@ func TestRunDiff_unknownIssue(t *testing.T) {
 func TestRunDiff_issueURL(t *testing.T) {
 	// A full GitHub URL should be resolved to a bare issue number and then
 	// fail with the same "no worktree found" error (not a URL-parsing error).
-	err := runDiff("https://github.com/owner/repo/issues/99999", "", false, true)
+	err := runDiff("https://github.com/owner/repo/issues/99999", "", "", false, true)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -5258,7 +5258,7 @@ func TestRunDiff_issueURL(t *testing.T) {
 
 func TestRunDiff_statFlag_unknownIssue(t *testing.T) {
 	// --stat with unknown issue should fail at worktree lookup, not panic.
-	err := runDiff("99999", "", true, true)
+	err := runDiff("99999", "", "", true, true)
 	if err == nil {
 		t.Fatal("expected error for unknown issue")
 	}
@@ -5269,7 +5269,7 @@ func TestRunDiff_statFlag_unknownIssue(t *testing.T) {
 
 func TestRunDiff_withBase_unknownIssue(t *testing.T) {
 	// --base with unknown issue should fail at worktree lookup.
-	err := runDiff("99999", "main", false, true)
+	err := runDiff("99999", "main", "", false, true)
 	if err == nil {
 		t.Fatal("expected error for unknown issue")
 	}
@@ -5320,7 +5320,7 @@ func TestRunDiff_noPager_noBase(t *testing.T) {
 	// runDiff with --no-pager and no --base should succeed on a real worktree
 	// and produce output on stdout (we only check for no error here).
 	issue, _ := initDiffTestRepo(t)
-	if err := runDiff(issue, "", false, true); err != nil {
+	if err := runDiff(issue, "", "", false, true); err != nil {
 		t.Fatalf("runDiff noPager: %v", err)
 	}
 }
@@ -5328,7 +5328,7 @@ func TestRunDiff_noPager_noBase(t *testing.T) {
 func TestRunDiff_stat_noPager(t *testing.T) {
 	// --stat implies no pager; should succeed without error.
 	issue, _ := initDiffTestRepo(t)
-	if err := runDiff(issue, "", true, true); err != nil {
+	if err := runDiff(issue, "", "", true, true); err != nil {
 		t.Fatalf("runDiff --stat: %v", err)
 	}
 }
@@ -5342,7 +5342,7 @@ func TestRunDiff_withBase_noPager(t *testing.T) {
 	if err == nil {
 		defaultBranchName = strings.TrimSpace(string(out))
 	}
-	if err := runDiff(issue, defaultBranchName, false, true); err != nil {
+	if err := runDiff(issue, defaultBranchName, "", false, true); err != nil {
 		t.Fatalf("runDiff --base %s: %v", defaultBranchName, err)
 	}
 }
@@ -5418,4 +5418,267 @@ func TestRemoveAllWritable_symlinkTargetPermissionsUnchanged(t *testing.T) {
 	if got := info.Mode().Perm(); got != 0o400 {
 		t.Errorf("target permissions changed: got %04o, want 0400", got)
 	}
+}
+
+// ─── worktreeNames ────────────────────────────────────────────────────────────
+
+func TestWorktreeNames_noSuffix(t *testing.T) {
+	branch, path := worktreeNames("myrepo", "42", "auth-fix", "", "/home/user")
+	if branch != "42-auth-fix" {
+		t.Errorf("branch = %q, want %q", branch, "42-auth-fix")
+	}
+	want := filepath.Join("/home/user", "myrepo-42-auth-fix")
+	if path != want {
+		t.Errorf("path = %q, want %q", path, want)
+	}
+}
+
+func TestWorktreeNames_withSuffix(t *testing.T) {
+	branch, path := worktreeNames("myrepo", "42", "auth-fix", "claude", "/home/user")
+	if branch != "42-auth-fix-claude" {
+		t.Errorf("branch = %q, want %q", branch, "42-auth-fix-claude")
+	}
+	want := filepath.Join("/home/user", "myrepo-42-auth-fix-claude")
+	if path != want {
+		t.Errorf("path = %q, want %q", path, want)
+	}
+}
+
+// ─── resolveWorktree ──────────────────────────────────────────────────────────
+
+func TestResolveWorktree_singleWorktree(t *testing.T) {
+	repo := initGitRepoWithBareOrigin(t)
+	createCommittedFile(t, repo, "file.txt", "content\n")
+	gitRun(t, repo, "checkout", "-b", "main")
+	gitRun(t, repo, "add", ".")
+	gitRun(t, repo, "commit", "-m", "initial")
+
+	parent := filepath.Dir(repo)
+	wt1 := filepath.Join(parent, filepath.Base(repo)+"-42-auth-fix")
+	gitRun(t, repo, "worktree", "add", "-b", "42-auth-fix", wt1)
+	t.Cleanup(func() { _ = os.RemoveAll(wt1) })
+	chdirTemp(t, repo)
+
+	wt, err := resolveWorktree(repo, "42", "")
+	if err != nil {
+		t.Fatalf("resolveWorktree: %v", err)
+	}
+	gotResolved, _ := filepath.EvalSymlinks(wt.Path)
+	wantResolved, _ := filepath.EvalSymlinks(wt1)
+	if gotResolved != wantResolved {
+		t.Errorf("path = %q, want %q", wt.Path, wt1)
+	}
+}
+
+func TestResolveWorktree_multiWorktree_noAgent_errors(t *testing.T) {
+	repo := initGitRepoWithBareOrigin(t)
+	createCommittedFile(t, repo, "file.txt", "content\n")
+	gitRun(t, repo, "checkout", "-b", "main")
+	gitRun(t, repo, "add", ".")
+	gitRun(t, repo, "commit", "-m", "initial")
+
+	parent := filepath.Dir(repo)
+	repoName := filepath.Base(repo)
+	wt1 := filepath.Join(parent, repoName+"-42-auth-fix-claude")
+	wt2 := filepath.Join(parent, repoName+"-42-auth-fix-codex")
+	gitRun(t, repo, "worktree", "add", "-b", "42-auth-fix-claude", wt1)
+	gitRun(t, repo, "worktree", "add", "-b", "42-auth-fix-codex", wt2)
+	t.Cleanup(func() {
+		_ = os.RemoveAll(wt1)
+		_ = os.RemoveAll(wt2)
+	})
+
+	if err := state.Write(wt1, state.AgentFile{Agent: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Write(wt2, state.AgentFile{Agent: "codex"}); err != nil {
+		t.Fatal(err)
+	}
+	chdirTemp(t, repo)
+
+	_, err := resolveWorktree(repo, "42", "")
+	if err == nil {
+		t.Fatal("expected ambiguity error, got nil")
+	}
+	if !strings.Contains(err.Error(), "multiple worktrees") {
+		t.Errorf("error should mention 'multiple worktrees', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "claude") {
+		t.Errorf("error should mention agent 'claude', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "codex") {
+		t.Errorf("error should mention agent 'codex', got: %v", err)
+	}
+}
+
+func TestResolveWorktree_multiWorktree_withAgent(t *testing.T) {
+	repo := initGitRepoWithBareOrigin(t)
+	createCommittedFile(t, repo, "file.txt", "content\n")
+	gitRun(t, repo, "checkout", "-b", "main")
+	gitRun(t, repo, "add", ".")
+	gitRun(t, repo, "commit", "-m", "initial")
+
+	parent := filepath.Dir(repo)
+	repoName := filepath.Base(repo)
+	wt1 := filepath.Join(parent, repoName+"-42-auth-fix-claude")
+	wt2 := filepath.Join(parent, repoName+"-42-auth-fix-codex")
+	gitRun(t, repo, "worktree", "add", "-b", "42-auth-fix-claude", wt1)
+	gitRun(t, repo, "worktree", "add", "-b", "42-auth-fix-codex", wt2)
+	t.Cleanup(func() {
+		_ = os.RemoveAll(wt1)
+		_ = os.RemoveAll(wt2)
+	})
+	chdirTemp(t, repo)
+
+	wt, err := resolveWorktree(repo, "42", "claude")
+	if err != nil {
+		t.Fatalf("resolveWorktree with agent=claude: %v", err)
+	}
+	gotResolved, _ := filepath.EvalSymlinks(wt.Path)
+	wantResolved, _ := filepath.EvalSymlinks(wt1)
+	if gotResolved != wantResolved {
+		t.Errorf("path = %q, want %q", wt.Path, wt1)
+	}
+}
+
+// ─── --agent flag presence ────────────────────────────────────────────────────
+
+func TestLogsCmd_agentFlagExists(t *testing.T) {
+	c := NewLogsCmd()
+	if f := c.Flags().Lookup("agent"); f == nil {
+		t.Error("--agent flag must be registered on logs command")
+	}
+}
+
+func TestAttachCmd_agentFlagExists(t *testing.T) {
+	c := NewAttachCmd()
+	if f := c.Flags().Lookup("agent"); f == nil {
+		t.Error("--agent flag must be registered on attach command")
+	}
+}
+
+func TestDiffCmd_agentFlagExists(t *testing.T) {
+	c := NewDiffCmd()
+	if f := c.Flags().Lookup("agent"); f == nil {
+		t.Error("--agent flag must be registered on diff command")
+	}
+}
+
+func TestDiscardCmd_agentFlagExists(t *testing.T) {
+	c := NewDiscardCmd()
+	if f := c.Flags().Lookup("agent"); f == nil {
+		t.Error("--agent flag must be registered on discard command")
+	}
+}
+
+func TestMergeCmd_agentFlagExists(t *testing.T) {
+	c := NewMergeCmd()
+	if f := c.Flags().Lookup("agent"); f == nil {
+		t.Error("--agent flag must be registered on merge command")
+	}
+}
+
+func TestResumeCmd_agentFlagExists(t *testing.T) {
+	c := NewResumeCmd()
+	if f := c.Flags().Lookup("agent"); f == nil {
+		t.Error("--agent flag must be registered on resume command")
+	}
+}
+
+func TestCleanupCmd_agentFlagExists(t *testing.T) {
+	c := NewCleanupCmd()
+	if f := c.Flags().Lookup("agent"); f == nil {
+		t.Error("--agent flag must be registered on cleanup command")
+	}
+}
+
+func TestStartCmd_multiAgent_rejectsSlug(t *testing.T) {
+	c := NewStartCmd()
+	if err := c.Flags().Set("agent", "claude,codex"); err != nil {
+		t.Fatalf("set --agent: %v", err)
+	}
+	c.SilenceUsage = true
+	c.SilenceErrors = true
+	// Multi-agent + slug should be rejected before any network calls.
+	err := c.RunE(c, []string{"42", "my-slug"})
+	if err == nil {
+		t.Error("expected error when slug is given with multiple agents")
+	}
+	if !strings.Contains(err.Error(), "slug") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestStartCmd_multiAgent_rejectsMultipleIssues(t *testing.T) {
+	// When multiple agents are requested, only a single issue is allowed.
+	// This is enforced in RunE before any network calls, so we can test it
+	// by checking that the multi-agent path correctly requires a single issue.
+	// (Full integration would need a GitHub stub; this verifies flag wiring.)
+	c := NewStartCmd()
+	if err := c.Flags().Set("agent", "claude,codex"); err != nil {
+		t.Fatalf("set --agent: %v", err)
+	}
+	c.SilenceUsage = true
+	c.SilenceErrors = true
+	err := c.RunE(c, []string{"42,43"})
+	if err == nil {
+		t.Error("expected error when multiple issues given with multiple agents")
+	}
+	if !strings.Contains(err.Error(), "multiple issues") && !strings.Contains(err.Error(), "single issue") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateAgentSuffix(t *testing.T) {
+	valid := []string{"", "claude", "codex", "gpt-4", "my_agent", "agent-1"}
+	for _, s := range valid {
+		t.Run("valid/"+s, func(t *testing.T) {
+			if err := validateAgentSuffix(s); err != nil {
+				t.Errorf("validateAgentSuffix(%q) unexpected error: %v", s, err)
+			}
+		})
+	}
+
+	invalid := []string{"Claude", "CLAUDE", "gpt/4", "my agent", "bad@name", "../evil"}
+	for _, s := range invalid {
+		t.Run("invalid/"+s, func(t *testing.T) {
+			if err := validateAgentSuffix(s); err == nil {
+				t.Errorf("validateAgentSuffix(%q) expected error, got nil", s)
+			}
+		})
+	}
+}
+
+func TestStartCmd_agentFlag_filtersEmptyAndRejectsDuplicates(t *testing.T) {
+	t.Run("trailing comma does not trigger duplicate error", func(t *testing.T) {
+		c := NewStartCmd()
+		c.SilenceUsage = true
+		c.SilenceErrors = true
+		if err := c.Flags().Set("agent", "claude,"); err != nil {
+			t.Fatalf("set --agent: %v", err)
+		}
+		// After filtering the empty token we have only "claude" — single-agent path,
+		// which will fail on ensureGHToken (expected in unit test, not a panic).
+		// Verify no "duplicate" error for this case.
+		err := c.RunE(c, []string{"42"})
+		if err != nil && strings.Contains(err.Error(), "duplicate") {
+			t.Errorf("trailing comma should not trigger duplicate error: %v", err)
+		}
+	})
+
+	t.Run("duplicate agent rejected", func(t *testing.T) {
+		c := NewStartCmd()
+		c.SilenceUsage = true
+		c.SilenceErrors = true
+		if err := c.Flags().Set("agent", "claude,claude"); err != nil {
+			t.Fatalf("set --agent: %v", err)
+		}
+		err := c.RunE(c, []string{"42"})
+		if err == nil {
+			t.Error("expected error for duplicate agents")
+		}
+		if err != nil && !strings.Contains(err.Error(), "duplicate") {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
 }

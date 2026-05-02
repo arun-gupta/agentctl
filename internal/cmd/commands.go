@@ -99,6 +99,42 @@ Use --sdd <name> to opt into a spec-driven development (SDD) methodology
 				slug = args[1]
 			}
 
+			// Multi-agent mode: --agent claude,codex with a single issue.
+			agents := strings.Split(agentName, ",")
+			for i, ag := range agents {
+				agents[i] = strings.TrimSpace(ag)
+			}
+			// Drop empty entries (e.g. from trailing commas like "claude,").
+			{
+				filtered := agents[:0]
+				for _, ag := range agents {
+					if ag != "" {
+						filtered = append(filtered, ag)
+					}
+				}
+				agents = filtered
+			}
+			if len(agents) == 0 {
+				return fmt.Errorf("--agent flag requires at least one agent name")
+			}
+			if len(agents) > 1 {
+				// Reject duplicate agent names to avoid racing to create the same worktree.
+				seen := make(map[string]struct{}, len(agents))
+				for _, ag := range agents {
+					if _, dup := seen[ag]; dup {
+						return fmt.Errorf("duplicate agent %q in --agent flag", ag)
+					}
+					seen[ag] = struct{}{}
+				}
+				if len(issues) > 1 {
+					return fmt.Errorf("cannot combine multiple issues with multiple agents; specify a single issue")
+				}
+				if slug != "" {
+					return fmt.Errorf("[slug] argument is not supported when starting multiple agents")
+				}
+				return runMultiAgent(issues[0], agents, sddName, quiet, sendNotify, os.Stdout, os.Stderr)
+			}
+
 			if len(issues) > 1 {
 				if slug != "" {
 					return fmt.Errorf("[slug] argument is not supported when starting multiple issues")
@@ -106,7 +142,7 @@ Use --sdd <name> to opt into a spec-driven development (SDD) methodology
 				return runBatch(issues, agentName, sddName, quiet, sendNotify, startOne, os.Stdout, os.Stderr)
 			}
 
-			return startOne(issues[0], slug, agentName, sddName, headless, quiet, sendNotify, os.Stdout)
+			return startOne(issues[0], slug, agentName, sddName, "", headless, quiet, sendNotify, os.Stdout)
 		},
 	}
 	c.Flags().StringVar(&agentName, "agent", "claude", "Coding agent adapter to use")
@@ -163,7 +199,9 @@ func buildKickoffFromTask(task, port string) string {
 
 // startOne provisions a worktree for a single issue and launches the agent.
 // It is the per-issue unit used by both single-issue and batch invocations.
-func startOne(issue, slug, agentName, sddName string, headless, quiet, sendNotify bool, out io.Writer) error {
+// agentSuffix is non-empty only in multi-agent mode (--agent claude,codex);
+// it is appended to the branch name and worktree path to avoid collisions.
+func startOne(issue, slug, agentName, sddName, agentSuffix string, headless, quiet, sendNotify bool, out io.Writer) error {
 	// Verify GITHUB_TOKEN is set before any gh calls. Never touches the keychain.
 	if err := ensureGHToken(); err != nil {
 		return err
@@ -205,8 +243,12 @@ func startOne(issue, slug, agentName, sddName string, headless, quiet, sendNotif
 		fmt.Fprintf(out, "Derived slug from issue title: %s\n", slug)
 	}
 
-	branch := issueNum + "-" + slug
-	wtPath := filepath.Join(parentDir, repoName+"-"+issueNum+"-"+slug)
+	// Validate agentSuffix before using it in branch/path construction.
+	if err := validateAgentSuffix(agentSuffix); err != nil {
+		return err
+	}
+
+	branch, wtPath := worktreeNames(repoName, issueNum, slug, agentSuffix, parentDir)
 
 	// Create the worktree.
 	if _, statErr := os.Stat(wtPath); statErr == nil {
@@ -383,7 +425,7 @@ func startTask(task, branch, agentName, sddName string, headless, quiet, sendNot
 // collected and printed in the original issue order. If any issue fails the
 // remaining issues are still attempted and a combined error is returned.
 func runBatch(issues []string, agentName, sddName string, quiet, sendNotify bool,
-	fn func(issue, slug, agentName, sddName string, headless, quiet, sendNotify bool, out io.Writer) error,
+	fn func(issue, slug, agentName, sddName, agentSuffix string, headless, quiet, sendNotify bool, out io.Writer) error,
 	out io.Writer, errOut io.Writer) error {
 
 	type batchResult struct {
@@ -399,7 +441,7 @@ func runBatch(issues []string, agentName, sddName string, quiet, sendNotify bool
 		go func(i int, iss string) {
 			defer wg.Done()
 			var buf strings.Builder
-			err := fn(iss, "", agentName, sddName, true, quiet, sendNotify, &buf)
+			err := fn(iss, "", agentName, sddName, "", true, quiet, sendNotify, &buf)
 			results[i] = batchResult{issue: iss, output: buf.String(), err: err}
 		}(i, iss)
 	}
@@ -415,6 +457,61 @@ func runBatch(issues []string, agentName, sddName string, quiet, sendNotify bool
 	}
 	if hasErr {
 		return fmt.Errorf("one or more issues failed to start")
+	}
+	return nil
+}
+
+// runMultiAgent starts multiple agents on the same issue concurrently, each in
+// its own worktree with an agent-name suffix (e.g. repo-42-slug-claude).
+// All agents always run in headless mode; foreground is not supported here.
+func runMultiAgent(issue string, agents []string, sddName string, quiet, sendNotify bool, out, errOut io.Writer) error {
+	// Validate all adapters and resolve (possibly clone) the repo once before
+	// spawning goroutines. This prevents concurrent `gh repo clone` races when
+	// issue is a GitHub URL, and surfaces adapter/token errors early.
+	if err := ensureGHToken(); err != nil {
+		return err
+	}
+	for _, ag := range agents {
+		if err := validateAdapter(ag); err != nil {
+			return err
+		}
+		if err := validateAgentSuffix(ag); err != nil {
+			return err
+		}
+	}
+	if _, _, _, err := repoRootForIssue(issue, out); err != nil {
+		return err
+	}
+
+	type agentResult struct {
+		agent  string
+		output string
+		err    error
+	}
+	results := make([]agentResult, len(agents))
+
+	var wg sync.WaitGroup
+	for i, ag := range agents {
+		wg.Add(1)
+		go func(i int, ag string) {
+			defer wg.Done()
+			var buf strings.Builder
+			err := startOne(issue, "", ag, sddName, ag, true, quiet, sendNotify, &buf)
+			results[i] = agentResult{agent: ag, output: buf.String(), err: err}
+		}(i, ag)
+	}
+	wg.Wait()
+
+	var hasErr bool
+	for _, r := range results {
+		fmt.Fprint(out, r.output)
+		if r.err != nil {
+			fmt.Fprintf(errOut, "[%s] error: %v\n", r.agent, r.err)
+			hasErr = true
+		}
+	}
+	if hasErr {
+		return fmt.Errorf("one or more agents failed to start")
 	}
 	return nil
 }
@@ -457,9 +554,10 @@ func buildResumePrompt(feedback, sddName, specPath string) string {
 // NewResumeCmd creates the `resume` subcommand.
 func NewResumeCmd() *cobra.Command {
 	var (
-		headless   bool
-		quiet      bool
-		sendNotify bool
+		headless    bool
+		quiet       bool
+		sendNotify  bool
+		agentSuffix string
 	)
 	c := &cobra.Command{
 		Use:   "resume <issue> [feedback]",
@@ -487,22 +585,17 @@ Use --headless to run it in the background and write output to agent.log.`,
 			if len(args) == 2 {
 				feedback = args[1]
 			}
-			return runReleasePausedSession(args[0], feedback, headless, quiet, sendNotify)
+			return runReleasePausedSession(args[0], feedback, agentSuffix, headless, quiet, sendNotify)
 		},
 	}
 	c.Flags().BoolVar(&headless, "headless", false, "Run agent in background (log -> agent.log)")
 	c.Flags().BoolVar(&quiet, "quiet", false, "Suppress agent log output; show spinner/heartbeat only")
 	c.Flags().BoolVar(&sendNotify, "notify", false, "Send a desktop notification when the headless agent finishes")
-	c.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
-		if strings.Contains(err.Error(), "--agent") {
-			return fmt.Errorf("resume does not accept --agent: the agent is recorded in .agent when the worktree is created and reused automatically")
-		}
-		return err
-	})
+	c.Flags().StringVar(&agentSuffix, "agent", "", "Agent name to disambiguate when multiple worktrees exist for the same issue")
 	return c
 }
 
-func runReleasePausedSession(issue, feedback string, headless, quiet, sendNotify bool) error {
+func runReleasePausedSession(issue, feedback, agentSuffix string, headless, quiet, sendNotify bool) error {
 	// Accept full GitHub issue URLs; extract the bare number for local lookup.
 	if _, _, num, ok := parseIssueURL(issue); ok {
 		issue = num
@@ -521,12 +614,9 @@ func runReleasePausedSession(issue, feedback string, headless, quiet, sendNotify
 		}
 	}
 
-	wt, found, err := findLinkedWorktree(repoRoot, issue)
+	wt, err := resolveWorktree(repoRoot, issue, agentSuffix)
 	if err != nil {
 		return err
-	}
-	if !found {
-		return fmt.Errorf("no worktree found for issue %s", issue)
 	}
 
 	af, err := state.Read(wt.Path)
@@ -558,6 +648,7 @@ func runReleasePausedSession(issue, feedback string, headless, quiet, sendNotify
 // NewDiscardCmd creates the `discard` subcommand.
 func NewDiscardCmd() *cobra.Command {
 	var stale bool
+	var agentSuffix string
 	c := &cobra.Command{
 		Use:   "discard [issue[,issue...]]",
 		Short: "Permanently delete a worktree and its local/remote branches",
@@ -590,7 +681,7 @@ Use --stale to discard all worktrees that have no running agent and no PR.`,
 				if err != nil {
 					return err
 				}
-				return runRemoveWorktree(issue)
+				return runRemoveWorktree(issue, agentSuffix)
 			}
 			rawIssues := strings.Split(args[0], ",")
 			issues := make([]string, 0, len(rawIssues))
@@ -606,7 +697,7 @@ Use --stale to discard all worktrees that have no running agent and no PR.`,
 				return fmt.Errorf("no valid issue tokens found in %q", args[0])
 			}
 			for _, issue := range issues {
-				if err := runRemoveWorktree(issue); err != nil {
+				if err := runRemoveWorktree(issue, agentSuffix); err != nil {
 					return err
 				}
 			}
@@ -614,6 +705,7 @@ Use --stale to discard all worktrees that have no running agent and no PR.`,
 		},
 	}
 	c.Flags().BoolVar(&stale, "stale", false, "Discard all worktrees with no running agent and no PR")
+	c.Flags().StringVar(&agentSuffix, "agent", "", "Agent name to target a specific worktree when multiple agents ran on the same issue")
 	return c
 }
 
@@ -745,20 +837,22 @@ func runDiscardStale() error {
 	return nil
 }
 
-func runRemoveWorktree(issue string) error {
+func runRemoveWorktree(issue, agentSuffix string) error {
 	repoRoot, err := git.RepoRoot()
 	if err != nil {
 		return fmt.Errorf("cannot determine repo root: %w", err)
 	}
 
-	wt, found, err := findLinkedWorktree(repoRoot, issue)
 	var wtPath, branch string
-	if err != nil {
-		return err
-	}
-	if found {
+	wt, resolveErr := resolveWorktree(repoRoot, issue, agentSuffix)
+	if resolveErr == nil {
 		wtPath = wt.Path
 		branch = wt.Branch
+	} else if errors.Is(resolveErr, errAmbiguousWorktree) {
+		return resolveErr
+	} else if !errors.Is(resolveErr, errWorktreeNotFound) {
+		// Real error (e.g. git worktree list failure) — don't silently fall through.
+		return resolveErr
 	}
 
 	// If no registered worktree, try to find a local branch.
@@ -830,6 +924,7 @@ func NewMergeCmd() *cobra.Command {
 	var strategy string
 	var noDelete bool
 	var dryRun bool
+	var agentSuffix string
 	c := &cobra.Command{
 		Use:   "merge [issue]",
 		Short: "Merge an approved PR and clean up the worktree",
@@ -844,12 +939,13 @@ from the current branch.`,
 			if err != nil {
 				return err
 			}
-			return runMerge(issue, strategy, noDelete, dryRun)
+			return runMerge(issue, strategy, agentSuffix, noDelete, dryRun)
 		},
 	}
 	c.Flags().StringVar(&strategy, "strategy", "", "Merge strategy: squash (default), merge, or rebase")
 	c.Flags().BoolVar(&noDelete, "no-delete", false, "Skip worktree deletion after merge")
 	c.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would happen without doing it")
+	c.Flags().StringVar(&agentSuffix, "agent", "", "Agent name to target a specific worktree when multiple agents ran on the same issue")
 	return c
 }
 
@@ -874,7 +970,7 @@ func validateMergeStrategy(s string) error {
 	}
 }
 
-func runMerge(issue, strategy string, noDelete, dryRun bool) error {
+func runMerge(issue, strategy, agentSuffix string, noDelete, dryRun bool) error {
 	repoRoot, err := git.RepoRoot()
 	if err != nil {
 		return fmt.Errorf("cannot determine repo root: %w", err)
@@ -891,12 +987,9 @@ func runMerge(issue, strategy string, noDelete, dryRun bool) error {
 	}
 
 	// Locate the worktree and branch for the issue.
-	wt, found, err := git.FindWorktreeByIssue(repoRoot, issue)
-	if err != nil {
-		return err
-	}
 	var branch string
-	if found {
+	wt, resolveErr := resolveWorktree(repoRoot, issue, agentSuffix)
+	if resolveErr == nil {
 		if wt.Branch != "" && wt.Branch != "HEAD" {
 			branch = wt.Branch
 		} else {
@@ -905,6 +998,10 @@ func runMerge(issue, strategy string, noDelete, dryRun bool) error {
 				return fmt.Errorf("could not determine branch for %s", wt.Path)
 			}
 		}
+	} else if errors.Is(resolveErr, errAmbiguousWorktree) {
+		return resolveErr
+	} else if !errors.Is(resolveErr, errWorktreeNotFound) {
+		return resolveErr
 	} else {
 		branch, _ = git.FindBranchByIssuePrefix(repoRoot, issue)
 		if branch == "" {
@@ -963,7 +1060,7 @@ func runMerge(issue, strategy string, noDelete, dryRun bool) error {
 		return git.PullFFOnly(repoRoot)
 	}
 
-	return cleanupMerged(repoRoot, issue)
+	return cleanupMerged(repoRoot, issue, agentSuffix)
 }
 
 // ghPRMergeInfo calls `gh pr view <branch>` and returns the PR state,
@@ -1021,6 +1118,7 @@ func ghPRMerge(repoRoot, branch, strategy string) error {
 // With --all it sweeps all merged worktrees; otherwise it cleans up a single issue.
 func NewCleanupCmd() *cobra.Command {
 	var all bool
+	var agentSuffix string
 	c := &cobra.Command{
 		Use:   "cleanup [issue]",
 		Short: "Remove a merged worktree and its branches",
@@ -1043,37 +1141,42 @@ Use --all to sweep every linked worktree whose PR is MERGED in one pass.`,
 			if err != nil {
 				return err
 			}
-			return runCleanupMerged(issue)
+			return runCleanupMerged(issue, agentSuffix)
 		},
 	}
 	c.Flags().BoolVar(&all, "all", false, "Clean up all worktrees whose PR is MERGED")
+	c.Flags().StringVar(&agentSuffix, "agent", "", "Agent name to target a specific worktree when multiple agents ran on the same issue")
 	return c
 }
 
-func runCleanupMerged(issue string) error {
+func runCleanupMerged(issue, agentSuffix string) error {
 	repoRoot, err := git.RepoRoot()
 	if err != nil {
 		return fmt.Errorf("cannot determine repo root: %w", err)
 	}
-	return cleanupMerged(repoRoot, issue)
+	return cleanupMerged(repoRoot, issue, agentSuffix)
 }
 
-func cleanupMerged(repoRoot, issue string) error {
-	wt, found, err := findLinkedWorktree(repoRoot, issue)
+func cleanupMerged(repoRoot, issue, agentSuffix string) error {
 	var wtPath, branch string
-	wtRegistered := found
+	var wtRegistered bool
 
-	if err != nil {
-		return err
-	}
-	if found {
+	wt, resolveErr := resolveWorktree(repoRoot, issue, agentSuffix)
+	if resolveErr == nil {
+		wtRegistered = true
 		wtPath = wt.Path
-		branch, err = git.CurrentBranch(wtPath)
-		if err != nil || branch == "" || branch == "HEAD" {
+		var branchErr error
+		branch, branchErr = git.CurrentBranch(wtPath)
+		if branchErr != nil || branch == "" || branch == "HEAD" {
 			return fmt.Errorf("could not determine branch for %s", wtPath)
 		}
+	} else if errors.Is(resolveErr, errAmbiguousWorktree) {
+		return resolveErr
+	} else if !errors.Is(resolveErr, errWorktreeNotFound) {
+		// Real error (e.g. git worktree list failure) — don't silently fall through.
+		return resolveErr
 	} else {
-		// Recovery path: worktree is no longer registered.
+		// Recovery path: worktree is no longer registered but branches may exist.
 		if isNumericIssue(issue) {
 			branch, _ = git.FindBranchByIssuePrefix(repoRoot, issue)
 		}
@@ -1253,8 +1356,16 @@ func runCleanupAllMerged() error {
 			skipped++
 			continue
 		}
+		// Derive agent suffix from path+.agent so multi-agent worktrees are
+		// cleaned up correctly without triggering the ambiguity error.
+		agentSuffix := ""
+		if af, afErr := state.Read(wt.Path); afErr == nil && af.Agent != "" {
+			if strings.HasSuffix(wt.Path, "-"+af.Agent) {
+				agentSuffix = af.Agent
+			}
+		}
 		fmt.Printf("--- Cleaning issue %s (%s) ---\n", issue, branch)
-		if err := cleanupMerged(repoRoot, issue); err != nil {
+		if err := cleanupMerged(repoRoot, issue, agentSuffix); err != nil {
 			fmt.Fprintf(os.Stderr, "FAILED to clean issue %s (%s): %v\n", issue, branch, err)
 			failed++
 		} else {
@@ -1450,8 +1561,9 @@ func runStatus(verbose bool) error {
 // NewLogsCmd creates the `logs` subcommand.
 func NewLogsCmd() *cobra.Command {
 	var (
-		lines    int
-		noFollow bool
+		lines      int
+		noFollow   bool
+		agentSuffix string
 	)
 	c := &cobra.Command{
 		Use:   "logs <issue>",
@@ -1462,20 +1574,21 @@ By default the last 50 lines are printed and new output is followed until
 Ctrl+C. Use --no-follow to print history and exit immediately.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runLogs(args[0], lines, noFollow, os.Stdout)
+			return runLogs(args[0], lines, noFollow, agentSuffix, os.Stdout)
 		},
 	}
 	c.Flags().IntVar(&lines, "lines", 50, "Lines of history to show before following")
 	c.Flags().BoolVar(&noFollow, "no-follow", false, "Print history and exit without following")
+	c.Flags().StringVar(&agentSuffix, "agent", "", "Agent name to disambiguate when multiple worktrees exist for the same issue")
 	return c
 }
 
 // runLogs resolves the worktree for issue and streams its agent.log.
-func runLogs(issue string, lines int, noFollow bool, w io.Writer) error {
+func runLogs(issue string, lines int, noFollow bool, agentSuffix string, w io.Writer) error {
 	if _, _, num, ok := parseIssueURL(issue); ok {
 		issue = num
 	}
-	wtPath, err := findWorktreePath(issue)
+	wtPath, err := findWorktreePath(issue, agentSuffix)
 	if err != nil {
 		return err
 	}
@@ -1585,6 +1698,7 @@ func NewDevCmd() *cobra.Command {
 // NewDevStartCmd creates the `dev start` subcommand.
 func NewDevStartCmd() *cobra.Command {
 	var quiet bool
+	var agentSuffix string
 	c := &cobra.Command{
 		Use:   "start [issue]",
 		Short: "Start the dev server in the current worktree",
@@ -1602,7 +1716,7 @@ real time. Use --quiet to suppress log streaming and only print the URL.`,
 			if err != nil {
 				return err
 			}
-			wtPath, err := findWorktreePath(issue)
+			wtPath, err := findWorktreePath(issue, agentSuffix)
 			if err != nil {
 				return err
 			}
@@ -1610,6 +1724,7 @@ real time. Use --quiet to suppress log streaming and only print the URL.`,
 		},
 	}
 	c.Flags().BoolVar(&quiet, "quiet", false, "Suppress log streaming; only print the ready URL")
+	c.Flags().StringVar(&agentSuffix, "agent", "", "Agent name to disambiguate when multiple worktrees exist for the same issue")
 	return c
 }
 
@@ -1763,7 +1878,8 @@ func streamDevLog(wtPath, devPID string, w io.Writer) error {
 
 // NewAttachCmd creates the `attach` subcommand.
 func NewAttachCmd() *cobra.Command {
-	return &cobra.Command{
+	var agentSuffix string
+	c := &cobra.Command{
 		Use:   "attach <issue>",
 		Short: "Follow a running headless agent and exit when it finishes",
 		Long: `Attach to a running headless agent: stream agent.log to stdout and exit
@@ -1779,13 +1895,15 @@ Press Ctrl+C to detach without stopping the agent.`,
 			if _, _, num, ok := parseIssueURL(arg); ok {
 				arg = num
 			}
-			wtPath, err := findWorktreePath(arg)
+			wtPath, err := findWorktreePath(arg, agentSuffix)
 			if err != nil {
 				return err
 			}
 			return attachLog(wtPath, arg, os.Stdout, 10*time.Second)
 		},
 	}
+	c.Flags().StringVar(&agentSuffix, "agent", "", "Agent name to disambiguate when multiple worktrees exist for the same issue")
+	return c
 }
 
 // attachLog is the inner implementation of the attach command.
@@ -1857,6 +1975,7 @@ func NewDiffCmd() *cobra.Command {
 	var stat bool
 	var base string
 	var noPager bool
+	var agentSuffix string
 	c := &cobra.Command{
 		Use:   "diff <issue>",
 		Short: "Show what the agent has changed in a worktree",
@@ -1869,20 +1988,21 @@ Use --base to compare against a branch, e.g. --base main shows everything the
 agent added since branching from main.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDiff(args[0], base, stat, noPager)
+			return runDiff(args[0], base, agentSuffix, stat, noPager)
 		},
 	}
 	c.Flags().BoolVar(&stat, "stat", false, "Show changed-file summary instead of full diff")
 	c.Flags().StringVar(&base, "base", "", "Diff base branch (default: show uncommitted changes)")
 	c.Flags().BoolVar(&noPager, "no-pager", false, "Print to stdout without paging")
+	c.Flags().StringVar(&agentSuffix, "agent", "", "Agent name to disambiguate when multiple worktrees exist for the same issue")
 	return c
 }
 
-func runDiff(issue, base string, stat, noPager bool) error {
+func runDiff(issue, base, agentSuffix string, stat, noPager bool) error {
 	if _, _, num, ok := parseIssueURL(issue); ok {
 		issue = num
 	}
-	wtPath, err := findWorktreePath(issue)
+	wtPath, err := findWorktreePath(issue, agentSuffix)
 	if err != nil {
 		return err
 	}
@@ -2686,18 +2806,117 @@ func validateSDD(sddName, repoRoot string) error {
 	return nil
 }
 
-// findWorktreePath resolves the linked worktree path for the given issue number.
-func findWorktreePath(issue string) (string, error) {
+// errAmbiguousWorktree is returned by resolveWorktree when multiple worktrees
+// exist for an issue and no --agent flag was supplied to disambiguate.
+var errAmbiguousWorktree = errors.New("ambiguous worktree")
+
+// errWorktreeNotFound is returned by resolveWorktree when no worktree matches
+// the given issue (and optional agent suffix), as distinct from a real git error.
+var errWorktreeNotFound = errors.New("worktree not found")
+
+// agentSuffixRe restricts agent names used as worktree/branch suffixes to safe
+// characters. Slashes, spaces, and other special chars would create nested
+// directories or invalid git branch names.
+var agentSuffixRe = regexp.MustCompile(`^[a-z0-9_-]+$`)
+
+// validateAgentSuffix returns an error when suffix contains characters that
+// would create an invalid git branch name or unexpected filesystem path.
+// An empty suffix is always valid (single-agent mode).
+func validateAgentSuffix(suffix string) error {
+	if suffix == "" {
+		return nil
+	}
+	if !agentSuffixRe.MatchString(suffix) {
+		return fmt.Errorf("invalid agent name %q: must match [a-z0-9_-]+", suffix)
+	}
+	return nil
+}
+
+// worktreeNames computes the branch name and filesystem path for a worktree.
+// When agentSuffix is non-empty (multi-agent mode) it is appended to both so
+// each agent gets an isolated workspace: <issue>-<slug>-<agent> / <repo>-<issue>-<slug>-<agent>.
+func worktreeNames(repoName, issueNum, slug, agentSuffix, parentDir string) (branch, wtPath string) {
+	branch = issueNum + "-" + slug
+	wtPath = filepath.Join(parentDir, repoName+"-"+issueNum+"-"+slug)
+	if agentSuffix != "" {
+		branch += "-" + agentSuffix
+		wtPath += "-" + agentSuffix
+	}
+	return
+}
+
+// resolveWorktree finds the linked worktree for an issue, handling the
+// single-agent (no suffix) and multi-agent (suffix) cases.
+//
+//   - agentSuffix non-empty: find the worktree whose path ends with "-<agentSuffix>".
+//   - agentSuffix empty, exactly one match: return it (unchanged single-agent behaviour).
+//   - agentSuffix empty, multiple matches: return errAmbiguousWorktree so the
+//     caller can ask the user to supply --agent.
+//
+// For non-numeric refs (e.g. task-mode branch names like "task/refactor-auth"),
+// falls back to an exact branch lookup via FindWorktreeByBranch.
+//
+// Returns errWorktreeNotFound (wrapped) when no matching worktree exists.
+func resolveWorktree(repoRoot, issue, agentSuffix string) (git.Worktree, error) {
+	wts, err := git.FindWorktreesByIssue(repoRoot, issue)
+	if err != nil {
+		return git.Worktree{}, err
+	}
+
+	// For non-numeric refs (task-mode branch names), try exact branch lookup
+	// when issue-based path matching finds nothing.
+	if len(wts) == 0 && !isNumericIssue(issue) {
+		wt, found, branchErr := git.FindWorktreeByBranch(repoRoot, issue)
+		if branchErr != nil {
+			return git.Worktree{}, branchErr
+		}
+		if found {
+			return wt, nil
+		}
+		return git.Worktree{}, fmt.Errorf("no worktree found for issue %s — has it been started?: %w", issue, errWorktreeNotFound)
+	}
+
+	if agentSuffix != "" {
+		suffix := "-" + agentSuffix
+		for _, wt := range wts {
+			if strings.HasSuffix(wt.Path, suffix) {
+				return wt, nil
+			}
+		}
+		return git.Worktree{}, fmt.Errorf("no worktree found for issue %s (agent: %s) — has it been started?: %w", issue, agentSuffix, errWorktreeNotFound)
+	}
+
+	switch len(wts) {
+	case 0:
+		return git.Worktree{}, fmt.Errorf("no worktree found for issue %s — has it been started?: %w", issue, errWorktreeNotFound)
+	case 1:
+		return wts[0], nil
+	default:
+		var agents []string
+		for _, wt := range wts {
+			af, _ := state.Read(wt.Path)
+			if af.Agent != "" {
+				agents = append(agents, af.Agent)
+			} else {
+				agents = append(agents, filepath.Base(wt.Path))
+			}
+		}
+		return git.Worktree{}, fmt.Errorf("multiple worktrees found for issue %s; specify --agent (%s): %w",
+			issue, strings.Join(agents, ", "), errAmbiguousWorktree)
+	}
+}
+
+// findWorktreePath resolves the linked worktree path for the given issue.
+// agentSuffix disambiguates when multiple worktrees exist for the same issue
+// (created with --agent claude,codex). Pass "" for the original single-agent behaviour.
+func findWorktreePath(issue, agentSuffix string) (string, error) {
 	repoRoot, err := git.RepoRoot()
 	if err != nil {
 		return "", fmt.Errorf("cannot determine repo root: %w", err)
 	}
-	wt, found, err := findLinkedWorktree(repoRoot, issue)
+	wt, err := resolveWorktree(repoRoot, issue, agentSuffix)
 	if err != nil {
 		return "", err
-	}
-	if !found {
-		return "", fmt.Errorf("no worktree found for issue %s — has it been started?", issue)
 	}
 	return wt.Path, nil
 }
