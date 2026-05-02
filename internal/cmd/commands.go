@@ -133,6 +133,11 @@ func buildKickoff(issue, port string) string {
 // startOne provisions a worktree for a single issue and launches the agent.
 // It is the per-issue unit used by both single-issue and batch invocations.
 func startOne(issue, slug, agentName, sddName string, headless, quiet, sendNotify bool, out io.Writer) error {
+	// Verify GITHUB_TOKEN is set before any gh calls. Never touches the keychain.
+	if err := ensureGHToken(); err != nil {
+		return err
+	}
+
 	// Validate the adapter exists before doing any setup work.
 	if err := validateAdapter(agentName); err != nil {
 		return err
@@ -1861,6 +1866,21 @@ func cleanupFailedStart(repoRoot, wtPath, branch, devPID string) error {
 	return nil
 }
 
+// ensureGHToken verifies that GITHUB_TOKEN (or GH_TOKEN) is present in the
+// environment. It never calls gh or touches the macOS keychain. If GH_TOKEN
+// is set it is normalised to GITHUB_TOKEN so the agent subprocess sees it
+// under the conventional name. Returns an actionable error when neither is set.
+func ensureGHToken() error {
+	if os.Getenv("GITHUB_TOKEN") != "" {
+		return nil
+	}
+	if tok := os.Getenv("GH_TOKEN"); tok != "" {
+		os.Setenv("GITHUB_TOKEN", tok)
+		return nil
+	}
+	return fmt.Errorf("GITHUB_TOKEN is not set\n\nSet it in your current shell (or shell profile) and re-run:\n  export GITHUB_TOKEN=<your-token>\n\nBoth GITHUB_TOKEN and GH_TOKEN are accepted. To obtain a token, run:\n  gh auth token")
+}
+
 // slugFromIssue fetches the GitHub issue title and converts it to a slug.
 // issueArg may be a bare issue number or a full GitHub issue URL; both are
 // accepted by `gh issue view`.
@@ -3084,31 +3104,9 @@ func agentEnv(wtPath string) ([]string, error) {
 
 	env := os.Environ()
 
-	// If GITHUB_TOKEN is absent or empty, pull it from `gh auth token` so
-	// the agent can push to GitHub without needing keychain access (the agent
-	// process runs detached and cannot unlock the macOS keychain).
-	hasGHToken := false
-	ghTokenIdx := -1
-	for i, kv := range env {
-		if strings.HasPrefix(kv, "GITHUB_TOKEN=") {
-			ghTokenIdx = i
-			if strings.TrimPrefix(kv, "GITHUB_TOKEN=") != "" {
-				hasGHToken = true
-			}
-			break
-		}
-	}
-	if !hasGHToken {
-		if out, err := exec.Command("gh", "auth", "token").Output(); err == nil {
-			if token := strings.TrimSpace(string(out)); token != "" {
-				if ghTokenIdx >= 0 {
-					env[ghTokenIdx] = "GITHUB_TOKEN=" + token
-				} else {
-					env = append(env, "GITHUB_TOKEN="+token)
-				}
-			}
-		}
-	}
+	// GITHUB_TOKEN is guaranteed to be set by ensureGHToken(), which all
+	// agent-launch entrypoints (startOne, agentResume) call before reaching here.
+	// os.Environ() picks it up automatically; nothing extra needed here.
 
 	for i, kv := range env {
 		if strings.HasPrefix(kv, "HOME=") {
@@ -3183,6 +3181,11 @@ func writeClaudeSettings(wtPath string) error {
 // blocks until the agent exits. When headless is true it detaches immediately
 // and writes output to agent.log.
 func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless, quiet, sendNotify bool) error {
+	// Verify GITHUB_TOKEN is set before any gh calls. Never touches the keychain.
+	if err := ensureGHToken(); err != nil {
+		return err
+	}
+
 	ad, err := adapters.Get(adapterName)
 	if err != nil {
 		return err
