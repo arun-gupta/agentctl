@@ -65,13 +65,8 @@ func TestValidateMergeStrategy(t *testing.T) {
 		}
 	}
 
-	invalid := []string{"fast-forward", "ours", "", " "}
-	// empty string is handled before validateMergeStrategy is called (resolved to "squash")
-	// but we still test it produces no error since the validator is called after resolution
+	invalid := []string{"fast-forward", "ours", " "}
 	for _, s := range invalid {
-		if s == "" {
-			continue // empty is valid input to validator (means "use default")
-		}
 		if err := validateMergeStrategy(s); err == nil {
 			t.Errorf("validateMergeStrategy(%q) expected error, got nil", s)
 		}

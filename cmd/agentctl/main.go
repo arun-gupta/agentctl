@@ -7,7 +7,7 @@
 //	agentctl resume     <issue> [feedback]
 //	agentctl discard    [issue]
 //	agentctl cleanup    [issue | --all]
-//	agentctl merge      [--strategy squash|merge|rebase] [--no-delete] [--dry-run] <issue>
+//	agentctl merge      [--strategy squash|merge|rebase] [--no-delete] [--dry-run] [issue]
 //	agentctl status     [--verbose]
 //	agentctl logs       [--lines N] [--no-follow] <issue>
 //	agentctl attach     <issue>

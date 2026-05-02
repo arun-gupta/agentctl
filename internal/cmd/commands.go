@@ -758,9 +758,13 @@ func runMerge(issue, strategy string, noDelete, dryRun bool) error {
 	}
 	var branch string
 	if found {
-		branch, err = git.CurrentBranch(wt.Path)
-		if err != nil || branch == "" || branch == "HEAD" {
-			return fmt.Errorf("could not determine branch for %s", wt.Path)
+		if wt.Branch != "" && wt.Branch != "HEAD" {
+			branch = wt.Branch
+		} else {
+			branch, err = git.CurrentBranch(wt.Path)
+			if err != nil || branch == "" || branch == "HEAD" {
+				return fmt.Errorf("could not determine branch for %s", wt.Path)
+			}
 		}
 	} else {
 		branch, _ = git.FindBranchByIssuePrefix(repoRoot, issue)
@@ -770,9 +774,9 @@ func runMerge(issue, strategy string, noDelete, dryRun bool) error {
 	}
 
 	// Validate the PR is open and not conflicting.
-	prState, mergeable, err := ghPRMergeInfo(repoRoot, branch)
+	prState, mergeable, reviewDecision, err := ghPRMergeInfo(repoRoot, branch)
 	if err != nil {
-		return fmt.Errorf("could not determine PR state for %s.\nIs gh installed and authenticated?", branch)
+		return fmt.Errorf("could not determine PR state for %s: %w\nIs gh installed and authenticated?", branch, err)
 	}
 	switch prState {
 	case "MERGED":
@@ -784,6 +788,9 @@ func runMerge(issue, strategy string, noDelete, dryRun bool) error {
 	}
 	if mergeable == "CONFLICTING" {
 		return fmt.Errorf("PR for %s has merge conflicts; resolve them before merging", branch)
+	}
+	if reviewDecision == "CHANGES_REQUESTED" {
+		return fmt.Errorf("PR for %s has changes requested; resolve review feedback before merging", branch)
 	}
 
 	if dryRun {
@@ -810,7 +817,7 @@ func runMerge(issue, strategy string, noDelete, dryRun bool) error {
 		if currentBranch != "main" {
 			fmt.Printf("Primary worktree at %s is on '%s'; checking out main...\n", repoRoot, currentBranch)
 			if err := git.CheckoutMain(repoRoot); err != nil {
-				return fmt.Errorf("cannot check out main in %s", repoRoot)
+				return fmt.Errorf("cannot check out main in %s: %w", repoRoot, err)
 			}
 		}
 		fmt.Printf("Pulling main in %s ...\n", repoRoot)
@@ -820,32 +827,35 @@ func runMerge(issue, strategy string, noDelete, dryRun bool) error {
 	return cleanupMerged(repoRoot, issue)
 }
 
-// ghPRMergeInfo calls `gh pr view <branch>` and returns the PR state and
-// mergeability (MERGEABLE, CONFLICTING, UNKNOWN).
-func ghPRMergeInfo(repoRoot, branch string) (prState, mergeable string, err error) {
+// ghPRMergeInfo calls `gh pr view <branch>` and returns the PR state,
+// mergeability (MERGEABLE, CONFLICTING, UNKNOWN), and review decision.
+func ghPRMergeInfo(repoRoot, branch string) (prState, mergeable, reviewDecision string, err error) {
 	cmd := exec.Command("gh", "pr", "view", branch,
-		"--json", "state,mergeable",
-		"-q", ".state+\" \"+.mergeable")
+		"--json", "state,mergeable,reviewDecision",
+		"-q", ".state+\" \"+.mergeable+\" \"+.reviewDecision")
 	cmd.Dir = repoRoot
 	var out, errBuf bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errBuf
 	if err := cmd.Run(); err != nil {
-		return "", "", fmt.Errorf("%s", strings.TrimSpace(errBuf.String()))
+		return "", "", "", fmt.Errorf("%s", strings.TrimSpace(errBuf.String()))
 	}
 	parts := strings.Fields(strings.TrimSpace(out.String()))
+	if len(parts) >= 3 {
+		return parts[0], parts[1], parts[2], nil
+	}
 	if len(parts) >= 2 {
-		return parts[0], parts[1], nil
+		return parts[0], parts[1], "", nil
 	}
 	if len(parts) == 1 {
-		return parts[0], "", nil
+		return parts[0], "", "", nil
 	}
-	return "", "", nil
+	return "", "", "", nil
 }
 
 // ghPRMerge calls `gh pr merge <branch>` with the given strategy.
 func ghPRMerge(repoRoot, branch, strategy string) error {
-	args := []string{"pr", "merge", branch}
+	args := []string{"pr", "merge", branch, "--yes"}
 	switch strategy {
 	case "squash":
 		args = append(args, "--squash")
