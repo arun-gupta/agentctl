@@ -1844,6 +1844,7 @@ func TestStartOne_headlessImmediateExitCleansUpWorktree(t *testing.T) {
 }
 
 func TestAgentResume_headless_success(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "test-token")
 	dir := t.TempDir()
 	// Use `echo` as the resume binary — always on PATH, exits immediately.
 	writeLocalAdapter(t, dir, "echoagent",
@@ -1880,6 +1881,7 @@ func TestAgentResume_headless_success(t *testing.T) {
 // TestAgentResume_headless_hints verifies that agentctl resume --headless prints
 // actionable follow-up hints (logs, attach, discard) rather than just the tail path.
 func TestAgentResume_headless_hints(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "test-token")
 	dir := t.TempDir()
 	writeLocalAdapter(t, dir, "echoagent", "binary: echo\nsession: --session\n")
 	chdirTemp(t, dir)
@@ -1918,6 +1920,7 @@ func TestAgentResume_headless_hints(t *testing.T) {
 // TestAgentResume_headless_notify verifies that a desktop notification is
 // fired after the headless resume agent exits when sendNotify=true.
 func TestAgentResume_headless_notify(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "test-token")
 	dir := t.TempDir()
 	writeLocalAdapter(t, dir, "echoagent",
 		"binary: echo\nsession: --session\n")
@@ -1953,6 +1956,7 @@ func TestAgentResume_headless_notify(t *testing.T) {
 }
 
 func TestAgentResume_nonHeadless_exitsWhenAgentDone(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "test-token")
 	dir := t.TempDir()
 	// Use `echo` as the resume binary — always on PATH, exits immediately.
 	writeLocalAdapter(t, dir, "echoagent",
@@ -1986,6 +1990,7 @@ func TestAgentResume_nonHeadless_exitsWhenAgentDone(t *testing.T) {
 }
 
 func TestAgentResume_nonHeadless_exitNoPR_printsNoPR(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "test-token")
 	dir := t.TempDir()
 	writeLocalAdapter(t, dir, "echoagent",
 		"binary: echo\nsession: --session\n")
@@ -2047,6 +2052,7 @@ func TestAgentResume_nonHeadless_exitNoPR_printsNoPR(t *testing.T) {
 }
 
 func TestAgentResume_nonHeadless_sigintPrintsHints(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "test-token")
 	dir := t.TempDir()
 
 	scriptPath := filepath.Join(dir, "sleepagent")
@@ -2151,6 +2157,7 @@ func TestLaunchAgent_homeIsolation(t *testing.T) {
 // TestAgentResume_homeIsolation verifies that a process spawned by agentResume
 // sees HOME set to $wtPath/.agent-home and not the user's real home directory.
 func TestAgentResume_homeIsolation(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "test-token")
 	dir := t.TempDir()
 	envFile := filepath.Join(dir, "env.txt")
 
