@@ -108,6 +108,20 @@ agentctl cleanup 42
 
 ### Batch headless workflow
 
+```mermaid
+flowchart TD
+    A[agentctl start --headless 210,211,212] --> B1[Agent 210 running]
+    A --> B2[Agent 211 running]
+    A --> B3[Agent 212 running]
+    B1 & B2 & B3 --> C[agentctl status]
+    C --> D[Review diffs and specs]
+    D --> E1[agentctl resume --headless 210]
+    D --> E2[agentctl resume --headless 211]
+    D --> E3[agentctl resume --headless 212]
+    E1 & E2 & E3 --> F[PRs opened]
+    F --> G[agentctl cleanup --all]
+```
+
 ```bash
 # Start several issues at once
 agentctl start --headless 210,211,212
@@ -130,6 +144,22 @@ agentctl cleanup --all
 ```
 
 ### Spec-driven development (SDD)
+
+```mermaid
+flowchart TD
+    A[agentctl start 42 --sdd=plain] --> B[Agent writes spec]
+    B --> C[Agent pauses for review]
+    C --> D{Spec review}
+    D -- approve --> E[agentctl resume 42]
+    D -- revise --> F[agentctl resume 42 feedback]
+    F --> B
+    E --> G[Agent implements and opens PR]
+    G --> H{Review PR}
+    H -- changes needed --> I[agentctl resume 42 feedback]
+    I --> G
+    H -- approved --> J[Merge PR on GitHub]
+    J --> K[agentctl cleanup 42]
+```
 
 `agentctl start 42` works out of the box for any repo — by default there is no spec step and the agent opens a PR directly.
 
