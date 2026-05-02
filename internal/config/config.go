@@ -23,6 +23,11 @@ type AgentctlConfig struct {
 	// Linux: notify-send) after each agent exits. Can also be enabled
 	// per-invocation with the --notify flag.
 	Notify bool `yaml:"notify,omitempty"`
+
+	// MergeStrategy is the default merge strategy used by agentctl merge.
+	// Valid values: "squash" (default when empty), "merge", "rebase".
+	// Override per-invocation with the --strategy flag.
+	MergeStrategy string `yaml:"merge_strategy,omitempty"`
 }
 
 // Read loads .agentctl.yml from dir. If the file does not exist, an empty
