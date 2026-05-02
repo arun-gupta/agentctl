@@ -97,3 +97,46 @@ func TestRead_notifyDefaultsFalse(t *testing.T) {
 		t.Errorf("Notify = true, want false (default)")
 	}
 }
+
+func TestRead_parsesMergeStrategy(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"), []byte("merge_strategy: rebase\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Read(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.MergeStrategy != "rebase" {
+		t.Errorf("MergeStrategy = %q, want %q", cfg.MergeStrategy, "rebase")
+	}
+}
+
+func TestRead_mergeStrategyDefaultsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"), []byte("dev_server: \"npm start\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Read(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.MergeStrategy != "" {
+		t.Errorf("MergeStrategy = %q, want empty string (default)", cfg.MergeStrategy)
+	}
+}
+
+func TestWrite_preservesMergeStrategy(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.AgentctlConfig{MergeStrategy: "squash"}
+	if err := config.Write(dir, cfg); err != nil {
+		t.Fatalf("Write error: %v", err)
+	}
+	got, err := config.Read(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MergeStrategy != "squash" {
+		t.Errorf("MergeStrategy = %q, want %q", got.MergeStrategy, "squash")
+	}
+}

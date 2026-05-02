@@ -688,6 +688,198 @@ func runRemoveWorktree(issue string) error {
 	return nil
 }
 
+// ─── merge ────────────────────────────────────────────────────────────────────
+
+// NewMergeCmd creates the `merge` subcommand.
+// It merges an approved PR via gh and then performs worktree cleanup.
+func NewMergeCmd() *cobra.Command {
+	var strategy string
+	var noDelete bool
+	var dryRun bool
+	c := &cobra.Command{
+		Use:   "merge [issue]",
+		Short: "Merge an approved PR and clean up the worktree",
+		Long: `One-step merge: verify the PR is mergeable, run gh pr merge, pull main,
+and (unless --no-delete) remove the worktree and branches.
+
+Run without arguments inside a linked worktree to infer the issue number
+from the current branch.`,
+		Args: cobra.RangeArgs(0, 1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			issue, err := resolveIssueArg("merge", args)
+			if err != nil {
+				return err
+			}
+			return runMerge(issue, strategy, noDelete, dryRun)
+		},
+	}
+	c.Flags().StringVar(&strategy, "strategy", "", "Merge strategy: squash (default), merge, or rebase")
+	c.Flags().BoolVar(&noDelete, "no-delete", false, "Skip worktree deletion after merge")
+	c.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would happen without doing it")
+	return c
+}
+
+// resolveMergeStrategy returns the effective strategy: flag > config > "squash".
+func resolveMergeStrategy(flag, cfgStrategy string) string {
+	if flag != "" {
+		return flag
+	}
+	if cfgStrategy != "" {
+		return cfgStrategy
+	}
+	return "squash"
+}
+
+// validateMergeStrategy returns an error for unrecognised strategy names.
+func validateMergeStrategy(s string) error {
+	switch s {
+	case "squash", "merge", "rebase":
+		return nil
+	default:
+		return fmt.Errorf("unknown merge strategy %q: must be squash, merge, or rebase", s)
+	}
+}
+
+func runMerge(issue, strategy string, noDelete, dryRun bool) error {
+	repoRoot, err := git.RepoRoot()
+	if err != nil {
+		return fmt.Errorf("cannot determine repo root: %w", err)
+	}
+
+	cfg, err := config.Read(repoRoot)
+	if err != nil {
+		return fmt.Errorf("cannot read config: %w", err)
+	}
+
+	strategy = resolveMergeStrategy(strategy, cfg.MergeStrategy)
+	if err := validateMergeStrategy(strategy); err != nil {
+		return err
+	}
+
+	// Locate the worktree and branch for the issue.
+	wt, found, err := git.FindWorktreeByIssue(repoRoot, issue)
+	if err != nil {
+		return err
+	}
+	var branch string
+	if found {
+		if wt.Branch != "" && wt.Branch != "HEAD" {
+			branch = wt.Branch
+		} else {
+			branch, err = git.CurrentBranch(wt.Path)
+			if err != nil || branch == "" || branch == "HEAD" {
+				return fmt.Errorf("could not determine branch for %s", wt.Path)
+			}
+		}
+	} else {
+		branch, _ = git.FindBranchByIssuePrefix(repoRoot, issue)
+		if branch == "" {
+			return fmt.Errorf("no worktree or local branch found for issue %s", issue)
+		}
+	}
+
+	// Validate the PR is open and not conflicting.
+	prState, mergeable, reviewDecision, err := ghPRMergeInfo(repoRoot, branch)
+	if err != nil {
+		return fmt.Errorf("could not determine PR state for %s: %w\nIs gh installed and authenticated?", branch, err)
+	}
+	switch prState {
+	case "MERGED":
+		return fmt.Errorf("PR for %s is already MERGED — use: agentctl cleanup %s", branch, issue)
+	case "CLOSED":
+		return fmt.Errorf("PR for %s is CLOSED and cannot be merged", branch)
+	case "":
+		return fmt.Errorf("no open PR found for branch %s", branch)
+	}
+	if mergeable == "CONFLICTING" {
+		return fmt.Errorf("PR for %s has merge conflicts; resolve them before merging", branch)
+	}
+	if reviewDecision == "CHANGES_REQUESTED" {
+		return fmt.Errorf("PR for %s has changes requested; resolve review feedback before merging", branch)
+	}
+
+	if dryRun {
+		fmt.Printf("[dry-run] Would merge PR for issue %s (branch: %s, strategy: %s)\n", issue, branch, strategy)
+		if !noDelete {
+			fmt.Printf("[dry-run] Would pull main and remove worktree after merge\n")
+		} else {
+			fmt.Printf("[dry-run] Would pull main (--no-delete: worktree kept)\n")
+		}
+		return nil
+	}
+
+	fmt.Printf("Merging PR for issue %s (branch: %s, strategy: %s)...\n", issue, branch, strategy)
+	if err := ghPRMerge(repoRoot, branch, strategy); err != nil {
+		return fmt.Errorf("gh pr merge failed: %w", err)
+	}
+	fmt.Println("PR merged.")
+
+	if noDelete {
+		currentBranch, err := git.CurrentBranch(repoRoot)
+		if err != nil {
+			return err
+		}
+		if currentBranch != "main" {
+			fmt.Printf("Primary worktree at %s is on '%s'; checking out main...\n", repoRoot, currentBranch)
+			if err := git.CheckoutMain(repoRoot); err != nil {
+				return fmt.Errorf("cannot check out main in %s: %w", repoRoot, err)
+			}
+		}
+		fmt.Printf("Pulling main in %s ...\n", repoRoot)
+		return git.PullFFOnly(repoRoot)
+	}
+
+	return cleanupMerged(repoRoot, issue)
+}
+
+// ghPRMergeInfo calls `gh pr view <branch>` and returns the PR state,
+// mergeability (MERGEABLE, CONFLICTING, UNKNOWN), and review decision.
+func ghPRMergeInfo(repoRoot, branch string) (prState, mergeable, reviewDecision string, err error) {
+	cmd := exec.Command("gh", "pr", "view", branch,
+		"--json", "state,mergeable,reviewDecision",
+		"-q", ".state+\" \"+.mergeable+\" \"+.reviewDecision")
+	cmd.Dir = repoRoot
+	var out, errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		return "", "", "", fmt.Errorf("%s", strings.TrimSpace(errBuf.String()))
+	}
+	parts := strings.Fields(strings.TrimSpace(out.String()))
+	if len(parts) >= 3 {
+		return parts[0], parts[1], parts[2], nil
+	}
+	if len(parts) >= 2 {
+		return parts[0], parts[1], "", nil
+	}
+	if len(parts) == 1 {
+		return parts[0], "", "", nil
+	}
+	return "", "", "", nil
+}
+
+// ghPRMerge calls `gh pr merge <branch>` with the given strategy.
+func ghPRMerge(repoRoot, branch, strategy string) error {
+	args := []string{"pr", "merge", branch, "--yes"}
+	switch strategy {
+	case "squash":
+		args = append(args, "--squash")
+	case "merge":
+		args = append(args, "--merge")
+	case "rebase":
+		args = append(args, "--rebase")
+	}
+	cmd := exec.Command("gh", args...)
+	cmd.Dir = repoRoot
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%s", strings.TrimSpace(out.String()))
+	}
+	return nil
+}
+
 // ─── cleanup-merged ───────────────────────────────────────────────────────────
 
 // NewCleanupMergedCmd creates the `cleanup-merged` subcommand.
