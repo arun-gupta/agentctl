@@ -2198,10 +2198,12 @@ func cleanupFailedStart(repoRoot, wtPath, branch, devPID string) error {
 	return nil
 }
 
-// ensureGHToken verifies that GITHUB_TOKEN (or GH_TOKEN) is present in the
-// environment. It never calls gh or touches the macOS keychain. If GH_TOKEN
-// is set it is normalised to GITHUB_TOKEN so the agent subprocess sees it
-// under the conventional name. Returns an actionable error when neither is set.
+// ensureGHToken ensures GITHUB_TOKEN is set in the environment so that gh
+// subprocesses never need to touch the macOS keychain. Resolution order:
+//  1. GITHUB_TOKEN already set — use it.
+//  2. GH_TOKEN set — copy to GITHUB_TOKEN.
+//  3. `gh auth token` succeeds — set GITHUB_TOKEN from its output.
+//  4. All fail — return an actionable error.
 func ensureGHToken() error {
 	if os.Getenv("GITHUB_TOKEN") != "" {
 		return nil
@@ -2209,6 +2211,14 @@ func ensureGHToken() error {
 	if tok := os.Getenv("GH_TOKEN"); tok != "" {
 		os.Setenv("GITHUB_TOKEN", tok)
 		return nil
+	}
+	// Try gh auth token silently; works for users with a configured gh CLI.
+	out, err := exec.Command("gh", "auth", "token").Output()
+	if err == nil {
+		if tok := strings.TrimSpace(string(out)); tok != "" {
+			os.Setenv("GITHUB_TOKEN", tok)
+			return nil
+		}
 	}
 	return fmt.Errorf("GITHUB_TOKEN is not set\n\nSet it in your current shell (or shell profile) and re-run:\n  export GITHUB_TOKEN=<your-token>\n\nBoth GITHUB_TOKEN and GH_TOKEN are accepted. To obtain a token, run:\n  gh auth token")
 }

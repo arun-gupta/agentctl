@@ -2470,9 +2470,15 @@ func TestAgentEnv_preservesExistingToken(t *testing.T) {
 }
 
 // TestEnsureGHToken_failsWhenAbsent verifies that ensureGHToken returns an
-// error when neither GITHUB_TOKEN nor GH_TOKEN is set, rather than falling
-// back to the macOS keychain via `gh auth token`.
+// error when neither GITHUB_TOKEN nor GH_TOKEN is set and gh auth token fails.
 func TestEnsureGHToken_failsWhenAbsent(t *testing.T) {
+	// Stub gh to exit non-zero so the fallback also fails.
+	stubDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stubDir, "gh"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prependPath(t, stubDir)
+
 	origGH, hadGH := os.LookupEnv("GITHUB_TOKEN")
 	origGHT, hadGHT := os.LookupEnv("GH_TOKEN")
 	os.Unsetenv("GITHUB_TOKEN")
@@ -2491,7 +2497,41 @@ func TestEnsureGHToken_failsWhenAbsent(t *testing.T) {
 	})
 
 	if err := ensureGHToken(); err == nil {
-		t.Fatal("expected error when GITHUB_TOKEN and GH_TOKEN are both absent")
+		t.Fatal("expected error when GITHUB_TOKEN, GH_TOKEN, and gh auth token are all absent/failing")
+	}
+}
+
+// TestEnsureGHToken_fallsBackToGHAuthToken verifies that ensureGHToken uses
+// `gh auth token` when env vars are absent, and sets GITHUB_TOKEN from its output.
+func TestEnsureGHToken_fallsBackToGHAuthToken(t *testing.T) {
+	stubDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stubDir, "gh"), []byte("#!/bin/sh\necho 'ghp_stubtoken'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prependPath(t, stubDir)
+
+	origGH, hadGH := os.LookupEnv("GITHUB_TOKEN")
+	origGHT, hadGHT := os.LookupEnv("GH_TOKEN")
+	os.Unsetenv("GITHUB_TOKEN")
+	os.Unsetenv("GH_TOKEN")
+	t.Cleanup(func() {
+		if hadGH {
+			os.Setenv("GITHUB_TOKEN", origGH)
+		} else {
+			os.Unsetenv("GITHUB_TOKEN")
+		}
+		if hadGHT {
+			os.Setenv("GH_TOKEN", origGHT)
+		} else {
+			os.Unsetenv("GH_TOKEN")
+		}
+	})
+
+	if err := ensureGHToken(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := os.Getenv("GITHUB_TOKEN"); got != "ghp_stubtoken" {
+		t.Errorf("GITHUB_TOKEN = %q; want %q", got, "ghp_stubtoken")
 	}
 }
 
