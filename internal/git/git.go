@@ -130,6 +130,25 @@ func FindWorktreeByIssue(repoRoot, issue string) (Worktree, bool, error) {
 	return Worktree{}, false, nil
 }
 
+// FindWorktreesByIssue returns all linked worktrees whose path contains
+// "-<issue>-" (matching the naming convention "<repo>-<issue>-<slug>[-agent]").
+// Unlike FindWorktreeByIssue, this returns all matches, enabling callers to
+// detect multi-agent worktrees created with --agent claude,codex.
+func FindWorktreesByIssue(repoRoot, issue string) ([]Worktree, error) {
+	wts, err := LinkedWorktrees(repoRoot)
+	if err != nil {
+		return nil, err
+	}
+	needle := "-" + issue + "-"
+	var result []Worktree
+	for _, wt := range wts {
+		if strings.Contains(wt.Path, needle) {
+			result = append(result, wt)
+		}
+	}
+	return result, nil
+}
+
 // CurrentBranch returns the abbreviated branch name for the given directory.
 func CurrentBranch(dir string) (string, error) {
 	return run(dir, "rev-parse", "--abbrev-ref", "HEAD")
