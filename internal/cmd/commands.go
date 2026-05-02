@@ -41,14 +41,16 @@ import (
 func NewStartCmd() *cobra.Command {
 	var (
 		agentName  string
+		branch     string
 		headless   bool
 		quiet      bool
 		sddName    string
 		sendNotify bool
+		task       string
 	)
 	c := &cobra.Command{
-		Use:   "start <issue-number-or-url>[,<issue>...] [slug]",
-		Short: "Start work on a GitHub issue in an isolated worktree",
+		Use:   "start [<issue-number-or-url>[,<issue>...] [slug]]",
+		Short: "Start work in an isolated worktree",
 		Long: `Provision an isolated git worktree for a GitHub issue and launch a
 coding agent inside it. By default the agent works directly toward a PR
 with no spec-review pause.
@@ -65,8 +67,21 @@ not allowed in batch mode.
 
 Use --sdd <name> to opt into a spec-driven development (SDD) methodology
 (e.g. plain, speckit, or a custom methodology).`,
-		Args: cobra.RangeArgs(1, 2),
+		Args: cobra.RangeArgs(0, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if task != "" && len(args) > 0 {
+				return fmt.Errorf("--task and a positional issue argument are mutually exclusive")
+			}
+			if branch != "" && task == "" {
+				return fmt.Errorf("--branch requires --task")
+			}
+			if task != "" {
+				return startTask(task, branch, agentName, sddName, headless, quiet, sendNotify, os.Stdout)
+			}
+			if len(args) == 0 {
+				return fmt.Errorf("accepts between 1 and 2 arg(s), received 0")
+			}
+
 			rawIssues := strings.Split(args[0], ",")
 			issues := make([]string, 0, len(rawIssues))
 			for _, iss := range rawIssues {
@@ -110,9 +125,11 @@ Use --sdd <name> to opt into a spec-driven development (SDD) methodology
 		},
 	}
 	c.Flags().StringVar(&agentName, "agent", "claude", "Coding agent adapter to use")
+	c.Flags().StringVar(&branch, "branch", "", "Explicit branch name (only valid with --task)")
 	c.Flags().BoolVar(&headless, "headless", false, "Run agent in background (log -> agent.log)")
 	c.Flags().BoolVar(&quiet, "quiet", false, "Suppress agent log output; show spinner/heartbeat only")
 	c.Flags().StringVar(&sddName, "sdd", "", "SDD methodology to use (e.g. plain, speckit, or custom); omit to skip SDD")
+	c.Flags().StringVar(&task, "task", "", "Free-form task description (alternative to a GitHub issue)")
 	c.Flags().BoolVar(&sendNotify, "notify", false, "Send a desktop notification when the headless agent finishes")
 	return c
 }
@@ -144,6 +161,19 @@ func buildKickoff(issue, port string) string {
 		return strings.TrimRight(strings.Join(lines, "\n"), "\n")
 	}
 	return strings.ReplaceAll(s, "{port}", port)
+}
+
+// buildKickoffFromTask returns the default agent kickoff prompt for a
+// free-form task run. When port is empty, the dev-server line is omitted.
+func buildKickoffFromTask(task, port string) string {
+	s := "Work on the following task: " + task + "\n" +
+		"Make the changes directly, push the branch, and open a PR. Do not merge.\n" +
+		"You are the coding agent — implement changes using your own file-editing and bash tools.\n" +
+		"Do not run agentctl, claude, codex, or any other agent-launcher CLI."
+	if port != "" {
+		s += "\nDev server is running on port " + port + "."
+	}
+	return s
 }
 
 // startOne provisions a worktree for a single issue and launches the agent.
@@ -253,6 +283,106 @@ func startOne(issue, slug, agentName, sddName, agentSuffix string, headless, qui
 	}
 
 	if err := launchAgent(agentName, wtPath, issueNum, portStr, sessionID, kickoff, sddName, headless, quiet, sendNotify, out); err != nil {
+		cleanupOnError = false
+		if cleanupErr := cleanupFailedStart(repoRoot, wtPath, branch, devPID); cleanupErr != nil {
+			return fmt.Errorf("%w\ncleanup warning: %v", err, cleanupErr)
+		}
+		return err
+	}
+
+	cleanupOnError = false
+	return nil
+}
+
+// startTask provisions a worktree for a free-form task and launches the agent.
+func startTask(task, branch, agentName, sddName string, headless, quiet, sendNotify bool, out io.Writer) error {
+	if strings.TrimSpace(task) == "" {
+		return fmt.Errorf("--task requires a non-empty task description")
+	}
+	if err := validateAdapter(agentName); err != nil {
+		return err
+	}
+
+	repoRoot, err := git.RepoRoot()
+	if err != nil {
+		return fmt.Errorf("cannot determine repo root: %w", err)
+	}
+	parentDir := filepath.Dir(repoRoot)
+	repoName := filepath.Base(repoRoot)
+
+	if !sendNotify {
+		if cfg, cfgErr := config.Read(repoRoot); cfgErr == nil && cfg.Notify {
+			sendNotify = true
+		}
+	}
+
+	if err := validateSDD(sddName, repoRoot); err != nil {
+		return err
+	}
+
+	if branch == "" {
+		branch = slugFromTask(task)
+		fmt.Fprintf(out, "Derived branch from task: %s\n", branch)
+	}
+
+	worktreeSlug := strings.ReplaceAll(branch, "/", "-")
+	wtPath := filepath.Join(parentDir, repoName+"-"+worktreeSlug)
+
+	if _, statErr := os.Stat(wtPath); statErr == nil {
+		return taskWorktreeExistsError(wtPath, branch)
+	}
+	if err := git.AddWorktree(repoRoot, wtPath, branch); err != nil {
+		return fmt.Errorf("git worktree add: %w", err)
+	}
+	var devPID, portStr string
+	cleanupOnError := true
+	defer func() {
+		if !cleanupOnError {
+			return
+		}
+		if cleanupErr := cleanupFailedStart(repoRoot, wtPath, branch, devPID); cleanupErr != nil {
+			fmt.Fprintf(out, "Warning: failed to clean up worktree after start failure (path: %s, branch: %s): %v\n", wtPath, branch, cleanupErr)
+		}
+	}()
+
+	if err := seedEnvLocal(filepath.Join(repoRoot, ".env.local"), filepath.Join(wtPath, ".env.local")); err != nil {
+		return err
+	}
+
+	devPID, portStr, err = startDevServer(wtPath, out)
+	if err != nil {
+		return err
+	}
+
+	sessionID, err := generateUUID()
+	if err != nil {
+		return fmt.Errorf("generate session ID: %w", err)
+	}
+
+	af := state.AgentFile{
+		Agent:     agentName,
+		SessionID: sessionID,
+		DevPID:    devPID,
+		DevPort:   portStr,
+		SDD:       sddName,
+		TaskMode:  true,
+	}
+	if err := state.Write(wtPath, af); err != nil {
+		return err
+	}
+
+	var kickoff string
+	if sddName == "" {
+		kickoff = buildKickoffFromTask(task, portStr)
+	} else {
+		m, sddErr := sdd.Get(sddName)
+		if sddErr != nil {
+			return sddErr
+		}
+		kickoff = m.KickoffPrompt("task", portStr) + "\n\nTask description: " + task
+	}
+
+	if err := launchAgent(agentName, wtPath, branch, portStr, sessionID, kickoff, sddName, headless, quiet, sendNotify, out); err != nil {
 		cleanupOnError = false
 		if cleanupErr := cleanupFailedStart(repoRoot, wtPath, branch, devPID); cleanupErr != nil {
 			return fmt.Errorf("%w\ncleanup warning: %v", err, cleanupErr)
@@ -455,11 +585,11 @@ func runReleasePausedSession(issue, feedback, agentSuffix string, headless, quie
 	}
 
 	// For SDD runs, require the spec pause to have been reached before resuming.
-	if af.SDD != "" && computeSpecState(wt.Path, issue, af.SDD, af.SDDSet) == "no-spec" {
+	if af.SDD != "" && computeSpecState(wt.Path, effectiveSpecKey(issue, af), af.SDD, af.SDDSet) == "no-spec" {
 		return fmt.Errorf("spec not yet generated for issue %s; paused state not reached.\nTail %s/agent.log to confirm and retry once the pause is reported.", issue, wt.Path)
 	}
 
-	specPath := findSpecPath(wt.Path, issue)
+	specPath := findSpecPath(wt.Path, effectiveSpecKey(issue, af))
 	prompt := buildResumePrompt(feedback, af.SDD, specPath)
 	if af.SDD != "" && strings.TrimSpace(feedback) == "" {
 		if err := state.AppendKey(wt.Path, "sdd-stage", "2"); err != nil {
@@ -679,8 +809,11 @@ func runRemoveWorktree(issue, agentSuffix string) error {
 	}
 
 	// If no registered worktree, try to find a local branch.
-	if branch == "" {
+	if branch == "" && isNumericIssue(issue) {
 		branch, _ = git.FindBranchByIssuePrefix(repoRoot, issue)
+	}
+	if branch == "" && !isNumericIssue(issue) && git.BranchExists(repoRoot, issue) {
+		branch = issue
 	}
 
 	if wtPath == "" && branch == "" {
@@ -992,13 +1125,18 @@ func cleanupMerged(repoRoot, issue, agentSuffix string) error {
 		return resolveErr
 	} else {
 		// Recovery path: worktree is no longer registered.
-		branch, _ = git.FindBranchByIssuePrefix(repoRoot, issue)
+		if isNumericIssue(issue) {
+			branch, _ = git.FindBranchByIssuePrefix(repoRoot, issue)
+		}
+		if branch == "" && !isNumericIssue(issue) && git.BranchExists(repoRoot, issue) {
+			branch = issue
+		}
 		if branch == "" {
 			return fmt.Errorf("no worktree or local branch found for issue %s", issue)
 		}
 		repoName := filepath.Base(repoRoot)
 		parentDir := filepath.Dir(repoRoot)
-		candidate := filepath.Join(parentDir, repoName+"-"+branch)
+		candidate := filepath.Join(parentDir, repoName+"-"+strings.ReplaceAll(branch, "/", "-"))
 		if _, statErr := os.Stat(candidate); statErr == nil {
 			fmt.Printf("Detected orphaned worktree dir at %s (not registered with git); recovering.\n", candidate)
 			wtPath = candidate
@@ -1074,11 +1212,17 @@ func cleanupMerged(repoRoot, issue, agentSuffix string) error {
 // removeAllWritable removes the directory tree at path, first making all
 // entries writable. This is required when .agent-home contains a Go module
 // cache (go/pkg/mod) whose files are intentionally read-only (0444).
+// Symlinks are skipped during chmod to avoid modifying permissions on targets
+// outside the worktree (e.g. ~/.ssh, ~/.gitconfig linked into .agent-home).
 func removeAllWritable(path string) error {
 	_ = filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
-		if err == nil {
-			_ = os.Chmod(p, 0o700)
+		if err != nil {
+			return nil
 		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			return nil
+		}
+		_ = os.Chmod(p, 0o700)
 		return nil
 	})
 	return os.RemoveAll(path)
@@ -1283,7 +1427,7 @@ func runStatus(verbose bool) error {
 	for _, wt := range wts {
 		issue := wt.Issue
 		if issue == "" {
-			issue = "?"
+			issue = "-"
 		}
 		branch := wt.Branch
 		if branch == "" {
@@ -1306,7 +1450,7 @@ func runStatus(verbose bool) error {
 
 		devPIDStr := pidStatus(af.DevPID)
 		agentPIDStr := pidStatus(af.AgentPID)
-		specState := computeSpecState(wt.Path, wt.Issue, af.SDD, af.SDDSet)
+		specState := computeSpecState(wt.Path, worktreeSpecLookupKey(wt, af), af.SDD, af.SDDSet)
 
 		prState := "none"
 		if branch != "?" && branch != "HEAD" {
@@ -1811,7 +1955,16 @@ func runDiff(issue, base, agentSuffix string, stat, noPager bool) error {
 		return err
 	}
 
-	args := []string{"diff", "--color=always"}
+	// Use --color=always only when piping to the pager: git detects a pipe
+	// and disables colour on its own, but we want colour in the pager.
+	// For all other paths (--no-pager, --stat, non-TTY) let git auto-detect.
+	usePager := !noPager && !stat && isTerminal(os.Stdout)
+	colorFlag := "--color=auto"
+	if usePager {
+		colorFlag = "--color=always"
+	}
+
+	args := []string{"diff", colorFlag}
 	if stat {
 		args = append(args, "--stat")
 	}
@@ -1825,25 +1978,54 @@ func runDiff(issue, base, agentSuffix string, stat, noPager bool) error {
 	gitCmd.Dir = wtPath
 	gitCmd.Stderr = os.Stderr
 
-	if noPager || stat || !isTerminal(os.Stdout) {
+	if !usePager {
 		gitCmd.Stdout = os.Stdout
 		return gitCmd.Run()
 	}
 
-	pager := os.Getenv("PAGER")
-	if pager == "" {
-		pager = "less"
+	// Build the pager command.  When $PAGER is set, invoke it via "sh -c" so
+	// complex values like "less -FRSX" or "delta" are handled correctly.
+	// When $PAGER is unset, default to "less -R".
+	var pagerCmd *exec.Cmd
+	if pagerEnv := os.Getenv("PAGER"); pagerEnv != "" {
+		pagerCmd = exec.Command("sh", "-c", pagerEnv)
+	} else {
+		pagerCmd = exec.Command("less", "-R")
 	}
-	pagerCmd := exec.Command(pager, "-R")
-	pagerCmd.Stdin, _ = gitCmd.StdoutPipe()
+
+	pipe, err := gitCmd.StdoutPipe()
+	if err != nil {
+		gitCmd.Stdout = os.Stdout
+		return gitCmd.Run()
+	}
+	pagerCmd.Stdin = pipe
 	pagerCmd.Stdout = os.Stdout
 	pagerCmd.Stderr = os.Stderr
 	if err := pagerCmd.Start(); err != nil {
 		gitCmd.Stdout = os.Stdout
 		return gitCmd.Run()
 	}
-	_ = gitCmd.Run()
-	return pagerCmd.Wait()
+	gitErr := gitCmd.Run()
+	pagerErr := pagerCmd.Wait()
+	// git exits with SIGPIPE when the pager quits early (user pressed 'q');
+	// treat that as success and surface the pager exit status instead.
+	if gitErr != nil && !isSignalError(gitErr, syscall.SIGPIPE) {
+		return gitErr
+	}
+	return pagerErr
+}
+
+// isSignalError reports whether err is an *exec.ExitError caused by the given
+// Unix signal.  Returns false on non-Unix platforms or when err is not an
+// ExitError.
+func isSignalError(err error, sig syscall.Signal) bool {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		if ws, ok := exitErr.Sys().(syscall.WaitStatus); ok {
+			return ws.Signaled() && ws.Signal() == sig
+		}
+	}
+	return false
 }
 
 func isTerminal(f *os.File) bool {
@@ -1882,9 +2064,6 @@ func pidStatus(pid string) string {
 //   - plain-style:   specs/spec.md (flat); always "paused" — no lifecycle files
 //   - speckit-style: specs/<issue>-*/spec.md with optional plan.md / tasks.md
 func computeSpecState(wtPath, issue, sddName string, sddSet bool) string {
-	if issue == "" {
-		return "no-spec"
-	}
 	// New worktree explicitly created without --sdd.
 	if sddSet && sddName == "" {
 		return "no-spec"
@@ -1892,6 +2071,9 @@ func computeSpecState(wtPath, issue, sddName string, sddSet bool) string {
 	// Plain-style: flat specs/spec.md with no lifecycle subdirectory.
 	if _, err := os.Stat(filepath.Join(wtPath, "specs", "spec.md")); err == nil {
 		return "paused"
+	}
+	if issue == "" {
+		return "no-spec"
 	}
 	// Speckit-style: specs/<issue>-<slug>/ with lifecycle artefacts.
 	specGlob := filepath.Join(wtPath, "specs", issue+"-*", "spec.md")
@@ -1918,11 +2100,60 @@ func findSpecPath(wtPath, issue string) string {
 	if _, err := os.Stat(plain); err == nil {
 		return plain
 	}
+	if issue == "" {
+		return ""
+	}
 	matches, _ := filepath.Glob(filepath.Join(wtPath, "specs", issue+"-*", "spec.md"))
 	if len(matches) > 0 {
 		return matches[0]
 	}
 	return ""
+}
+
+func isNumericIssue(issue string) bool {
+	if issue == "" {
+		return false
+	}
+	_, err := strconv.Atoi(issue)
+	return err == nil
+}
+
+func specLookupKey(issue string) string {
+	if strings.HasPrefix(issue, "task/") {
+		return "task"
+	}
+	return issue
+}
+
+// effectiveSpecKey returns the spec lookup key for a worktree, using the
+// task-mode flag from the .agent file when available. If the worktree was
+// started with `agentctl start --task`, the key is always "task" regardless
+// of the branch name, matching the KickoffPrompt("task", ...) used at start.
+func effectiveSpecKey(issue string, af state.AgentFile) string {
+	if af.TaskMode {
+		return "task"
+	}
+	return specLookupKey(issue)
+}
+
+func worktreeSpecLookupKey(wt git.Worktree, af state.AgentFile) string {
+	if af.TaskMode {
+		return "task"
+	}
+	if wt.Issue != "" {
+		return wt.Issue
+	}
+	return specLookupKey(wt.Branch)
+}
+
+func findLinkedWorktree(repoRoot, ref string) (git.Worktree, bool, error) {
+	if isNumericIssue(ref) {
+		wt, found, err := git.FindWorktreeByIssue(repoRoot, ref)
+		if err != nil || found {
+			return wt, found, err
+		}
+	}
+	return git.FindWorktreeByBranch(repoRoot, ref)
 }
 
 // ghPRInfo calls `gh pr view <branch>` in repoRoot and returns the PR state
@@ -2027,6 +2258,9 @@ func linkPRToIssue(dir, branch, issueNum string) (*prInfo, error) {
 	var pr prInfo
 	if err := json.Unmarshal(out.Bytes(), &pr); err != nil {
 		return nil, nil
+	}
+	if !isNumericIssue(issueNum) {
+		return &pr, nil
 	}
 
 	lower := strings.ToLower(pr.Body)
@@ -2217,6 +2451,19 @@ func worktreeExistsError(wtPath, issueNum string) error {
 	return fmt.Errorf("Worktree already exists for issue %s.\nWorktree: %s\n\n  agentctl discard %s   to delete the worktree and start over", issueNum, wtPath, id)
 }
 
+// taskWorktreeExistsError is like worktreeExistsError but uses "task"/"branch"
+// wording instead of "issue" for task-mode worktrees.
+func taskWorktreeExistsError(wtPath, branch string) error {
+	af, readErr := state.Read(wtPath)
+	if readErr == nil && af.AgentPID != "" && process.IsAlive(af.AgentPID) {
+		return fmt.Errorf("Worktree already exists for task branch %s — agent is still running.\nWorktree: %s\n\n  agentctl attach %s   to follow its output\n  agentctl discard %s   to delete the worktree and start over", branch, wtPath, branch, branch)
+	}
+	if readErr == nil && af.AgentPID != "" {
+		return fmt.Errorf("Worktree already exists for task branch %s — agent has finished.\nWorktree: %s\n\n  agentctl cleanup %s   if the PR is merged\n  agentctl discard %s   to delete the worktree and start over", branch, wtPath, branch, branch)
+	}
+	return fmt.Errorf("Worktree already exists for task branch %s.\nWorktree: %s\n\n  agentctl discard %s   to delete the worktree and start over", branch, wtPath, branch)
+}
+
 // issueDisplayFor reads the issue-arg stored in the .agent state file and
 // returns it when non-empty. Falls back to fallback (the bare issue number)
 // when the state cannot be read or the field is absent, so callers always get
@@ -2266,10 +2513,13 @@ func cleanupFailedStart(repoRoot, wtPath, branch, devPID string) error {
 	return nil
 }
 
-// ensureGHToken verifies that GITHUB_TOKEN (or GH_TOKEN) is present in the
-// environment. It never calls gh or touches the macOS keychain. If GH_TOKEN
-// is set it is normalised to GITHUB_TOKEN so the agent subprocess sees it
-// under the conventional name. Returns an actionable error when neither is set.
+// ensureGHToken ensures GITHUB_TOKEN is set in the environment before agents
+// are launched. It checks env vars first; only when both are absent does it
+// shell out to `gh auth token` as a convenience fallback. Resolution order:
+//  1. GITHUB_TOKEN already set — use it.
+//  2. GH_TOKEN set — copy to GITHUB_TOKEN.
+//  3. `gh auth token` succeeds — set GITHUB_TOKEN from its output.
+//  4. All fail — return an actionable error that includes any `gh` diagnostic.
 func ensureGHToken() error {
 	if os.Getenv("GITHUB_TOKEN") != "" {
 		return nil
@@ -2278,7 +2528,22 @@ func ensureGHToken() error {
 		os.Setenv("GITHUB_TOKEN", tok)
 		return nil
 	}
-	return fmt.Errorf("GITHUB_TOKEN is not set\n\nSet it in your current shell (or shell profile) and re-run:\n  export GITHUB_TOKEN=<your-token>\n\nBoth GITHUB_TOKEN and GH_TOKEN are accepted. To obtain a token, run:\n  gh auth token")
+	// Try gh auth token as a convenience fallback for users with a configured gh CLI.
+	var stdout, stderr bytes.Buffer
+	cmd := exec.Command("gh", "auth", "token")
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err == nil {
+		if tok := strings.TrimSpace(stdout.String()); tok != "" {
+			os.Setenv("GITHUB_TOKEN", tok)
+			return nil
+		}
+	}
+	msg := "GITHUB_TOKEN is not set\n\nSet it in your current shell (or shell profile) and re-run:\n  export GITHUB_TOKEN=<your-token>\n\nBoth GITHUB_TOKEN and GH_TOKEN are accepted. To obtain a token, run:\n  gh auth token"
+	if ghErr := strings.TrimSpace(stderr.String()); ghErr != "" {
+		msg += "\n\n`gh auth token` reported: " + ghErr
+	}
+	return fmt.Errorf("%s", msg)
 }
 
 // slugFromIssue fetches the GitHub issue title and converts it to a slug.
@@ -2301,6 +2566,20 @@ func slugFromIssue(issueArg string) (string, error) {
 		slug = "work"
 	}
 	return slug, nil
+}
+
+// slugFromTask derives a task branch name from the first six words of the
+// task description using the same slugging rules as GitHub issue titles.
+func slugFromTask(description string) string {
+	words := strings.Fields(description)
+	if len(words) > 6 {
+		words = words[:6]
+	}
+	slug := titleToSlug(strings.Join(words, " "))
+	if slug == "" {
+		slug = "task"
+	}
+	return "task/" + slug
 }
 
 // titleToSlug converts a GitHub issue title to a URL-safe branch slug:
@@ -2436,6 +2715,9 @@ func resolveIssueArg(flag string, args []string) (string, error) {
 	}
 	if issue == "" {
 		branch, _ := git.CurrentBranch("")
+		if branch != "" && branch != "HEAD" {
+			return branch, nil
+		}
 		return "", fmt.Errorf("cannot infer issue number from branch %q (expected prefix matching ^[0-9]+-).\nRe-run with an explicit issue number:\n  agentctl %s <issue>", branch, flag)
 	}
 	return issue, nil
@@ -2496,10 +2778,26 @@ func worktreeNames(repoName, issueNum, slug, agentSuffix, parentDir string) (bra
 //   - agentSuffix empty, exactly one match: return it (unchanged single-agent behaviour).
 //   - agentSuffix empty, multiple matches: return errAmbiguousWorktree so the
 //     caller can ask the user to supply --agent.
+//
+// For non-numeric refs (e.g. task-mode branch names like "task/refactor-auth"),
+// falls back to an exact branch lookup via FindWorktreeByBranch.
 func resolveWorktree(repoRoot, issue, agentSuffix string) (git.Worktree, error) {
 	wts, err := git.FindWorktreesByIssue(repoRoot, issue)
 	if err != nil {
 		return git.Worktree{}, err
+	}
+
+	// For non-numeric refs (task-mode branch names), try exact branch lookup
+	// when issue-based path matching finds nothing.
+	if len(wts) == 0 && !isNumericIssue(issue) {
+		wt, found, branchErr := git.FindWorktreeByBranch(repoRoot, issue)
+		if branchErr != nil {
+			return git.Worktree{}, branchErr
+		}
+		if found {
+			return wt, nil
+		}
+		return git.Worktree{}, fmt.Errorf("no worktree found for issue %s — has it been started?", issue)
 	}
 
 	if agentSuffix != "" {

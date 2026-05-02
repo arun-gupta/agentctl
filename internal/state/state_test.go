@@ -313,6 +313,43 @@ func TestSDDStageOmittedWhenZero(t *testing.T) {
 	}
 }
 
+func TestTaskModeRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	af := AgentFile{Agent: "claude", SessionID: "s1", DevPID: "1", TaskMode: true}
+	if err := Write(dir, af); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	got, err := Read(dir)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if !got.TaskMode {
+		t.Error("TaskMode should be true after round-trip")
+	}
+}
+
+func TestTaskModeOmittedWhenFalse(t *testing.T) {
+	dir := t.TempDir()
+	af := AgentFile{Agent: "claude", SessionID: "s1", DevPID: "1", TaskMode: false}
+	if err := Write(dir, af); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, FileName))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if strings.Contains(string(raw), "task-mode=") {
+		t.Errorf("expected no task-mode= line when TaskMode is false, got:\n%s", raw)
+	}
+	got, err := Read(dir)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got.TaskMode {
+		t.Error("TaskMode should be false when not written")
+	}
+}
+
 func contains(s, sub string) bool {
 	return strings.Contains(s, sub)
 }

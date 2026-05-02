@@ -191,6 +191,34 @@ func TestFindWorktreeByIssue(t *testing.T) {
 	}
 }
 
+func TestFindWorktreeByBranch(t *testing.T) {
+	repo := initRepo(t)
+	wtPath := filepath.Join(t.TempDir(), "repo-task-refactor-auth")
+
+	if err := AddWorktree(repo, wtPath, "task/refactor-auth"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+
+	wt, found, err := FindWorktreeByBranch(repo, "task/refactor-auth")
+	if err != nil {
+		t.Fatalf("FindWorktreeByBranch: %v", err)
+	}
+	if !found {
+		t.Fatal("expected worktree to be found for branch task/refactor-auth")
+	}
+	if wt.Branch != "task/refactor-auth" {
+		t.Errorf("branch = %q, want %q", wt.Branch, "task/refactor-auth")
+	}
+
+	_, found, err = FindWorktreeByBranch(repo, "task/missing")
+	if err != nil {
+		t.Fatalf("FindWorktreeByBranch (miss): %v", err)
+	}
+	if found {
+		t.Error("expected not-found for missing task branch")
+	}
+}
+
 func TestInferIssue(t *testing.T) {
 	tests := []struct {
 		branch string

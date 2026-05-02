@@ -10,28 +10,31 @@ Run `agentctl --help` or `agentctl <command> --help` for generated help from the
 
 ```bash
 agentctl start [--agent <name>] [--headless] [--notify] [--quiet] <issue-number-or-url> [slug] [--sdd=<name>]
+agentctl start [--agent <name>] [--headless] [--notify] [--quiet] [--sdd=<name>] --task "<description>" [--branch <branch-name>]
 ```
 
-Creates a linked worktree for a GitHub issue and launches the selected coding agent inside it.
+Creates a linked worktree for a GitHub issue or a free-form task and launches the selected coding agent inside it.
 
 - `--agent <name>`: adapter name; default is `claude`. See [adapters.md](adapters.md) for available adapters.
 - `--headless`: run the agent in the background and write agent output to `agent.log`.
 - `--notify`: send a native desktop notification when the headless agent finishes. No-op when `--headless` is not set. See [Desktop notifications](#desktop-notifications).
 - `--quiet`: suppress all agent log output in the terminal; the parent still waits for the agent to finish (foreground). Has no effect with `--headless`.
 - `--sdd=<name>`: opt into an SDD methodology (e.g. `--sdd=plain`, `--sdd=speckit`). Omit to skip SDD and work directly toward a PR. See [sdd.md](sdd.md).
+- `--task "<description>"`: start from a free-form task description instead of a GitHub issue.
+- `--branch <branch-name>`: explicit branch name for `--task`. Only valid with `--task`.
 - `<issue-number-or-url>`: a bare GitHub issue number (e.g. `42`) **or** a full GitHub issue URL (e.g. `https://github.com/owner/repo/issues/42`). When a URL is supplied, `agentctl` locates or clones the target repository automatically so you do not need to `cd` into it first.
 - `[slug]`: optional branch/worktree slug. If omitted, `agentctl` uses `gh issue view` to fetch the issue title and derive a slug.
 
 Side effects:
 
-- Creates a branch named `<issue>-<slug>`.
-- Creates a worktree at `../<repo>-<issue>-<slug>/`.
+- Issue mode: creates a branch named `<issue>-<slug>` and a worktree at `../<repo>-<issue>-<slug>/`.
+- Task mode: creates a branch named `task/<slug>` by default and a worktree at `../<repo>-task-<slug>/`. `--branch` overrides the branch name verbatim and uses the slash-replaced branch name in the worktree path.
 - Reserves a dev-server port in the `3010-3100` range.
 - Writes `.agent` metadata in the worktree.
 - Seeds `.env.local` from the primary worktree when present, stripping any existing `PORT=` lines (does not inject `PORT=<port>` itself).
 - Starts the dev server: if `.agentctl.yml` defines a `dev_server` command it is used (with `{port}` substituted); otherwise the step is silently skipped. Any project that needs a dev server must set `dev_server` explicitly in `.agentctl.yml`.
 - Launches the selected adapter.
-- When the agent exits, appends `Closes #<issue>` to the PR body retrieved via `gh pr view <branch>`, unless the body already contains `closes #<issue>` or `fixes #<issue>` (case-insensitive). Other closing keywords such as `resolves #<issue>` do not suppress the append.
+- In issue mode, when the agent exits, appends `Closes #<issue>` to the PR body retrieved via `gh pr view <branch>`, unless the body already contains `closes #<issue>` or `fixes #<issue>` (case-insensitive). Other closing keywords such as `resolves #<issue>` do not suppress the append.
 
 ### `agentctl resume`
 

@@ -44,6 +44,9 @@ agentctl start 42
 # Or from anywhere, using a full GitHub issue URL
 agentctl start https://github.com/owner/repo/issues/42
 
+# Or from your repo, using a free-form task
+agentctl start --task "Refactor the auth middleware to use JWT"
+
 # Back in your application repo's primary worktree
 cd /path/to/your/app-repo
 agentctl cleanup 42

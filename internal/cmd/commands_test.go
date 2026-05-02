@@ -338,6 +338,19 @@ func TestBuildKickoff_isAgentNeutral(t *testing.T) {
 	}
 }
 
+func TestBuildKickoffFromTask_noPortUsesTaskDescription(t *testing.T) {
+	kickoff := buildKickoffFromTask("Refactor the auth middleware to use JWT", "")
+	if !strings.Contains(kickoff, "Refactor the auth middleware to use JWT") {
+		t.Fatalf("task kickoff must include the task description, got:\n%s", kickoff)
+	}
+	if strings.Contains(kickoff, "GitHub issue #") {
+		t.Fatalf("task kickoff must not mention a GitHub issue, got:\n%s", kickoff)
+	}
+	if strings.Contains(kickoff, "port") {
+		t.Fatalf("task kickoff with empty port must not mention a port, got:\n%s", kickoff)
+	}
+}
+
 func TestStartCmd_noSDDFlagRemoved(t *testing.T) {
 	c := NewStartCmd()
 	if f := c.Flags().Lookup("no-sdd"); f != nil {
@@ -353,6 +366,44 @@ func TestStartCmd_sddFlagExists(t *testing.T) {
 	}
 	if f.DefValue != "" {
 		t.Errorf("--sdd default should be '' (empty), got %q", f.DefValue)
+	}
+}
+
+func TestStartCmd_taskAndBranchFlagsExist(t *testing.T) {
+	c := NewStartCmd()
+	if f := c.Flags().Lookup("task"); f == nil {
+		t.Fatal("--task flag must be registered")
+	}
+	if f := c.Flags().Lookup("branch"); f == nil {
+		t.Fatal("--branch flag must be registered")
+	}
+}
+
+func TestStartCmd_taskMutuallyExclusiveWithIssue(t *testing.T) {
+	c := NewStartCmd()
+	c.SilenceUsage = true
+	c.SetArgs([]string{"42", "--task", "Refactor auth middleware"})
+
+	err := c.Execute()
+	if err == nil {
+		t.Fatal("expected mutual exclusivity error")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("expected mutual exclusivity error, got: %v", err)
+	}
+}
+
+func TestStartCmd_branchRequiresTask(t *testing.T) {
+	c := NewStartCmd()
+	c.SilenceUsage = true
+	c.SetArgs([]string{"42", "--branch", "task/refactor-auth"})
+
+	err := c.Execute()
+	if err == nil {
+		t.Fatal("expected --branch requires --task error")
+	}
+	if !strings.Contains(err.Error(), "--branch requires --task") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -421,12 +472,44 @@ func TestResolveIssueArg_acceptsURL(t *testing.T) {
 	}
 }
 
+func TestResolveIssueArg_infersTaskBranchInsideLinkedWorktree(t *testing.T) {
+	repo := initGitRepoForStale(t)
+	wtPath := filepath.Join(t.TempDir(), "repo-task-refactor-auth")
+	addWorktree(t, repo, wtPath, "task/refactor-auth")
+	chdirTemp(t, wtPath)
+
+	issue, err := resolveIssueArg("discard", []string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if issue != "task/refactor-auth" {
+		t.Fatalf("got %q, want %q", issue, "task/refactor-auth")
+	}
+}
+
 func TestResolveIssueArg_noArgs_notLinked(t *testing.T) {
 	// Running from the primary worktree (not a linked one) must return an error.
 	chdirTemp(t, t.TempDir())
 	_, err := resolveIssueArg("test", []string{})
 	if err == nil {
 		t.Error("expected error when no arg given and not inside a linked worktree")
+	}
+}
+
+func TestFindWorktreePath_acceptsTaskBranch(t *testing.T) {
+	repo := initGitRepoForStale(t)
+	wtPath := filepath.Join(t.TempDir(), "repo-task-refactor-auth")
+	addWorktree(t, repo, wtPath, "task/refactor-auth")
+	chdirTemp(t, repo)
+
+	got, err := findWorktreePath("task/refactor-auth", "")
+	if err != nil {
+		t.Fatalf("findWorktreePath: %v", err)
+	}
+	gotResolved, _ := filepath.EvalSymlinks(got)
+	wantResolved, _ := filepath.EvalSymlinks(wtPath)
+	if gotResolved != wantResolved {
+		t.Fatalf("got %q, want %q", got, wtPath)
 	}
 }
 
@@ -928,6 +1011,38 @@ func TestGenerateUUID(t *testing.T) {
 	}
 	if uuid != strings.ToLower(uuid) {
 		t.Errorf("UUID not lowercase: %q", uuid)
+	}
+}
+
+func TestSlugFromTask(t *testing.T) {
+	tests := []struct {
+		name string
+		task string
+		want string
+	}{
+		{
+			name: "first six words",
+			task: "Refactor the auth middleware to use JWT tokens everywhere",
+			want: "task/refactor-the-auth-middleware-to-use",
+		},
+		{
+			name: "punctuation stripped and capped",
+			task: "Clean up auth!!! middleware??? now; please, thanks.",
+			want: "task/clean-up-auth-middleware-now-please",
+		},
+		{
+			name: "empty falls back to task",
+			task: "!!!",
+			want: "task/task",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := slugFromTask(tt.task); got != tt.want {
+				t.Fatalf("slugFromTask(%q) = %q, want %q", tt.task, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -1912,6 +2027,99 @@ func TestStartOne_headlessImmediateExitCleansUpWorktree(t *testing.T) {
 	}
 }
 
+func TestStartTask_headlessCreatesTaskBranchAndOmitsIssueArg(t *testing.T) {
+	repo := initGitRepoForStale(t)
+	writeLocalAdapter(t, repo, "echoagent", "binary: echo\nsession: --session\n")
+	chdirTemp(t, repo)
+
+	task := "Refactor the auth middleware to use JWT tokens everywhere"
+	wantBranch := "task/refactor-the-auth-middleware-to-use"
+	wantWorktree := filepath.Join(filepath.Dir(repo), filepath.Base(repo)+"-task-refactor-the-auth-middleware-to-use")
+
+	var out bytes.Buffer
+	if err := startTask(task, "", "echoagent", "", true, false, false, &out); err != nil {
+		t.Fatalf("startTask: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = git.RemoveWorktree(repo, wantWorktree)
+		_ = git.DeleteLocalBranch(repo, wantBranch)
+	})
+
+	if _, err := os.Stat(wantWorktree); err != nil {
+		t.Fatalf("worktree not created: %v", err)
+	}
+
+	af, err := state.Read(wantWorktree)
+	if err != nil {
+		t.Fatalf("state.Read: %v", err)
+	}
+	if af.IssueArg != "" {
+		t.Fatalf("IssueArg = %q, want empty", af.IssueArg)
+	}
+	if af.Agent != "echoagent" {
+		t.Fatalf("Agent = %q, want %q", af.Agent, "echoagent")
+	}
+
+	branch, err := git.CurrentBranch(wantWorktree)
+	if err != nil {
+		t.Fatalf("CurrentBranch: %v", err)
+	}
+	if branch != wantBranch {
+		t.Fatalf("branch = %q, want %q", branch, wantBranch)
+	}
+}
+
+func TestStartTask_writeTaskModeFlag(t *testing.T) {
+	repo := initGitRepoForStale(t)
+	writeLocalAdapter(t, repo, "echoagent", "binary: echo\nsession: --session\n")
+	chdirTemp(t, repo)
+
+	task := "Add OAuth2 login flow"
+	wantBranch := "task/add-oauth2-login-flow"
+	wantWorktree := filepath.Join(filepath.Dir(repo), filepath.Base(repo)+"-task-add-oauth2-login-flow")
+
+	var out bytes.Buffer
+	if err := startTask(task, "", "echoagent", "", true, false, false, &out); err != nil {
+		t.Fatalf("startTask: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = git.RemoveWorktree(repo, wantWorktree)
+		_ = git.DeleteLocalBranch(repo, wantBranch)
+	})
+
+	af, err := state.Read(wantWorktree)
+	if err != nil {
+		t.Fatalf("state.Read: %v", err)
+	}
+	if !af.TaskMode {
+		t.Fatalf("TaskMode = false, want true in task-mode worktree")
+	}
+}
+
+// TestEffectiveSpecKey verifies that effectiveSpecKey returns "task" for task-mode
+// worktrees regardless of the branch name, and falls back to specLookupKey otherwise.
+func TestEffectiveSpecKey(t *testing.T) {
+	tests := []struct {
+		issue    string
+		taskMode bool
+		want     string
+	}{
+		{issue: "42", taskMode: false, want: "42"},
+		{issue: "task/refactor-auth", taskMode: false, want: "task"},
+		{issue: "refactor-auth", taskMode: false, want: "refactor-auth"},
+		{issue: "refactor-auth", taskMode: true, want: "task"},
+		{issue: "my-feature", taskMode: true, want: "task"},
+		{issue: "task/my-feature", taskMode: true, want: "task"},
+	}
+	for _, tt := range tests {
+		af := state.AgentFile{TaskMode: tt.taskMode}
+		got := effectiveSpecKey(tt.issue, af)
+		if got != tt.want {
+			t.Errorf("effectiveSpecKey(%q, taskMode=%v) = %q, want %q", tt.issue, tt.taskMode, got, tt.want)
+		}
+	}
+}
+
 func TestAgentResume_headless_success(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "test-token")
 	dir := t.TempDir()
@@ -2470,9 +2678,16 @@ func TestAgentEnv_preservesExistingToken(t *testing.T) {
 }
 
 // TestEnsureGHToken_failsWhenAbsent verifies that ensureGHToken returns an
-// error when neither GITHUB_TOKEN nor GH_TOKEN is set, rather than falling
-// back to the macOS keychain via `gh auth token`.
+// error when neither GITHUB_TOKEN nor GH_TOKEN is set and gh auth token fails.
+// It also checks that gh's stderr diagnostic is included in the error message.
 func TestEnsureGHToken_failsWhenAbsent(t *testing.T) {
+	// Stub gh to exit non-zero with a diagnostic on stderr so the fallback fails.
+	stubDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stubDir, "gh"), []byte("#!/bin/sh\necho 'not logged in' >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prependPath(t, stubDir)
+
 	origGH, hadGH := os.LookupEnv("GITHUB_TOKEN")
 	origGHT, hadGHT := os.LookupEnv("GH_TOKEN")
 	os.Unsetenv("GITHUB_TOKEN")
@@ -2490,8 +2705,46 @@ func TestEnsureGHToken_failsWhenAbsent(t *testing.T) {
 		}
 	})
 
-	if err := ensureGHToken(); err == nil {
-		t.Fatal("expected error when GITHUB_TOKEN and GH_TOKEN are both absent")
+	err := ensureGHToken()
+	if err == nil {
+		t.Fatal("expected error when GITHUB_TOKEN, GH_TOKEN, and gh auth token are all absent/failing")
+	}
+	if !strings.Contains(err.Error(), "not logged in") {
+		t.Errorf("error should include gh stderr diagnostic; got: %v", err)
+	}
+}
+
+// TestEnsureGHToken_fallsBackToGHAuthToken verifies that ensureGHToken uses
+// `gh auth token` when env vars are absent, and sets GITHUB_TOKEN from its output.
+func TestEnsureGHToken_fallsBackToGHAuthToken(t *testing.T) {
+	stubDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stubDir, "gh"), []byte("#!/bin/sh\necho 'ghp_stubtoken'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prependPath(t, stubDir)
+
+	origGH, hadGH := os.LookupEnv("GITHUB_TOKEN")
+	origGHT, hadGHT := os.LookupEnv("GH_TOKEN")
+	os.Unsetenv("GITHUB_TOKEN")
+	os.Unsetenv("GH_TOKEN")
+	t.Cleanup(func() {
+		if hadGH {
+			os.Setenv("GITHUB_TOKEN", origGH)
+		} else {
+			os.Unsetenv("GITHUB_TOKEN")
+		}
+		if hadGHT {
+			os.Setenv("GH_TOKEN", origGHT)
+		} else {
+			os.Unsetenv("GH_TOKEN")
+		}
+	})
+
+	if err := ensureGHToken(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := os.Getenv("GITHUB_TOKEN"); got != "ghp_stubtoken" {
+		t.Errorf("GITHUB_TOKEN = %q; want %q", got, "ghp_stubtoken")
 	}
 }
 
@@ -2521,6 +2774,68 @@ func TestEnsureGHToken_normalizesGHToken(t *testing.T) {
 	}
 	if got := os.Getenv("GITHUB_TOKEN"); got != "gh-token-value" {
 		t.Errorf("GITHUB_TOKEN = %q; want %q", got, "gh-token-value")
+	}
+}
+
+// TestEnsureGHToken_githubTokenWinsOverGHAuthToken verifies that when GITHUB_TOKEN
+// is already set, ensureGHToken does NOT call `gh auth token` and leaves the token
+// unchanged, so explicit env always wins over the fallback.
+func TestEnsureGHToken_githubTokenWinsOverGHAuthToken(t *testing.T) {
+	// Stub gh: write a marker file when called so we can assert it was never invoked.
+	stubDir := t.TempDir()
+	markerFile := filepath.Join(stubDir, "gh-was-called")
+	stubScript := "#!/bin/sh\ntouch " + markerFile + "\necho 'ghp_should_not_be_used'\n"
+	if err := os.WriteFile(filepath.Join(stubDir, "gh"), []byte(stubScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prependPath(t, stubDir)
+
+	t.Setenv("GITHUB_TOKEN", "explicit-github-token")
+	t.Setenv("GH_TOKEN", "")
+
+	if err := ensureGHToken(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := os.Getenv("GITHUB_TOKEN"); got != "explicit-github-token" {
+		t.Errorf("GITHUB_TOKEN = %q; want %q (explicit GITHUB_TOKEN must not be overwritten)", got, "explicit-github-token")
+	}
+	if _, err := os.Stat(markerFile); err == nil {
+		t.Error("gh stub was invoked; GITHUB_TOKEN env var should have short-circuited the fallback")
+	}
+}
+
+// TestEnsureGHToken_ghTokenWinsOverGHAuthToken verifies that when GH_TOKEN is set
+// but GITHUB_TOKEN is not, ensureGHToken copies GH_TOKEN without invoking `gh auth
+// token`, so the explicit env still wins over the fallback.
+func TestEnsureGHToken_ghTokenWinsOverGHAuthToken(t *testing.T) {
+	// Stub gh: write a marker file when called so we can assert it was never invoked.
+	stubDir := t.TempDir()
+	markerFile := filepath.Join(stubDir, "gh-was-called")
+	stubScript := "#!/bin/sh\ntouch " + markerFile + "\necho 'ghp_should_not_be_used'\n"
+	if err := os.WriteFile(filepath.Join(stubDir, "gh"), []byte(stubScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prependPath(t, stubDir)
+
+	origGH, hadGH := os.LookupEnv("GITHUB_TOKEN")
+	os.Unsetenv("GITHUB_TOKEN")
+	t.Cleanup(func() {
+		if hadGH {
+			os.Setenv("GITHUB_TOKEN", origGH)
+		} else {
+			os.Unsetenv("GITHUB_TOKEN")
+		}
+	})
+	t.Setenv("GH_TOKEN", "explicit-gh-token")
+
+	if err := ensureGHToken(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := os.Getenv("GITHUB_TOKEN"); got != "explicit-gh-token" {
+		t.Errorf("GITHUB_TOKEN = %q; want %q (GH_TOKEN must win over gh auth token fallback)", got, "explicit-gh-token")
+	}
+	if _, err := os.Stat(markerFile); err == nil {
+		t.Error("gh stub was invoked; GH_TOKEN env var should have short-circuited the fallback")
 	}
 }
 
@@ -4963,14 +5278,144 @@ func TestRunDiff_withBase_unknownIssue(t *testing.T) {
 	}
 }
 
-func TestIsTerminal_pipe(t *testing.T) {
-	// A pipe is not a terminal — os.Stdin in tests is a pipe.
-	if isTerminal(os.Stdin) {
-		t.Log("stdin appears to be a terminal — skipping assertion (running interactively?)")
-		return
+// initDiffTestRepo creates a git repo with a linked worktree named so that
+// findWorktreePath can locate it by issue number, and cd's into the repo root.
+// Returns the issue number (as string) and the repo root path.
+func initDiffTestRepo(t *testing.T) (issue string, root string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found in PATH")
 	}
-	if isTerminal(os.Stdin) {
-		t.Error("expected isTerminal(os.Stdin) == false in test environment")
+	root = t.TempDir()
+	issue = "191"
+
+	gitAt := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	gitAt(root, "init")
+	gitAt(root, "config", "user.email", "test@example.com")
+	gitAt(root, "config", "user.name", "Test")
+	gitAt(root, "config", "commit.gpgsign", "false")
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitAt(root, "add", ".")
+	gitAt(root, "commit", "-m", "init")
+
+	// The worktree path must contain "-<issue>-" so FindWorktreeByIssue matches.
+	wtPath := filepath.Join(t.TempDir(), "repo-"+issue+"-diff-test")
+	gitAt(root, "worktree", "add", "-b", issue+"-diff-test", wtPath)
+
+	chdirTemp(t, root)
+	return issue, root
+}
+
+func TestRunDiff_noPager_noBase(t *testing.T) {
+	// runDiff with --no-pager and no --base should succeed on a real worktree
+	// and produce output on stdout (we only check for no error here).
+	issue, _ := initDiffTestRepo(t)
+	if err := runDiff(issue, "", "", false, true); err != nil {
+	}
+}
+
+func TestRunDiff_stat_noPager(t *testing.T) {
+	// --stat implies no pager; should succeed without error.
+	issue, _ := initDiffTestRepo(t)
+	if err := runDiff(issue, "", "", true, true); err != nil {
+		t.Fatalf("runDiff --stat: %v", err)
+	}
+}
+
+func TestRunDiff_withBase_noPager(t *testing.T) {
+	// --base should produce a three-dot diff; no error expected on a real repo.
+	issue, root := initDiffTestRepo(t)
+	// Detect default branch name (main or master) using the repo root we already have.
+	out, err := exec.Command("git", "-C", root, "rev-parse", "--abbrev-ref", "HEAD").Output()
+	defaultBranchName := "main"
+	if err == nil {
+		defaultBranchName = strings.TrimSpace(string(out))
+	}
+	if err := runDiff(issue, defaultBranchName, "", false, true); err != nil {
+		t.Fatalf("runDiff --base %s: %v", defaultBranchName, err)
+	}
+}
+
+func TestIsTerminal_pipe(t *testing.T) {
+	// Create a real OS pipe and verify that neither end is reported as a terminal.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	defer r.Close()
+	defer w.Close()
+	if isTerminal(r) {
+		t.Error("expected isTerminal(pipe read-end) == false, got true")
+	}
+	if isTerminal(w) {
+		t.Error("expected isTerminal(pipe write-end) == false, got true")
+	}
+}
+
+// ─── removeAllWritable ────────────────────────────────────────────────────────
+
+// TestRemoveAllWritable_readOnlyFiles verifies that removeAllWritable can delete
+// a directory tree containing read-only files (like Go module cache files).
+func TestRemoveAllWritable_readOnlyFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a nested structure with read-only files.
+	subDir := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	readOnlyFile := filepath.Join(subDir, "readonly.txt")
+	if err := os.WriteFile(readOnlyFile, []byte("data"), 0o444); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if err := removeAllWritable(dir); err != nil {
+		t.Fatalf("removeAllWritable: %v", err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("expected dir to be removed, but it still exists")
+	}
+}
+
+// TestRemoveAllWritable_symlinkTargetPermissionsUnchanged verifies that
+// removeAllWritable does not chmod symlink targets outside the tree.
+func TestRemoveAllWritable_symlinkTargetPermissionsUnchanged(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a target file outside the tree with restrictive permissions.
+	targetDir := t.TempDir()
+	targetFile := filepath.Join(targetDir, "outside.txt")
+	if err := os.WriteFile(targetFile, []byte("secret"), 0o400); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// Create a symlink inside the tree pointing to the outside file.
+	symlinkPath := filepath.Join(dir, "link")
+	if err := os.Symlink(targetFile, symlinkPath); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	if err := removeAllWritable(dir); err != nil {
+		t.Fatalf("removeAllWritable: %v", err)
+	}
+
+	// The target outside the tree must retain its original permissions.
+	info, err := os.Stat(targetFile)
+	if err != nil {
+		t.Fatalf("Stat target: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o400 {
+		t.Errorf("target permissions changed: got %04o, want 0400", got)
 	}
 }
 
