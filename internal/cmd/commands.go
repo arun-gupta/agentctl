@@ -929,7 +929,12 @@ func runCleanupAllMerged() error {
 			}
 
 			prState, err := ghPRState(repoRoot, branch)
-			if err != nil || prState == "" {
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "WARNING: could not get PR state for remote branch %s: %v\n", branch, err)
+				failed++
+				continue
+			}
+			if prState == "" {
 				fmt.Printf("Skipping orphaned remote branch %s: no PR found\n", branch)
 				skipped++
 				continue

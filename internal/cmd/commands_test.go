@@ -777,10 +777,10 @@ func TestRunCleanupAllMerged_prunesRemoteOnlyMergedBranch(t *testing.T) {
 		t.Fatalf("runCleanupAllMerged: %v", err)
 	}
 
-	if out := gitRun(t, repo, "branch", "-r", "--list", "origin/"+orphanedBranch); strings.TrimSpace(out) != "" {
+	if out := gitRun(t, repo, "ls-remote", "--heads", "origin", orphanedBranch); strings.TrimSpace(out) != "" {
 		t.Fatalf("expected remote branch %q to be deleted, still found %q", orphanedBranch, out)
 	}
-	if out := gitRun(t, repo, "branch", "-r", "--list", "origin/"+nonAgentBranch); strings.TrimSpace(out) == "" {
+	if out := gitRun(t, repo, "ls-remote", "--heads", "origin", nonAgentBranch); strings.TrimSpace(out) == "" {
 		t.Fatalf("expected non-agent remote branch %q to be preserved", nonAgentBranch)
 	}
 }
@@ -810,7 +810,7 @@ func TestRunCleanupAllMerged_skipsRemoteOnlyOpenBranch(t *testing.T) {
 		t.Fatalf("runCleanupAllMerged: %v", err)
 	}
 
-	if out := gitRun(t, repo, "branch", "-r", "--list", "origin/"+openBranch); strings.TrimSpace(out) == "" {
+	if out := gitRun(t, repo, "ls-remote", "--heads", "origin", openBranch); strings.TrimSpace(out) == "" {
 		t.Fatalf("expected remote branch %q to be preserved", openBranch)
 	}
 }
