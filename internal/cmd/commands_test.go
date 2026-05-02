@@ -5321,6 +5321,7 @@ func TestRunDiff_noPager_noBase(t *testing.T) {
 	// and produce output on stdout (we only check for no error here).
 	issue, _ := initDiffTestRepo(t)
 	if err := runDiff(issue, "", "", false, true); err != nil {
+		t.Fatalf("runDiff noPager: %v", err)
 	}
 }
 
