@@ -147,6 +147,11 @@ func glabMergeStatusToGH(status string) string {
 }
 
 func (g gitlabProvider) prView(repoRoot, ref string) (*glabMRJSON, error) {
+	// glab mr view only accepts an MR number, not a branch name.
+	// When ref is not a number, resolve it to an MR via mr list --source-branch.
+	if _, err := strconv.Atoi(ref); err != nil {
+		return g.prByBranch(repoRoot, ref)
+	}
 	cmd := exec.Command("glab", "mr", "view", ref, "--output", "json")
 	cmd.Dir = repoRoot
 	var out, errBuf bytes.Buffer
@@ -165,6 +170,26 @@ func (g gitlabProvider) prView(repoRoot, ref string) (*glabMRJSON, error) {
 		return nil, fmt.Errorf("unexpected glab output: %w (output: %q)", err, snippet)
 	}
 	return &mr, nil
+}
+
+// prByBranch looks up the MR for a source branch name across all states.
+func (g gitlabProvider) prByBranch(repoRoot, branch string) (*glabMRJSON, error) {
+	cmd := exec.Command("glab", "mr", "list", "--source-branch", branch, "--state", "all", "--output", "json")
+	cmd.Dir = repoRoot
+	var out, errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(errBuf.String()))
+	}
+	var mrs []glabMRJSON
+	if err := json.Unmarshal(out.Bytes(), &mrs); err != nil {
+		return nil, fmt.Errorf("unexpected glab output: %w", err)
+	}
+	if len(mrs) == 0 {
+		return nil, fmt.Errorf("no MR found for branch %s", branch)
+	}
+	return &mrs[0], nil
 }
 
 func (g gitlabProvider) PRForBranch(repoRoot, ref string) (prState string, number int, url string, err error) {
