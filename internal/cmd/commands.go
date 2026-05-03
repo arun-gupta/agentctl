@@ -353,9 +353,6 @@ func startTask(task, branch, agentName, sddName string, headless, quiet, sendNot
 	if err != nil {
 		return err
 	}
-	if err := p.AuthCheck(); err != nil {
-		return err
-	}
 
 	parentDir := filepath.Dir(repoRoot)
 	repoName := filepath.Base(repoRoot)
