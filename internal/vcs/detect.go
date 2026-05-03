@@ -16,7 +16,7 @@ import (
 //  2. git origin URL — github.com variants → GitHub, gitlab.com variants → GitLab
 //
 // Returns an error when the origin matches neither provider and no config
-// override is present.  When there is no origin at all, GitHub is returned
+// override is present. When there is no origin at all, GitHub is returned
 // for backward compatibility with local-only repos.
 func Detect(repoRoot string) (Provider, error) {
 	// Config file override takes priority.
@@ -106,7 +106,7 @@ func ParseIssueURL(arg string) (owner, repo, issueNum, providerName string, ok b
 		if len(parts) < 5 {
 			return "", "", arg, "", false
 		}
-		// Locate the "/-/issues/<num>" segment.  We start at index 2 so there
+		// Locate the "/-/issues/<num>" segment. We start at index 2 so there
 		// are always at least two path components (owner + repo) before the dash.
 		dashIdx := -1
 		for i := 2; i < len(parts)-2; i++ {
