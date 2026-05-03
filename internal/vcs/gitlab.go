@@ -174,7 +174,7 @@ func (g gitlabProvider) prView(repoRoot, ref string) (*glabMRJSON, error) {
 
 // prByBranch looks up the MR for a source branch name across all states.
 func (g gitlabProvider) prByBranch(repoRoot, branch string) (*glabMRJSON, error) {
-	cmd := exec.Command("glab", "mr", "list", "--source-branch", branch, "--state", "all", "--output", "json")
+	cmd := exec.Command("glab", "mr", "list", "--source-branch", branch, "--all", "--output", "json")
 	cmd.Dir = repoRoot
 	var out, errBuf bytes.Buffer
 	cmd.Stdout = &out
