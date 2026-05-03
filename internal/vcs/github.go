@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -50,28 +49,7 @@ func (g githubProvider) MatchesHost(u string) bool {
 }
 
 func (g githubProvider) AuthCheck() error {
-	if os.Getenv("GITHUB_TOKEN") != "" {
-		return nil
-	}
-	if tok := os.Getenv("GH_TOKEN"); tok != "" {
-		os.Setenv("GITHUB_TOKEN", tok)
-		return nil
-	}
-	var stdout, stderr bytes.Buffer
-	cmd := exec.Command("gh", "auth", "token")
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err == nil {
-		if tok := strings.TrimSpace(stdout.String()); tok != "" {
-			os.Setenv("GITHUB_TOKEN", tok)
-			return nil
-		}
-	}
-	msg := "GITHUB_TOKEN is not set\n\nSet it in your current shell (or shell profile) and re-run:\n  export GITHUB_TOKEN=<your-token>\n\nBoth GITHUB_TOKEN and GH_TOKEN are accepted. To obtain a token, run:\n  gh auth token"
-	if ghErr := strings.TrimSpace(stderr.String()); ghErr != "" {
-		msg += "\n\n`gh auth token` reported: " + ghErr
-	}
-	return fmt.Errorf("%s", msg)
+	return authCheckFromCLI("GITHUB_TOKEN", "GH_TOKEN", "gh")
 }
 
 func (g githubProvider) FetchIssueTitle(issueArg string) (string, error) {

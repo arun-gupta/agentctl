@@ -2,7 +2,44 @@
 // lifecycle works identically on GitHub and GitLab repositories.
 package vcs
 
-import "io"
+import (
+	"bytes"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"strings"
+)
+
+// authCheckFromCLI is the shared AuthCheck implementation for all providers.
+// It checks primaryEnv, then aliasEnv, then extracts a token via `cli auth token`.
+func authCheckFromCLI(primaryEnv, aliasEnv, cli string) error {
+	if os.Getenv(primaryEnv) != "" {
+		return nil
+	}
+	if tok := os.Getenv(aliasEnv); tok != "" {
+		os.Setenv(primaryEnv, tok)
+		return nil
+	}
+	var stdout, stderr bytes.Buffer
+	cmd := exec.Command(cli, "auth", "token")
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err == nil {
+		if tok := strings.TrimSpace(stdout.String()); tok != "" {
+			os.Setenv(primaryEnv, tok)
+			return nil
+		}
+	}
+	msg := fmt.Sprintf(
+		"%s is not set and %s is not authenticated\n\nSet it in your current shell (or shell profile) and re-run:\n  export %s=<your-token>\n\nBoth %s and %s are accepted. To authenticate via %s, run:\n  %s auth login",
+		primaryEnv, cli, primaryEnv, primaryEnv, aliasEnv, cli, cli,
+	)
+	if cliErr := strings.TrimSpace(stderr.String()); cliErr != "" {
+		msg += fmt.Sprintf("\n\n`%s auth token` reported: %s", cli, cliErr)
+	}
+	return fmt.Errorf("%s", msg)
+}
 
 // Provider wraps all provider-specific CLI calls used by agentctl commands.
 // Two concrete implementations exist: githubProvider (wraps gh) and

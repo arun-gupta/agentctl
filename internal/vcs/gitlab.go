@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -56,24 +55,7 @@ func (g gitlabProvider) MatchesHost(u string) bool {
 }
 
 func (g gitlabProvider) AuthCheck() error {
-	if os.Getenv("GITLAB_TOKEN") != "" {
-		return nil
-	}
-	if tok := os.Getenv("GL_TOKEN"); tok != "" {
-		os.Setenv("GITLAB_TOKEN", tok)
-		return nil
-	}
-	var stderr bytes.Buffer
-	cmd := exec.Command("glab", "auth", "status")
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err == nil {
-		return nil
-	}
-	msg := "GITLAB_TOKEN is not set and glab is not authenticated\n\nSet it in your current shell (or shell profile) and re-run:\n  export GITLAB_TOKEN=<your-token>\n\nBoth GITLAB_TOKEN and GL_TOKEN are accepted. To authenticate via glab, run:\n  glab auth login"
-	if glErr := strings.TrimSpace(stderr.String()); glErr != "" {
-		msg += "\n\n`glab auth status` reported: " + glErr
-	}
-	return fmt.Errorf("%s", msg)
+	return authCheckFromCLI("GITLAB_TOKEN", "GL_TOKEN", "glab")
 }
 
 func (g gitlabProvider) FetchIssueTitle(issueArg string) (string, error) {
