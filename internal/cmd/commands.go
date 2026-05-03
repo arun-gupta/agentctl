@@ -32,6 +32,7 @@ import (
 	"github.com/arun-gupta/agentctl/internal/process"
 	"github.com/arun-gupta/agentctl/internal/sdd"
 	"github.com/arun-gupta/agentctl/internal/state"
+	"github.com/arun-gupta/agentctl/internal/vcs"
 	"github.com/arun-gupta/agentctl/internal/xdg"
 )
 
@@ -160,18 +161,21 @@ Use --sdd <name> to opt into a spec-driven development (SDD) methodology
 const resumeHintFmt = "agentctl resume %s [feedback]   # no feedback approves; add feedback to request changes\n"
 
 // kickoffTemplate is the default prompt sent to the agent when no --sdd
-// methodology is specified. {issue} and {port} are substituted at call time.
-const kickoffTemplate = `Work on GitHub issue #{issue}. Read AGENTS.md or README.md for project conventions if present.
-Make the changes directly, push the branch, and open a PR. Do not merge.
+// methodology is specified. {platform}, {issue}, {prTerm}, and {port} are
+// substituted at call time.
+const kickoffTemplate = `Work on {platform} issue #{issue}. Read AGENTS.md or README.md for project conventions if present.
+Make the changes directly, push the branch, and open a {prTerm}. Do not merge.
 You are the coding agent — implement changes using your own file-editing and bash tools.
 Do not run agentctl, claude, codex, or any other agent-launcher CLI.
 Dev server is running on port {port}.`
 
 // buildKickoff returns the default agent kickoff prompt for a plain
-// (non-SDD) run with {issue} and {port} substituted. When port is empty,
-// the dev-server line is omitted entirely.
-func buildKickoff(issue, port string) string {
+// (non-SDD) run with {issue}, {platform}, {prTerm}, and {port} substituted.
+// When port is empty, the dev-server line is omitted entirely.
+func buildKickoff(issue, port, platform, prTerm string) string {
 	s := strings.ReplaceAll(kickoffTemplate, "{issue}", issue)
+	s = strings.ReplaceAll(s, "{platform}", platform)
+	s = strings.ReplaceAll(s, "{prTerm}", prTerm)
 	if port == "" {
 		var lines []string
 		for _, line := range strings.Split(s, "\n") {
@@ -186,9 +190,10 @@ func buildKickoff(issue, port string) string {
 
 // buildKickoffFromTask returns the default agent kickoff prompt for a
 // free-form task run. When port is empty, the dev-server line is omitted.
-func buildKickoffFromTask(task, port string) string {
+// prTerm is "PR" or "MR" depending on the VCS provider.
+func buildKickoffFromTask(task, port, prTerm string) string {
 	s := "Work on the following task: " + task + "\n" +
-		"Make the changes directly, push the branch, and open a PR. Do not merge.\n" +
+		"Make the changes directly, push the branch, and open a " + prTerm + ". Do not merge.\n" +
 		"You are the coding agent — implement changes using your own file-editing and bash tools.\n" +
 		"Do not run agentctl, claude, codex, or any other agent-launcher CLI."
 	if port != "" {
@@ -197,27 +202,33 @@ func buildKickoffFromTask(task, port string) string {
 	return s
 }
 
+// resolveProvider returns the VCS provider for the repository at repoRoot.
+func resolveProvider(repoRoot string) (vcs.Provider, error) {
+	return vcs.Detect(repoRoot)
+}
+
 // startOne provisions a worktree for a single issue and launches the agent.
 // It is the per-issue unit used by both single-issue and batch invocations.
 // agentSuffix is non-empty only in multi-agent mode (--agent claude,codex);
 // it is appended to the branch name and worktree path to avoid collisions.
 func startOne(issue, slug, agentName, sddName, agentSuffix string, headless, quiet, sendNotify bool, out io.Writer) error {
-	// Verify GITHUB_TOKEN is set before any gh calls. Never touches the keychain.
-	if err := ensureGHToken(); err != nil {
-		return err
-	}
-
 	// Validate the adapter exists before doing any setup work.
 	if err := validateAdapter(agentName); err != nil {
 		return err
 	}
 
-	// Resolve the repo root and issue number.  issue may be a bare number
-	// ("42") or a full GitHub issue URL ("https://github.com/owner/repo/issues/42").
-	repoRoot, issueNum, ghIssueArg, err := repoRootForIssue(issue, out)
+	// Resolve the repo root, issue number, and VCS provider.
+	// issue may be a bare number ("42") or a full issue URL.
+	repoRoot, issueNum, issueArg, p, err := repoRootForIssue(issue, out)
 	if err != nil {
 		return err
 	}
+
+	// Verify VCS credentials are available before any provider calls.
+	if err := p.AuthCheck(); err != nil {
+		return err
+	}
+
 	parentDir := filepath.Dir(repoRoot)
 	repoName := filepath.Base(repoRoot)
 
@@ -234,11 +245,15 @@ func startOne(issue, slug, agentName, sddName, agentSuffix string, headless, qui
 		return err
 	}
 
-	// Derive slug from GitHub issue title if not supplied.
+	// Derive slug from issue title if not supplied.
 	if slug == "" {
-		slug, err = slugFromIssue(ghIssueArg)
-		if err != nil {
-			return err
+		title, titleErr := p.FetchIssueTitle(issueArg)
+		if titleErr != nil {
+			return titleErr
+		}
+		slug = titleToSlug(title)
+		if slug == "" {
+			slug = "work"
 		}
 		fmt.Fprintf(out, "Derived slug from issue title: %s\n", slug)
 	}
@@ -291,7 +306,7 @@ func startOne(issue, slug, agentName, sddName, agentSuffix string, headless, qui
 		DevPID:    devPID,
 		DevPort:   portStr,
 		SDD:       sddName,
-		IssueArg:  ghIssueArg,
+		IssueArg:  issueArg,
 	}
 	if err := state.Write(wtPath, af); err != nil {
 		return err
@@ -299,7 +314,7 @@ func startOne(issue, slug, agentName, sddName, agentSuffix string, headless, qui
 
 	var kickoff string
 	if sddName == "" {
-		kickoff = buildKickoff(issueNum, portStr)
+		kickoff = buildKickoff(issueNum, portStr, p.CLI()+" platform", p.PRTerm())
 	} else {
 		m, sddErr := sdd.Get(sddName)
 		if sddErr != nil {
@@ -333,6 +348,15 @@ func startTask(task, branch, agentName, sddName string, headless, quiet, sendNot
 	if err != nil {
 		return fmt.Errorf("cannot determine repo root: %w", err)
 	}
+
+	p, err := resolveProvider(repoRoot)
+	if err != nil {
+		return err
+	}
+	if err := p.AuthCheck(); err != nil {
+		return err
+	}
+
 	parentDir := filepath.Dir(repoRoot)
 	repoName := filepath.Base(repoRoot)
 
@@ -399,7 +423,7 @@ func startTask(task, branch, agentName, sddName string, headless, quiet, sendNot
 
 	var kickoff string
 	if sddName == "" {
-		kickoff = buildKickoffFromTask(task, portStr)
+		kickoff = buildKickoffFromTask(task, portStr, p.PRTerm())
 	} else {
 		m, sddErr := sdd.Get(sddName)
 		if sddErr != nil {
@@ -466,11 +490,8 @@ func runBatch(issues []string, agentName, sddName string, quiet, sendNotify bool
 // All agents always run in headless mode; foreground is not supported here.
 func runMultiAgent(issue string, agents []string, sddName string, quiet, sendNotify bool, out, errOut io.Writer) error {
 	// Validate all adapters and resolve (possibly clone) the repo once before
-	// spawning goroutines. This prevents concurrent `gh repo clone` races when
-	// issue is a GitHub URL, and surfaces adapter/token errors early.
-	if err := ensureGHToken(); err != nil {
-		return err
-	}
+	// spawning goroutines. This prevents concurrent clone races when issue is a
+	// URL, and surfaces adapter/token errors early.
 	for _, ag := range agents {
 		if err := validateAdapter(ag); err != nil {
 			return err
@@ -479,7 +500,11 @@ func runMultiAgent(issue string, agents []string, sddName string, quiet, sendNot
 			return err
 		}
 	}
-	if _, _, _, err := repoRootForIssue(issue, out); err != nil {
+	_, _, _, p, err := repoRootForIssue(issue, out)
+	if err != nil {
+		return err
+	}
+	if err := p.AuthCheck(); err != nil {
 		return err
 	}
 
@@ -722,7 +747,7 @@ func isAgentRunning(wtPath string) bool {
 	return af.AgentPID != "" && process.IsAlive(af.AgentPID)
 }
 
-// isStaleWorktree returns true when no agent is running and no PR of any state
+// isStaleWorktree returns true when no agent is running and no PR/MR of any state
 // exists for the branch. Returns false conservatively when PR status cannot be
 // reliably determined (e.g. auth or network failures) to avoid discarding
 // potentially active worktrees.
@@ -730,7 +755,11 @@ func isStaleWorktree(repoRoot, branch, wtPath string) bool {
 	if isAgentRunning(wtPath) {
 		return false
 	}
-	hasPR, err := ghHasPR(repoRoot, branch)
+	p, err := resolveProvider(repoRoot)
+	if err != nil {
+		return false
+	}
+	hasPR, err := p.HasPR(repoRoot, branch)
 	if err != nil {
 		return false // conservative: can't confirm no PR, skip
 	}
@@ -1009,28 +1038,33 @@ func runMerge(issue, strategy, agentSuffix string, noDelete, dryRun bool) error 
 		}
 	}
 
-	// Validate the PR is open and not conflicting.
-	prState, mergeable, reviewDecision, err := ghPRMergeInfo(repoRoot, branch)
+	p, err := resolveProvider(repoRoot)
 	if err != nil {
-		return fmt.Errorf("could not determine PR state for %s: %w\nIs gh installed and authenticated?", branch, err)
+		return fmt.Errorf("cannot detect VCS provider: %w", err)
+	}
+
+	// Validate the PR/MR is open and not conflicting.
+	prState, mergeable, reviewDecision, err := p.PRMergeInfo(repoRoot, branch)
+	if err != nil {
+		return fmt.Errorf("could not determine %s state for %s: %w\nIs %s installed and authenticated?", p.PRTerm(), branch, err, p.CLI())
 	}
 	switch prState {
 	case "MERGED":
-		return fmt.Errorf("PR for %s is already MERGED — use: agentctl cleanup %s", branch, issue)
+		return fmt.Errorf("%s for %s is already MERGED — use: agentctl cleanup %s", p.PRTerm(), branch, issue)
 	case "CLOSED":
-		return fmt.Errorf("PR for %s is CLOSED and cannot be merged", branch)
+		return fmt.Errorf("%s for %s is CLOSED and cannot be merged", p.PRTerm(), branch)
 	case "":
-		return fmt.Errorf("no open PR found for branch %s", branch)
+		return fmt.Errorf("no open %s found for branch %s", p.PRTerm(), branch)
 	}
 	if mergeable == "CONFLICTING" {
-		return fmt.Errorf("PR for %s has merge conflicts; resolve them before merging", branch)
+		return fmt.Errorf("%s for %s has merge conflicts; resolve them before merging", p.PRTerm(), branch)
 	}
 	if reviewDecision == "CHANGES_REQUESTED" {
-		return fmt.Errorf("PR for %s has changes requested; resolve review feedback before merging", branch)
+		return fmt.Errorf("%s for %s has changes requested; resolve review feedback before merging", p.PRTerm(), branch)
 	}
 
 	if dryRun {
-		fmt.Printf("[dry-run] Would merge PR for issue %s (branch: %s, strategy: %s)\n", issue, branch, strategy)
+		fmt.Printf("[dry-run] Would merge %s for issue %s (branch: %s, strategy: %s)\n", p.PRTerm(), issue, branch, strategy)
 		if !noDelete {
 			fmt.Printf("[dry-run] Would pull main and remove worktree after merge\n")
 		} else {
@@ -1039,11 +1073,11 @@ func runMerge(issue, strategy, agentSuffix string, noDelete, dryRun bool) error 
 		return nil
 	}
 
-	fmt.Printf("Merging PR for issue %s (branch: %s, strategy: %s)...\n", issue, branch, strategy)
-	if err := ghPRMerge(repoRoot, branch, strategy); err != nil {
-		return fmt.Errorf("gh pr merge failed: %w", err)
+	fmt.Printf("Merging %s for issue %s (branch: %s, strategy: %s)...\n", p.PRTerm(), issue, branch, strategy)
+	if err := p.MergePR(repoRoot, branch, strategy); err != nil {
+		return fmt.Errorf("%s %s merge failed: %w", p.CLI(), p.PRTerm(), err)
 	}
-	fmt.Println("PR merged.")
+	fmt.Printf("%s merged.\n", p.PRTerm())
 
 	if noDelete {
 		currentBranch, err := git.CurrentBranch(repoRoot)
@@ -1063,53 +1097,6 @@ func runMerge(issue, strategy, agentSuffix string, noDelete, dryRun bool) error 
 	return cleanupMerged(repoRoot, issue, agentSuffix)
 }
 
-// ghPRMergeInfo calls `gh pr view <branch>` and returns the PR state,
-// mergeability (MERGEABLE, CONFLICTING, UNKNOWN), and review decision.
-func ghPRMergeInfo(repoRoot, branch string) (prState, mergeable, reviewDecision string, err error) {
-	cmd := exec.Command("gh", "pr", "view", branch,
-		"--json", "state,mergeable,reviewDecision",
-		"-q", ".state+\" \"+.mergeable+\" \"+.reviewDecision")
-	cmd.Dir = repoRoot
-	var out, errBuf bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &errBuf
-	if err := cmd.Run(); err != nil {
-		return "", "", "", fmt.Errorf("%s", strings.TrimSpace(errBuf.String()))
-	}
-	parts := strings.Fields(strings.TrimSpace(out.String()))
-	if len(parts) >= 3 {
-		return parts[0], parts[1], parts[2], nil
-	}
-	if len(parts) >= 2 {
-		return parts[0], parts[1], "", nil
-	}
-	if len(parts) == 1 {
-		return parts[0], "", "", nil
-	}
-	return "", "", "", nil
-}
-
-// ghPRMerge calls `gh pr merge <branch>` with the given strategy.
-func ghPRMerge(repoRoot, branch, strategy string) error {
-	args := []string{"pr", "merge", branch, "--yes"}
-	switch strategy {
-	case "squash":
-		args = append(args, "--squash")
-	case "merge":
-		args = append(args, "--merge")
-	case "rebase":
-		args = append(args, "--rebase")
-	}
-	cmd := exec.Command("gh", args...)
-	cmd.Dir = repoRoot
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%s", strings.TrimSpace(out.String()))
-	}
-	return nil
-}
 
 // ─── cleanup-merged ───────────────────────────────────────────────────────────
 
@@ -1207,13 +1194,17 @@ func cleanupMerged(repoRoot, issue, agentSuffix string) error {
 		}
 	}
 
-	// Verify merge via gh CLI.
-	prState, err := ghPRState(repoRoot, branch)
-	if err != nil {
-		return fmt.Errorf("could not determine PR state for %s.\nIs gh installed and authenticated? If this branch has no PR, use:\n  agentctl discard %s", branch, issue)
+	// Verify merge via VCS CLI.
+	p, detErr := resolveProvider(repoRoot)
+	if detErr != nil {
+		return fmt.Errorf("cannot detect VCS provider: %w", detErr)
+	}
+	prState, _, _, prErr := p.PRForBranch(repoRoot, branch)
+	if prErr != nil {
+		return fmt.Errorf("could not determine %s state for %s.\nIs %s installed and authenticated? If this branch has no %s, use:\n  agentctl discard %s", p.PRTerm(), branch, p.CLI(), p.PRTerm(), issue)
 	}
 	if prState != "MERGED" {
-		return fmt.Errorf("PR for %s is %s, not MERGED.\nUse: agentctl discard %s", branch, prState, issue)
+		return fmt.Errorf("%s for %s is %s, not MERGED.\nUse: agentctl discard %s", p.PRTerm(), branch, prState, issue)
 	}
 
 	fmt.Printf("Pulling main in %s ...\n", repoRoot)
@@ -1326,6 +1317,11 @@ func runCleanupAllMerged() error {
 		return err
 	}
 
+	p, err := resolveProvider(repoRoot)
+	if err != nil {
+		return fmt.Errorf("cannot detect VCS provider: %w", err)
+	}
+
 	cleaned, skipped, failed, staleCount := 0, 0, 0, 0
 	handledBranches := make(map[string]struct{}, len(wts))
 	for _, wt := range wts {
@@ -1336,7 +1332,7 @@ func runCleanupAllMerged() error {
 			continue
 		}
 		handledBranches[branch] = struct{}{}
-		prState, err := ghPRState(repoRoot, branch)
+		prState, _, _, err := p.PRForBranch(repoRoot, branch)
 		if err != nil || prState == "" {
 			if !isAgentRunning(wt.Path) {
 				staleCount++
@@ -1389,19 +1385,19 @@ func runCleanupAllMerged() error {
 				continue
 			}
 
-			prState, err := ghPRState(repoRoot, branch)
+			prState, _, _, err := p.PRForBranch(repoRoot, branch)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "WARNING: could not get PR state for remote branch %s: %v\n", branch, err)
+				fmt.Fprintf(os.Stderr, "WARNING: could not get %s state for remote branch %s: %v\n", p.PRTerm(), branch, err)
 				failed++
 				continue
 			}
 			if prState == "" {
-				fmt.Printf("Skipping orphaned remote branch %s: no PR found\n", branch)
+				fmt.Printf("Skipping orphaned remote branch %s: no %s found\n", branch, p.PRTerm())
 				skipped++
 				continue
 			}
 			if prState != "MERGED" && prState != "CLOSED" {
-				fmt.Printf("Skipping orphaned remote branch %s: PR is %s\n", branch, prState)
+				fmt.Printf("Skipping orphaned remote branch %s: %s is %s\n", branch, p.PRTerm(), prState)
 				skipped++
 				continue
 			}
@@ -1506,9 +1502,13 @@ func runStatus(verbose bool) error {
 
 		prState := "none"
 		if branch != "?" && branch != "HEAD" {
+			statusProvider, _ := resolveProvider(repoRoot)
+			if statusProvider == nil {
+				statusProvider, _ = vcs.ProviderForName("github")
+			}
 			if af.PRNumber != "" {
-				// Cache hit — use stored number, call gh live for current state.
-				if ps, _, prURL, err := ghPRInfoWithURL(repoRoot, af.PRNumber); err == nil && ps != "" {
+				// Cache hit — use stored number, call VCS CLI live for current state.
+				if ps, _, prURL, err := statusProvider.PRForBranch(repoRoot, af.PRNumber); err == nil && ps != "" {
 					prState = fmt.Sprintf("#%s %s", af.PRNumber, ps)
 					// Backfill pr-url if it was missing (partial write or manually edited .agent).
 					if af.PRURL == "" && prURL != "" {
@@ -1518,8 +1518,8 @@ func runStatus(verbose bool) error {
 					}
 				}
 			} else {
-				// Cache miss — discover PR via branch name.
-				if ps, n, prURL, err := ghPRInfoWithURL(repoRoot, branch); err == nil && ps != "" {
+				// Cache miss — discover PR/MR via branch name.
+				if ps, n, prURL, err := statusProvider.PRForBranch(repoRoot, branch); err == nil && ps != "" {
 					if n > 0 {
 						prState = fmt.Sprintf("#%d %s", n, ps)
 						if appendErr := state.AppendKeyIfExists(wt.Path, "pr", strconv.Itoa(n)); appendErr != nil {
@@ -2208,78 +2208,6 @@ func findLinkedWorktree(repoRoot, ref string) (git.Worktree, bool, error) {
 	return git.FindWorktreeByBranch(repoRoot, ref)
 }
 
-// ghPRInfo calls `gh pr view <branch>` in repoRoot and returns the PR state
-// (e.g. "MERGED") and number (e.g. 42). Both are zero-values on error.
-func ghPRInfo(repoRoot, branch string) (state string, number int, err error) {
-	cmd := exec.Command("gh", "pr", "view", branch, "--json", "state,number", "-q", ".state+\" \"+(.number|tostring)")
-	cmd.Dir = repoRoot
-	var out, errBuf bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &errBuf
-	if err = cmd.Run(); err != nil {
-		return "", 0, fmt.Errorf("%w: %s", err, strings.TrimSpace(errBuf.String()))
-	}
-	parts := strings.Fields(strings.TrimSpace(out.String()))
-	if len(parts) != 2 {
-		return "", 0, fmt.Errorf("unexpected gh output: %q", out.String())
-	}
-	n, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return "", 0, fmt.Errorf("unexpected gh PR number %q in output %q: %w", parts[1], out.String(), err)
-	}
-	return parts[0], n, nil
-}
-
-// ghHasPR uses `gh pr list --head <branch> --state all` to check whether any
-// PR (open, closed, or merged) exists for the branch. It returns (true, nil)
-// when at least one PR exists, (false, nil) when none exist, and (false, err)
-// when the GH CLI call fails (e.g. auth or network failure) so callers can
-// treat the result conservatively.
-func ghHasPR(repoRoot, branch string) (bool, error) {
-	cmd := exec.Command("gh", "pr", "list", "--head", branch, "--state", "all", "--json", "number")
-	cmd.Dir = repoRoot
-	var out, errBuf bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &errBuf
-	if err := cmd.Run(); err != nil {
-		return false, fmt.Errorf("%w: %s", err, strings.TrimSpace(errBuf.String()))
-	}
-	return strings.TrimSpace(out.String()) != "[]", nil
-}
-
-// ghPRState is a convenience wrapper that returns only the state string.
-func ghPRState(repoRoot, branch string) (string, error) {
-	state, _, err := ghPRInfo(repoRoot, branch)
-	return state, err
-}
-
-// ghPRInfoWithURL calls `gh pr view <ref>` in repoRoot and returns the PR state,
-// number, and URL. ref can be a branch name or a PR number string — gh accepts both.
-// All are zero-values on error.
-func ghPRInfoWithURL(repoRoot, ref string) (prState string, number int, url string, err error) {
-	cmd := exec.Command("gh", "pr", "view", ref, "--json", "state,number,url")
-	cmd.Dir = repoRoot
-	var out, errBuf bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &errBuf
-	if err = cmd.Run(); err != nil {
-		return "", 0, "", fmt.Errorf("%w: %s", err, strings.TrimSpace(errBuf.String()))
-	}
-	var result struct {
-		State  string `json:"state"`
-		Number int    `json:"number"`
-		URL    string `json:"url"`
-	}
-	if err = json.Unmarshal(out.Bytes(), &result); err != nil {
-		snippet := strings.TrimSpace(out.String())
-		runes := []rune(snippet)
-		if len(runes) > 200 {
-			snippet = string(runes[:200]) + "..."
-		}
-		return "", 0, "", fmt.Errorf("unexpected gh output: %w (output: %q)", err, snippet)
-	}
-	return result.State, result.Number, result.URL, nil
-}
 
 type prInfo struct {
 	Number int    `json:"number"`
@@ -2287,48 +2215,62 @@ type prInfo struct {
 	URL    string `json:"url"`
 }
 
-// linkPRToIssue appends "Closes #<issueNum>" to the open PR for branch,
+// linkPRToIssue appends "Closes #<issueNum>" to the open PR/MR for branch,
 // unless the body already contains a closing keyword (closes/fixes).
 // Returns the PR info (including URL) so callers can display it.
-// Silently returns nil, nil when no PR exists.
+// Silently returns nil, nil when no PR/MR exists.
 func linkPRToIssue(dir, branch, issueNum string) (*prInfo, error) {
-	cmd := exec.Command("gh", "pr", "view", branch, "--json", "number,body,url")
-	cmd.Dir = dir
-	var out, errBuf bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &errBuf
-	if err := cmd.Run(); err != nil {
-		// "no pull request(s) found" means the branch exists but has no PR — not an error.
-		// Any other failure (auth, gh not installed, etc.) is a real error.
-		errMsg := strings.ToLower(errBuf.String())
-		if strings.Contains(errMsg, "no pull request") {
+	p, err := resolveProvider(dir)
+	if err != nil {
+		p, _ = vcs.ProviderForName("github")
+	}
+
+	prState, number, url, err := p.PRForBranch(dir, branch)
+	if err != nil {
+		// "no pull request(s) found" or equivalent — not an error.
+		errMsg := strings.ToLower(err.Error())
+		if strings.Contains(errMsg, "no pull request") || strings.Contains(errMsg, "no merge request") || strings.Contains(errMsg, "404") {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("gh pr view: %w: %s", err, strings.TrimSpace(errBuf.String()))
+		return nil, fmt.Errorf("%s pr view: %w", p.CLI(), err)
 	}
-
-	var pr prInfo
-	if err := json.Unmarshal(out.Bytes(), &pr); err != nil {
+	if number == 0 || prState == "" {
 		return nil, nil
 	}
-	if !isNumericIssue(issueNum) {
-		return &pr, nil
+
+	// We don't have the body from PRForBranch, so construct a minimal prInfo.
+	pr := &prInfo{Number: number, URL: url}
+
+	if !isNumericIssue(issueNum) || prState != "OPEN" {
+		return pr, nil
 	}
 
-	lower := strings.ToLower(pr.Body)
-	if strings.Contains(lower, "closes #"+issueNum) || strings.Contains(lower, "fixes #"+issueNum) {
-		return &pr, nil
+	// For GitHub, append a "Closes #N" line so the issue is linked.
+	// GitLab handles issue linking differently (via the MR description or
+	// project settings), so we skip the body edit for non-GitHub providers.
+	if p.CLI() == "gh" {
+		// Re-fetch to get body (GitHub provider only).
+		cmd := exec.Command("gh", "pr", "view", branch, "--json", "number,body,url")
+		cmd.Dir = dir
+		var out, errBuf bytes.Buffer
+		cmd.Stdout = &out
+		cmd.Stderr = &errBuf
+		if cmdErr := cmd.Run(); cmdErr == nil {
+			var full prInfo
+			if jsonErr := json.Unmarshal(out.Bytes(), &full); jsonErr == nil {
+				lower := strings.ToLower(full.Body)
+				if !strings.Contains(lower, "closes #"+issueNum) && !strings.Contains(lower, "fixes #"+issueNum) {
+					newBody := strings.TrimRight(full.Body, "\n") + "\n\nCloses #" + issueNum
+					if editErr := p.EditPRBody(dir, full.Number, newBody); editErr != nil {
+						return &full, fmt.Errorf("gh pr edit: %w", editErr)
+					}
+				}
+				return &full, nil
+			}
+		}
 	}
 
-	newBody := strings.TrimRight(pr.Body, "\n") + "\n\nCloses #" + issueNum
-	editCmd := exec.Command("gh", "pr", "edit", strconv.Itoa(pr.Number), "--body", newBody)
-	editCmd.Dir = dir
-	var editErr bytes.Buffer
-	editCmd.Stderr = &editErr
-	if err := editCmd.Run(); err != nil {
-		return &pr, fmt.Errorf("gh pr edit: %w: %s", err, strings.TrimSpace(editErr.String()))
-	}
-	return &pr, nil
+	return pr, nil
 }
 
 // reportPRStatus links the PR to the issue and prints the PR URL to w.
@@ -2358,73 +2300,25 @@ func reportPRStatus(w io.Writer, dir, branch, issueNum string, quietOnNone bool)
 	return false
 }
 
-// parseIssueURL checks whether arg is a full GitHub issue URL of the form
-// https://github.com/<owner>/<repo>/issues/<number>.
+// parseIssueURL checks whether arg is a full GitHub or GitLab issue URL.
 // If so it returns the owner, repo name, issue number string, and true.
 // Otherwise it returns the original arg as the issue and false (bare number path).
 func parseIssueURL(arg string) (owner, repo, issueNum string, ok bool) {
-	const prefix = "https://github.com/"
-	if !strings.HasPrefix(arg, prefix) {
-		return "", "", arg, false
-	}
-	tail := strings.TrimSuffix(strings.TrimPrefix(arg, prefix), "/")
-	parts := strings.Split(tail, "/")
-	if len(parts) != 4 || parts[2] != "issues" {
-		return "", "", arg, false
-	}
-	if _, err := strconv.Atoi(parts[3]); err != nil {
-		return "", "", arg, false
-	}
-	return parts[0], parts[1], parts[3], true
+	var prov string
+	owner, repo, issueNum, prov, ok = vcs.ParseIssueURL(arg)
+	_ = prov
+	return
 }
 
-// matchesGitHubOrigin reports whether the "origin" remote of repoRoot points
-// to github.com/<owner>/<repoName>. Both HTTPS and SSH remote URL formats are
-// handled, and a trailing ".git" suffix is ignored.
-func matchesGitHubOrigin(repoRoot, owner, repoName string) bool {
-	u, err := git.OriginURL(repoRoot)
-	if err != nil {
-		return false
-	}
-	u = strings.TrimSuffix(u, ".git")
-	suffix := owner + "/" + repoName
-	return strings.HasSuffix(u, "/"+suffix) || strings.HasSuffix(u, ":"+suffix)
-}
-
-// githubIssueURL builds the canonical https://github.com/<owner>/<repo>/issues/<num>
-// URL from the git origin of repoRoot. Returns "" when the origin is not a
-// recognised GitHub remote (so callers can fall back gracefully).
-func githubIssueURL(repoRoot, issueNum string) string {
-	u, err := git.OriginURL(repoRoot)
-	if err != nil {
-		return ""
-	}
-	u = strings.TrimSuffix(strings.TrimSpace(u), ".git")
-	// HTTPS: https://github.com/owner/repo
-	if strings.HasPrefix(u, "https://github.com/") {
-		return u + "/issues/" + issueNum
-	}
-	// SSH scp-style: git@github.com:owner/repo
-	const sshPrefix = "git@github.com:"
-	if strings.HasPrefix(u, sshPrefix) {
-		return "https://github.com/" + strings.TrimPrefix(u, sshPrefix) + "/issues/" + issueNum
-	}
-	// SSH URL-style: ssh://git@github.com/owner/repo
-	const sshURLPrefix = "ssh://git@github.com/"
-	if strings.HasPrefix(u, sshURLPrefix) {
-		return "https://github.com/" + strings.TrimPrefix(u, sshURLPrefix) + "/issues/" + issueNum
-	}
-	return ""
-}
-
-// locateOrCloneRepo returns the local git repo root for github.com/<owner>/<repoName>.
+// locateOrCloneRepo returns the local git repo root for the given owner/repoName,
+// using p for cloning when the repo is not found locally.
 // It searches in order:
 //  1. The repo that contains the current working directory.
 //  2. A sibling directory named <repoName> (i.e. "../<repoName>").
-//  3. Clones the repo into "../<repoName>" via `gh repo clone`.
-func locateOrCloneRepo(owner, repoName string, out io.Writer) (string, error) {
+//  3. Clones the repo into "../<repoName>" via the provider CLI.
+func locateOrCloneRepo(owner, repoName string, p vcs.Provider, out io.Writer) (string, error) {
 	// 1. Current working directory.
-	if root, err := git.RepoRoot(); err == nil && matchesGitHubOrigin(root, owner, repoName) {
+	if root, err := git.RepoRoot(); err == nil && vcs.MatchesOrigin(root, owner, repoName, p) {
 		return root, nil
 	}
 
@@ -2436,52 +2330,61 @@ func locateOrCloneRepo(owner, repoName string, out io.Writer) (string, error) {
 	// 2. Sibling directory.
 	sibling := filepath.Join(filepath.Dir(cwd), repoName)
 	if info, statErr := os.Stat(sibling); statErr == nil && info.IsDir() {
-		if matchesGitHubOrigin(sibling, owner, repoName) {
+		if vcs.MatchesOrigin(sibling, owner, repoName, p) {
 			return sibling, nil
 		}
 		return "", fmt.Errorf("directory %s exists but does not match %s/%s", sibling, owner, repoName)
 	}
 
-	// 3. Clone via gh repo clone.
+	// 3. Clone via provider CLI.
 	target := filepath.Join(filepath.Dir(cwd), repoName)
 	fmt.Fprintf(out, "Cloning %s/%s into %s ...\n", owner, repoName, target)
-	cloneCmd := exec.Command("gh", "repo", "clone", owner+"/"+repoName, target)
-	cloneCmd.Stdout = out
-	cloneCmd.Stderr = out
-	if err := cloneCmd.Run(); err != nil {
-		return "", fmt.Errorf("gh repo clone %s/%s: %w", owner, repoName, err)
+	if err := p.Clone(owner+"/"+repoName, target, out); err != nil {
+		return "", err
 	}
 	return target, nil
 }
 
-// repoRootForIssue resolves the local git repo root to use, along with the
-// bare issue number and the argument to pass to `gh issue view`.
+// repoRootForIssue resolves the local git repo root, bare issue number, the
+// issue argument to pass to the VCS CLI, and the detected provider.
 //
-// When arg is a bare issue number the repo is inferred from the current
-// working directory (existing behaviour). When arg is a full GitHub issue URL
-// (https://github.com/<owner>/<repo>/issues/<number>) the target repository is
-// located or cloned automatically, so the caller does not need to cd first.
-func repoRootForIssue(arg string, out io.Writer) (repoRoot, issueNum, ghIssueArg string, err error) {
-	owner, repoName, issueNum, isURL := parseIssueURL(arg)
+// When arg is a bare issue number the repo is inferred from the current working
+// directory. When arg is a full issue URL (GitHub or GitLab) the target
+// repository is located or cloned automatically.
+func repoRootForIssue(arg string, out io.Writer) (repoRoot, issueNum, issueArg string, p vcs.Provider, err error) {
+	owner, repoName, issueNum, providerName, isURL := vcs.ParseIssueURL(arg)
 	if !isURL {
-		root, err := git.RepoRoot()
-		if err != nil {
-			return "", "", "", fmt.Errorf("cannot determine repo root: %w", err)
+		root, rootErr := git.RepoRoot()
+		if rootErr != nil {
+			return "", "", "", nil, fmt.Errorf("cannot determine repo root: %w", rootErr)
 		}
-		// Resolve bare number to a full GitHub URL so IssueArg is always
+		provider, detectErr := vcs.Detect(root)
+		if detectErr != nil {
+			return "", "", "", nil, detectErr
+		}
+		// Resolve bare number to a full issue URL so IssueArg is always
 		// unambiguous regardless of how the issue was supplied.
-		if fullURL := githubIssueURL(root, arg); fullURL != "" {
-			return root, arg, fullURL, nil
+		if fullURL := provider.IssueURL(root, arg); fullURL != "" {
+			return root, arg, fullURL, provider, nil
 		}
-		return root, arg, arg, nil
+		return root, arg, arg, provider, nil
 	}
-	root, err := locateOrCloneRepo(owner, repoName, out)
-	if err != nil {
-		return "", "", "", err
+	urlProvider, provErr := vcs.ProviderForName(providerName)
+	if provErr != nil {
+		return "", "", "", nil, provErr
 	}
-	// Pass the original URL to gh so it resolves without requiring a
-	// matching git remote in the working directory.
-	return root, issueNum, arg, nil
+	root, cloneErr := locateOrCloneRepo(owner, repoName, urlProvider, out)
+	if cloneErr != nil {
+		return "", "", "", nil, cloneErr
+	}
+	// Re-detect after clone so any config-file override in the cloned repo is honoured.
+	provider, detectErr := vcs.Detect(root)
+	if detectErr != nil {
+		provider = urlProvider
+	}
+	// Pass the original URL as issueArg so the VCS CLI can resolve it without
+	// requiring a matching git remote.
+	return root, issueNum, arg, provider, nil
 }
 
 // worktreeExistsError returns a descriptive, actionable error for the case
@@ -2565,60 +2468,6 @@ func cleanupFailedStart(repoRoot, wtPath, branch, devPID string) error {
 	return nil
 }
 
-// ensureGHToken ensures GITHUB_TOKEN is set in the environment before agents
-// are launched. It checks env vars first; only when both are absent does it
-// shell out to `gh auth token` as a convenience fallback. Resolution order:
-//  1. GITHUB_TOKEN already set — use it.
-//  2. GH_TOKEN set — copy to GITHUB_TOKEN.
-//  3. `gh auth token` succeeds — set GITHUB_TOKEN from its output.
-//  4. All fail — return an actionable error that includes any `gh` diagnostic.
-func ensureGHToken() error {
-	if os.Getenv("GITHUB_TOKEN") != "" {
-		return nil
-	}
-	if tok := os.Getenv("GH_TOKEN"); tok != "" {
-		os.Setenv("GITHUB_TOKEN", tok)
-		return nil
-	}
-	// Try gh auth token as a convenience fallback for users with a configured gh CLI.
-	var stdout, stderr bytes.Buffer
-	cmd := exec.Command("gh", "auth", "token")
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err == nil {
-		if tok := strings.TrimSpace(stdout.String()); tok != "" {
-			os.Setenv("GITHUB_TOKEN", tok)
-			return nil
-		}
-	}
-	msg := "GITHUB_TOKEN is not set\n\nSet it in your current shell (or shell profile) and re-run:\n  export GITHUB_TOKEN=<your-token>\n\nBoth GITHUB_TOKEN and GH_TOKEN are accepted. To obtain a token, run:\n  gh auth token"
-	if ghErr := strings.TrimSpace(stderr.String()); ghErr != "" {
-		msg += "\n\n`gh auth token` reported: " + ghErr
-	}
-	return fmt.Errorf("%s", msg)
-}
-
-// slugFromIssue fetches the GitHub issue title and converts it to a slug.
-// issueArg may be a bare issue number or a full GitHub issue URL; both are
-// accepted by `gh issue view`.
-func slugFromIssue(issueArg string) (string, error) {
-	cmd := exec.Command("gh", "issue", "view", issueArg, "--json", "title", "-q", ".title")
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &bytes.Buffer{}
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("could not fetch title for issue %s; pass a slug explicitly", issueArg)
-	}
-	title := strings.TrimSpace(out.String())
-	if title == "" {
-		return "", fmt.Errorf("could not fetch title for issue %s; pass a slug explicitly", issueArg)
-	}
-	slug := titleToSlug(title)
-	if slug == "" {
-		slug = "work"
-	}
-	return slug, nil
-}
 
 // slugFromTask derives a task branch name from the first six words of the
 // task description using the same slugging rules as GitHub issue titles.
@@ -3914,24 +3763,28 @@ func agentEnv(wtPath string) ([]string, error) {
 			}
 		}
 
-		// Expose only ~/.config/gh (the gh CLI credential store) rather than
-		// the entire ~/.config tree, to limit the host config surface accessible
-		// from the agent's isolated HOME.
-		ghConfigSrc := filepath.Join(realHome, ".config", "gh")
-		if _, srcErr := os.Lstat(ghConfigSrc); srcErr == nil {
-			agentConfigDir := filepath.Join(agentHome, ".config")
+		// Expose ~/.config/gh and ~/.config/glab-cli (the CLI credential stores)
+		// rather than the entire ~/.config tree, to limit the host config surface
+		// accessible from the agent's isolated HOME.
+		agentConfigDir := filepath.Join(agentHome, ".config")
+		for _, cfgDir := range []string{"gh", "glab-cli"} {
+			cfgSrc := filepath.Join(realHome, ".config", cfgDir)
+			if _, srcErr := os.Lstat(cfgSrc); srcErr != nil {
+				if !os.IsNotExist(srcErr) {
+					fmt.Fprintf(os.Stderr, "agentctl: warning: stat %s: %v\n", cfgSrc, srcErr)
+				}
+				continue
+			}
 			if mkdirErr := os.MkdirAll(agentConfigDir, 0o755); mkdirErr != nil {
 				fmt.Fprintf(os.Stderr, "agentctl: warning: mkdir %s: %v\n", agentConfigDir, mkdirErr)
-			} else {
-				ghConfigDst := filepath.Join(agentConfigDir, "gh")
-				if _, statErr := os.Lstat(ghConfigDst); os.IsNotExist(statErr) {
-					if symlinkErr := os.Symlink(ghConfigSrc, ghConfigDst); symlinkErr != nil {
-						fmt.Fprintf(os.Stderr, "agentctl: warning: symlink .config/gh: %v (gh credentials may not work)\n", symlinkErr)
-					}
+				continue
+			}
+			cfgDst := filepath.Join(agentConfigDir, cfgDir)
+			if _, statErr := os.Lstat(cfgDst); os.IsNotExist(statErr) {
+				if symlinkErr := os.Symlink(cfgSrc, cfgDst); symlinkErr != nil {
+					fmt.Fprintf(os.Stderr, "agentctl: warning: symlink .config/%s: %v (%s credentials may not work)\n", cfgDir, symlinkErr, cfgDir)
 				}
 			}
-		} else if !os.IsNotExist(srcErr) {
-			fmt.Fprintf(os.Stderr, "agentctl: warning: stat %s: %v\n", ghConfigSrc, srcErr)
 		}
 	}
 
@@ -4014,9 +3867,11 @@ func writeClaudeSettings(wtPath string) error {
 // blocks until the agent exits. When headless is true it detaches immediately
 // and writes output to agent.log.
 func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless, quiet, sendNotify bool) error {
-	// Verify GITHUB_TOKEN is set before any gh calls. Never touches the keychain.
-	if err := ensureGHToken(); err != nil {
-		return err
+	// Verify VCS credentials are available before any provider calls.
+	if p, err := resolveProvider(wtPath); err == nil {
+		if authErr := p.AuthCheck(); authErr != nil {
+			return authErr
+		}
 	}
 
 	ad, err := adapters.Get(adapterName)

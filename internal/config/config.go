@@ -10,6 +10,15 @@ import (
 
 const Filename = ".agentctl.yml"
 
+// VCSConfig holds optional VCS provider overrides. Useful for self-hosted
+// GitLab instances where the origin URL does not contain "gitlab.com".
+type VCSConfig struct {
+	// Provider overrides automatic detection. Valid values: "github", "gitlab".
+	Provider string `yaml:"provider,omitempty"`
+	// Server is the base URL of a self-hosted instance (e.g. https://gitlab.mycompany.com).
+	Server string `yaml:"server,omitempty"`
+}
+
 // AgentctlConfig is the schema for .agentctl.yml.
 type AgentctlConfig struct {
 	// DevServer is the command to start the project's dev server.
@@ -28,6 +37,9 @@ type AgentctlConfig struct {
 	// Valid values: "squash" (default when empty), "merge", "rebase".
 	// Override per-invocation with the --strategy flag.
 	MergeStrategy string `yaml:"merge_strategy,omitempty"`
+
+	// VCS holds optional VCS provider overrides for self-hosted instances.
+	VCS VCSConfig `yaml:"vcs,omitempty"`
 }
 
 // Read loads .agentctl.yml from dir. If the file does not exist, an empty
