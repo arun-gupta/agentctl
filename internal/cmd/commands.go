@@ -314,7 +314,7 @@ func startOne(issue, slug, agentName, sddName, agentSuffix string, headless, qui
 
 	var kickoff string
 	if sddName == "" {
-		kickoff = buildKickoff(issueNum, portStr, p.CLI()+" platform", p.PRTerm())
+		kickoff = buildKickoff(issueNum, portStr, p.Platform(), p.PRTerm())
 	} else {
 		m, sddErr := sdd.Get(sddName)
 		if sddErr != nil {
@@ -1499,11 +1499,10 @@ func runStatus(verbose bool) error {
 
 		prState := "none"
 		if branch != "?" && branch != "HEAD" {
-			statusProvider, _ := resolveProvider(repoRoot)
-			if statusProvider == nil {
-				statusProvider, _ = vcs.ProviderForName("github")
-			}
-			if af.PRNumber != "" {
+			statusProvider, provErr := resolveProvider(repoRoot)
+			if provErr != nil {
+				fmt.Fprintf(os.Stderr, "WARNING: could not detect VCS provider for %s: %v\n", repoRoot, provErr)
+			} else if af.PRNumber != "" {
 				// Cache hit — use stored number, call VCS CLI live for current state.
 				if ps, _, prURL, err := statusProvider.PRForBranch(repoRoot, af.PRNumber); err == nil && ps != "" {
 					prState = fmt.Sprintf("#%s %s", af.PRNumber, ps)
@@ -2219,7 +2218,7 @@ type prInfo struct {
 func linkPRToIssue(dir, branch, issueNum string) (*prInfo, error) {
 	p, err := resolveProvider(dir)
 	if err != nil {
-		p, _ = vcs.ProviderForName("github")
+		return nil, fmt.Errorf("could not detect VCS provider: %w", err)
 	}
 
 	prState, number, url, err := p.PRForBranch(dir, branch)
@@ -2242,32 +2241,22 @@ func linkPRToIssue(dir, branch, issueNum string) (*prInfo, error) {
 		return pr, nil
 	}
 
-	// For GitHub, append a "Closes #N" line so the issue is linked.
-	// GitLab handles issue linking differently (via the MR description or
-	// project settings), so we skip the body edit for non-GitHub providers.
-	if p.CLI() == "gh" {
-		// Re-fetch to get body (GitHub provider only).
-		cmd := exec.Command("gh", "pr", "view", branch, "--json", "number,body,url")
-		cmd.Dir = dir
-		var out, errBuf bytes.Buffer
-		cmd.Stdout = &out
-		cmd.Stderr = &errBuf
-		if cmdErr := cmd.Run(); cmdErr == nil {
-			var full prInfo
-			if jsonErr := json.Unmarshal(out.Bytes(), &full); jsonErr == nil {
-				lower := strings.ToLower(full.Body)
-				if !strings.Contains(lower, "closes #"+issueNum) && !strings.Contains(lower, "fixes #"+issueNum) {
-					newBody := strings.TrimRight(full.Body, "\n") + "\n\nCloses #" + issueNum
-					if editErr := p.EditPRBody(dir, full.Number, newBody); editErr != nil {
-						return &full, fmt.Errorf("gh pr edit: %w", editErr)
-					}
-				}
-				return &full, nil
-			}
+	// Re-fetch the PR/MR details to get the body so we can append a closing
+	// keyword when it is missing.  Errors here are surfaced rather than
+	// swallowed so regressions in issue-linking are immediately visible.
+	fullNumber, body, fullURL, detailErr := p.FetchPRDetails(dir, branch)
+	if detailErr != nil {
+		return pr, fmt.Errorf("%s pr view: %w", p.CLI(), detailErr)
+	}
+	full := &prInfo{Number: fullNumber, Body: body, URL: fullURL}
+	lower := strings.ToLower(body)
+	if !strings.Contains(lower, "closes #"+issueNum) && !strings.Contains(lower, "fixes #"+issueNum) {
+		newBody := strings.TrimRight(body, "\n") + "\n\nCloses #" + issueNum
+		if editErr := p.EditPRBody(dir, fullNumber, newBody); editErr != nil {
+			return full, fmt.Errorf("%s pr edit: %w", p.CLI(), editErr)
 		}
 	}
-
-	return pr, nil
+	return full, nil
 }
 
 // reportPRStatus links the PR to the issue and prints the PR URL to w.

@@ -23,6 +23,11 @@ type Provider interface {
 	// All values are zero on error.
 	PRForBranch(repoRoot, ref string) (prState string, number int, url string, err error)
 
+	// FetchPRDetails fetches the PR/MR number, description body, and URL for
+	// the branch or PR number identified by ref.  Used to add issue-closing
+	// keywords to the PR/MR body after the agent opens it.
+	FetchPRDetails(repoRoot, ref string) (number int, body, url string, err error)
+
 	// HasPR reports whether any PR/MR (open, closed, or merged) exists for branch.
 	// Returns (false, err) on auth/network failures so callers can be conservative.
 	HasPR(repoRoot, branch string) (bool, error)
@@ -47,7 +52,15 @@ type Provider interface {
 	// CLI returns the CLI tool name ("gh" or "glab") for use in error messages.
 	CLI() string
 
+	// Platform returns the human-readable VCS platform name ("GitHub" or "GitLab").
+	Platform() string
+
 	// PRTerm returns the provider-appropriate term for a pull/merge request
 	// ("PR" for GitHub, "MR" for GitLab).
 	PRTerm() string
+
+	// MatchesHost reports whether originURL belongs to this provider's hosting
+	// domain (or the configured self-hosted server).  Used by MatchesOrigin to
+	// prevent cross-provider false positives.
+	MatchesHost(originURL string) bool
 }

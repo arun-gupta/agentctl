@@ -870,6 +870,8 @@ func TestRemoveBranchRefs_alreadyRemovedIsQuiet(t *testing.T) {
 
 func TestRunCleanupAllMerged_prunesRemoteOnlyMergedBranch(t *testing.T) {
 	repo := initGitRepoWithBareOrigin(t)
+	// Test repos use local file paths as origins; configure the provider explicitly.
+	writeVCSProvider(t, repo, "github")
 
 	createCommittedFile(t, repo, "tracked.txt", "initial\n")
 	gitRun(t, repo, "checkout", "-b", "main")
@@ -909,6 +911,8 @@ func TestRunCleanupAllMerged_prunesRemoteOnlyMergedBranch(t *testing.T) {
 
 func TestRunCleanupAllMerged_skipsRemoteOnlyOpenBranch(t *testing.T) {
 	repo := initGitRepoWithBareOrigin(t)
+	// Test repos use local file paths as origins; configure the provider explicitly.
+	writeVCSProvider(t, repo, "github")
 
 	createCommittedFile(t, repo, "tracked.txt", "initial\n")
 	gitRun(t, repo, "checkout", "-b", "main")
@@ -1149,6 +1153,16 @@ func writeLocalAdapter(t *testing.T, dir, name, content string) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(adapterDir, name+".yml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// writeVCSProvider writes a .agentctl.yml with a vcs.provider override so
+// that Detect works in test repos whose origin is a local file path.
+func writeVCSProvider(t *testing.T, dir, provider string) {
+	t.Helper()
+	yaml := "vcs:\n  provider: " + provider + "\n"
+	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"), []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -4954,6 +4968,8 @@ func TestRunDiscardStale_confirmationYES_removesWorktreeAndBranch(t *testing.T) 
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git remote add: %v\n%s", err, out)
 	}
+	// Test repos use local file paths as origins; configure the provider explicitly.
+	writeVCSProvider(t, repo, "github")
 
 	wtPath := filepath.Join(t.TempDir(), "42-my-feature")
 	addWorktree(t, repo, wtPath, "42-my-feature")

@@ -16,15 +16,16 @@ import (
 //  2. git origin URL — github.com variants → GitHub, gitlab.com variants → GitLab
 //
 // Returns an error when the origin matches neither provider and no config
-// override is present.
+// override is present.  When there is no origin at all, GitHub is returned
+// for backward compatibility with local-only repos.
 func Detect(repoRoot string) (Provider, error) {
 	// Config file override takes priority.
 	if cfg, err := config.Read(repoRoot); err == nil && cfg.VCS.Provider != "" {
 		switch strings.ToLower(cfg.VCS.Provider) {
 		case "github":
-			return githubProvider{}, nil
+			return githubProvider{server: cfg.VCS.Server}, nil
 		case "gitlab":
-			return gitlabProvider{}, nil
+			return gitlabProvider{server: cfg.VCS.Server}, nil
 		default:
 			return nil, fmt.Errorf("unknown vcs provider %q in .agentctl.yml; valid values: github, gitlab", cfg.VCS.Provider)
 		}
@@ -32,7 +33,8 @@ func Detect(repoRoot string) (Provider, error) {
 
 	u, err := git.OriginURL(repoRoot)
 	if err != nil {
-		// No origin remote; fall back to GitHub for backward compatibility.
+		// No origin remote; fall back to GitHub for backward compatibility
+		// with repos that have no remote (e.g. local-only development).
 		return githubProvider{}, nil
 	}
 	u = strings.TrimSuffix(strings.TrimSpace(u), ".git")
@@ -47,22 +49,29 @@ func Detect(repoRoot string) (Provider, error) {
 		strings.HasPrefix(u, "ssh://git@gitlab.com/"):
 		return gitlabProvider{}, nil
 	default:
-		// Unknown origin — fall back to GitHub for backward compatibility.
-		return githubProvider{}, nil
+		// Unknown origin with no config override: surface an error instead of
+		// silently using gh, which would produce confusing auth/lookup failures.
+		return nil, fmt.Errorf("could not detect VCS provider from origin %q; set vcs.provider in .agentctl.yml (valid values: github, gitlab)", u)
 	}
 }
 
 // MatchesOrigin reports whether the "origin" remote of repoRoot points to
 // owner/repoName on any recognised remote for provider p. Both HTTPS and
 // SSH URL formats are handled; a trailing ".git" suffix is ignored.
+// The provider's host is also checked to prevent cross-provider false positives
+// (e.g. a GitLab issue URL matching an adjacent GitHub clone with the same path).
 func MatchesOrigin(repoRoot, owner, repoName string, p Provider) bool {
 	u, err := git.OriginURL(repoRoot)
 	if err != nil {
 		return false
 	}
-	u = strings.TrimSuffix(u, ".git")
+	u = strings.TrimSuffix(strings.TrimSpace(u), ".git")
 	suffix := owner + "/" + repoName
-	return strings.HasSuffix(u, "/"+suffix) || strings.HasSuffix(u, ":"+suffix)
+	if !(strings.HasSuffix(u, "/"+suffix) || strings.HasSuffix(u, ":"+suffix)) {
+		return false
+	}
+	// Also verify the origin URL belongs to this provider's hosting domain.
+	return p.MatchesHost(u)
 }
 
 // ParseIssueURL parses a full GitHub or GitLab issue URL and returns the
@@ -70,7 +79,10 @@ func MatchesOrigin(repoRoot, owner, repoName string, p Provider) bool {
 //
 // Supported formats:
 //   - https://github.com/<owner>/<repo>/issues/<num>
-//   - https://gitlab.com/<owner>/<repo>/-/issues/<num>
+//   - https://gitlab.com/<groups...>/<repo>/-/issues/<num>
+//
+// GitLab supports nested groups: owner may be "group/subgroup" for a project
+// hosted under a GitLab group hierarchy.
 func ParseIssueURL(arg string) (owner, repo, issueNum, providerName string, ok bool) {
 	switch {
 	case strings.HasPrefix(arg, "https://github.com/"):
@@ -87,14 +99,33 @@ func ParseIssueURL(arg string) (owner, repo, issueNum, providerName string, ok b
 	case strings.HasPrefix(arg, "https://gitlab.com/"):
 		tail := strings.TrimSuffix(strings.TrimPrefix(arg, "https://gitlab.com/"), "/")
 		parts := strings.Split(tail, "/")
-		// Expected: owner / repo / - / issues / num  (5 parts)
-		if len(parts) != 5 || parts[2] != "-" || parts[3] != "issues" {
+		// GitLab issue URLs follow the pattern:
+		//   <groups...>/<repo>/-/issues/<num>
+		// where there must be at least one group and one repo before "/-/",
+		// giving a minimum of 5 parts: owner/repo/-/issues/num.
+		if len(parts) < 5 {
 			return "", "", arg, "", false
 		}
-		if _, err := strconv.Atoi(parts[4]); err != nil {
+		// Locate the "/-/issues/<num>" segment.  We start at index 2 so there
+		// are always at least two path components (owner + repo) before the dash.
+		dashIdx := -1
+		for i := 2; i < len(parts)-2; i++ {
+			if parts[i] == "-" && parts[i+1] == "issues" {
+				dashIdx = i
+				break
+			}
+		}
+		if dashIdx == -1 {
 			return "", "", arg, "", false
 		}
-		return parts[0], parts[1], parts[4], "gitlab", true
+		numStr := parts[dashIdx+2]
+		if _, err := strconv.Atoi(numStr); err != nil {
+			return "", "", arg, "", false
+		}
+		// repo = segment immediately before "/-/"; owner = everything before it.
+		repoSeg := parts[dashIdx-1]
+		ownerSeg := strings.Join(parts[:dashIdx-1], "/")
+		return ownerSeg, repoSeg, numStr, "gitlab", true
 	}
 	return "", "", arg, "", false
 }

@@ -140,3 +140,75 @@ func TestWrite_preservesMergeStrategy(t *testing.T) {
 		t.Errorf("MergeStrategy = %q, want %q", got.MergeStrategy, "squash")
 	}
 }
+
+func TestRead_parsesVCSProvider(t *testing.T) {
+dir := t.TempDir()
+if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"), []byte("vcs:\n  provider: gitlab\n"), 0o644); err != nil {
+t.Fatal(err)
+}
+cfg, err := config.Read(dir)
+if err != nil {
+t.Fatalf("unexpected error: %v", err)
+}
+if cfg.VCS.Provider != "gitlab" {
+t.Errorf("VCS.Provider = %q, want %q", cfg.VCS.Provider, "gitlab")
+}
+}
+
+func TestRead_parsesVCSServer(t *testing.T) {
+dir := t.TempDir()
+yaml := "vcs:\n  provider: gitlab\n  server: https://gitlab.company.com\n"
+if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"), []byte(yaml), 0o644); err != nil {
+t.Fatal(err)
+}
+cfg, err := config.Read(dir)
+if err != nil {
+t.Fatalf("unexpected error: %v", err)
+}
+if cfg.VCS.Provider != "gitlab" {
+t.Errorf("VCS.Provider = %q, want %q", cfg.VCS.Provider, "gitlab")
+}
+if cfg.VCS.Server != "https://gitlab.company.com" {
+t.Errorf("VCS.Server = %q, want %q", cfg.VCS.Server, "https://gitlab.company.com")
+}
+}
+
+func TestRead_vcsDefaultsEmpty(t *testing.T) {
+dir := t.TempDir()
+if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"), []byte("dev_server: \"npm start\"\n"), 0o644); err != nil {
+t.Fatal(err)
+}
+cfg, err := config.Read(dir)
+if err != nil {
+t.Fatalf("unexpected error: %v", err)
+}
+if cfg.VCS.Provider != "" {
+t.Errorf("VCS.Provider = %q, want empty string (default)", cfg.VCS.Provider)
+}
+if cfg.VCS.Server != "" {
+t.Errorf("VCS.Server = %q, want empty string (default)", cfg.VCS.Server)
+}
+}
+
+func TestWrite_preservesVCS(t *testing.T) {
+dir := t.TempDir()
+cfg := &config.AgentctlConfig{
+VCS: config.VCSConfig{
+Provider: "gitlab",
+Server:   "https://gitlab.company.com",
+},
+}
+if err := config.Write(dir, cfg); err != nil {
+t.Fatalf("Write error: %v", err)
+}
+got, err := config.Read(dir)
+if err != nil {
+t.Fatal(err)
+}
+if got.VCS.Provider != "gitlab" {
+t.Errorf("VCS.Provider = %q, want %q", got.VCS.Provider, "gitlab")
+}
+if got.VCS.Server != "https://gitlab.company.com" {
+t.Errorf("VCS.Server = %q, want %q", got.VCS.Server, "https://gitlab.company.com")
+}
+}

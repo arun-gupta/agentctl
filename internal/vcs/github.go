@@ -14,13 +14,40 @@ import (
 )
 
 // githubProvider implements Provider using the gh CLI.
-type githubProvider struct{}
+type githubProvider struct {
+	// server is the base URL for a self-hosted GitHub Enterprise instance.
+	// When empty, github.com is used.
+	server string
+}
 
 // compile-time interface check
 var _ Provider = githubProvider{}
 
-func (g githubProvider) CLI() string  { return "gh" }
-func (g githubProvider) PRTerm() string { return "PR" }
+func (g githubProvider) CLI() string      { return "gh" }
+func (g githubProvider) PRTerm() string   { return "PR" }
+func (g githubProvider) Platform() string { return "GitHub" }
+
+// baseURL returns the HTTPS base URL for this provider instance.
+func (g githubProvider) baseURL() string {
+	if g.server != "" {
+		return strings.TrimRight(g.server, "/")
+	}
+	return "https://github.com"
+}
+
+// MatchesHost reports whether originURL belongs to the GitHub hosting domain
+// (or the configured self-hosted GitHub Enterprise server).
+// When a custom server is configured only that server's URL is accepted; the
+// canonical github.com host is not matched to prevent cross-instance confusion.
+func (g githubProvider) MatchesHost(u string) bool {
+	if g.server != "" {
+		base := strings.TrimRight(g.server, "/")
+		return strings.HasPrefix(u, base+"/")
+	}
+	return strings.HasPrefix(u, "https://github.com/") ||
+		strings.HasPrefix(u, "git@github.com:") ||
+		strings.HasPrefix(u, "ssh://git@github.com/")
+}
 
 func (g githubProvider) AuthCheck() error {
 	if os.Getenv("GITHUB_TOKEN") != "" {
@@ -68,16 +95,20 @@ func (g githubProvider) IssueURL(repoRoot, issueNum string) string {
 		return ""
 	}
 	u = strings.TrimSuffix(strings.TrimSpace(u), ".git")
-	if strings.HasPrefix(u, "https://github.com/") {
+	base := g.baseURL()
+	if strings.HasPrefix(u, base+"/") {
 		return u + "/issues/" + issueNum
 	}
-	const sshPrefix = "git@github.com:"
-	if strings.HasPrefix(u, sshPrefix) {
-		return "https://github.com/" + strings.TrimPrefix(u, sshPrefix) + "/issues/" + issueNum
-	}
-	const sshURLPrefix = "ssh://git@github.com/"
-	if strings.HasPrefix(u, sshURLPrefix) {
-		return "https://github.com/" + strings.TrimPrefix(u, sshURLPrefix) + "/issues/" + issueNum
+	if g.server == "" {
+		// Canonical github.com SSH forms.
+		const sshPrefix = "git@github.com:"
+		if strings.HasPrefix(u, sshPrefix) {
+			return "https://github.com/" + strings.TrimPrefix(u, sshPrefix) + "/issues/" + issueNum
+		}
+		const sshURLPrefix = "ssh://git@github.com/"
+		if strings.HasPrefix(u, sshURLPrefix) {
+			return "https://github.com/" + strings.TrimPrefix(u, sshURLPrefix) + "/issues/" + issueNum
+		}
 	}
 	return ""
 }
@@ -152,6 +183,26 @@ func (g githubProvider) EditPRBody(repoRoot string, number int, body string) err
 		return fmt.Errorf("gh pr edit: %w: %s", err, strings.TrimSpace(errBuf.String()))
 	}
 	return nil
+}
+
+func (g githubProvider) FetchPRDetails(repoRoot, ref string) (number int, body, url string, err error) {
+	cmd := exec.Command("gh", "pr", "view", ref, "--json", "number,body,url")
+	cmd.Dir = repoRoot
+	var out, errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+	if err = cmd.Run(); err != nil {
+		return 0, "", "", fmt.Errorf("gh pr view: %w: %s", err, strings.TrimSpace(errBuf.String()))
+	}
+	var result struct {
+		Number int    `json:"number"`
+		Body   string `json:"body"`
+		URL    string `json:"url"`
+	}
+	if err = json.Unmarshal(out.Bytes(), &result); err != nil {
+		return 0, "", "", fmt.Errorf("gh pr view: unexpected output: %w", err)
+	}
+	return result.Number, result.Body, result.URL, nil
 }
 
 func (g githubProvider) MergePR(repoRoot, branch, strategy string) error {
