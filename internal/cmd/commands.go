@@ -2348,11 +2348,6 @@ func repoRootForIssue(arg string, out io.Writer) (repoRoot, issueNum, issueArg s
 		if detectErr != nil {
 			return "", "", "", nil, detectErr
 		}
-		// Resolve bare number to a full issue URL so IssueArg is always
-		// unambiguous regardless of how the issue was supplied.
-		if fullURL := provider.IssueURL(root, arg); fullURL != "" {
-			return root, arg, fullURL, provider, nil
-		}
 		return root, arg, arg, provider, nil
 	}
 	urlProvider, provErr := vcs.ProviderForName(providerName)

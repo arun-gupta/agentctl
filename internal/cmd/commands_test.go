@@ -813,8 +813,8 @@ func TestRepoRootForIssue_bareNumber(t *testing.T) {
 	if issueNum != "42" {
 		t.Errorf("issueNum = %q, want %q", issueNum, "42")
 	}
-	if issueArg != "https://github.com/myorg/myrepo/issues/42" {
-		t.Errorf("issueArg = %q, want full GitHub URL", issueArg)
+	if issueArg != "42" {
+		t.Errorf("issueArg = %q, want bare issue number", issueArg)
 	}
 	if p == nil || p.CLI() != "gh" {
 		t.Errorf("expected GitHub provider, got %v", p)
