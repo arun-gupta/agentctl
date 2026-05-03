@@ -1,0 +1,215 @@
+package vcs
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os/exec"
+	"strconv"
+	"strings"
+
+	"github.com/arun-gupta/agentctl/internal/git"
+)
+
+// githubProvider implements Provider using the gh CLI.
+type githubProvider struct {
+	// server is the base URL for a self-hosted GitHub Enterprise instance.
+	// When empty, github.com is used.
+	server string
+}
+
+// compile-time interface check
+var _ Provider = githubProvider{}
+
+func (g githubProvider) CLI() string      { return "gh" }
+func (g githubProvider) PRTerm() string   { return "PR" }
+func (g githubProvider) Platform() string { return "GitHub" }
+
+// baseURL returns the HTTPS base URL for this provider instance.
+func (g githubProvider) baseURL() string {
+	if g.server != "" {
+		return strings.TrimRight(g.server, "/")
+	}
+	return "https://github.com"
+}
+
+// MatchesHost reports whether originURL belongs to the GitHub hosting domain
+// (or the configured self-hosted GitHub Enterprise server).
+// When a custom server is configured only that server's URL is accepted; the
+// canonical github.com host is not matched to prevent cross-instance confusion.
+func (g githubProvider) MatchesHost(u string) bool {
+	if g.server != "" {
+		base := strings.TrimRight(g.server, "/")
+		return strings.HasPrefix(u, base+"/")
+	}
+	return strings.HasPrefix(u, "https://github.com/") ||
+		strings.HasPrefix(u, "git@github.com:") ||
+		strings.HasPrefix(u, "ssh://git@github.com/")
+}
+
+func (g githubProvider) AuthCheck() error {
+	return authCheckFromCLI("GITHUB_TOKEN", "GH_TOKEN", "gh")
+}
+
+func (g githubProvider) FetchIssueTitle(issueArg string) (string, error) {
+	cmd := exec.Command("gh", "issue", "view", issueArg, "--json", "title", "-q", ".title")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &bytes.Buffer{}
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("could not fetch title for issue %s; pass a slug explicitly", issueArg)
+	}
+	title := strings.TrimSpace(out.String())
+	if title == "" {
+		return "", fmt.Errorf("could not fetch title for issue %s; pass a slug explicitly", issueArg)
+	}
+	return title, nil
+}
+
+func (g githubProvider) IssueURL(repoRoot, issueNum string) string {
+	u, err := git.OriginURL(repoRoot)
+	if err != nil {
+		return ""
+	}
+	u = strings.TrimSuffix(strings.TrimSpace(u), ".git")
+	base := g.baseURL()
+	if strings.HasPrefix(u, base+"/") {
+		return u + "/issues/" + issueNum
+	}
+	if g.server == "" {
+		// Canonical github.com SSH forms.
+		const sshPrefix = "git@github.com:"
+		if strings.HasPrefix(u, sshPrefix) {
+			return "https://github.com/" + strings.TrimPrefix(u, sshPrefix) + "/issues/" + issueNum
+		}
+		const sshURLPrefix = "ssh://git@github.com/"
+		if strings.HasPrefix(u, sshURLPrefix) {
+			return "https://github.com/" + strings.TrimPrefix(u, sshURLPrefix) + "/issues/" + issueNum
+		}
+	}
+	return ""
+}
+
+func (g githubProvider) PRForBranch(repoRoot, ref string) (prState string, number int, url string, err error) {
+	cmd := exec.Command("gh", "pr", "view", ref, "--json", "state,number,url")
+	cmd.Dir = repoRoot
+	var out, errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+	if err = cmd.Run(); err != nil {
+		return "", 0, "", fmt.Errorf("%w: %s", err, strings.TrimSpace(errBuf.String()))
+	}
+	var result struct {
+		State  string `json:"state"`
+		Number int    `json:"number"`
+		URL    string `json:"url"`
+	}
+	if err = json.Unmarshal(out.Bytes(), &result); err != nil {
+		snippet := strings.TrimSpace(out.String())
+		runes := []rune(snippet)
+		if len(runes) > 200 {
+			snippet = string(runes[:200]) + "..."
+		}
+		return "", 0, "", fmt.Errorf("unexpected gh output: %w (output: %q)", err, snippet)
+	}
+	return result.State, result.Number, result.URL, nil
+}
+
+func (g githubProvider) HasPR(repoRoot, branch string) (bool, error) {
+	cmd := exec.Command("gh", "pr", "list", "--head", branch, "--state", "all", "--json", "number")
+	cmd.Dir = repoRoot
+	var out, errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		return false, fmt.Errorf("%w: %s", err, strings.TrimSpace(errBuf.String()))
+	}
+	return strings.TrimSpace(out.String()) != "[]", nil
+}
+
+func (g githubProvider) PRMergeInfo(repoRoot, branch string) (prState, mergeable, reviewDecision string, err error) {
+	cmd := exec.Command("gh", "pr", "view", branch,
+		"--json", "state,mergeable,reviewDecision",
+		"-q", ".state+\" \"+.mergeable+\" \"+.reviewDecision")
+	cmd.Dir = repoRoot
+	var out, errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		return "", "", "", fmt.Errorf("%s", strings.TrimSpace(errBuf.String()))
+	}
+	parts := strings.Fields(strings.TrimSpace(out.String()))
+	if len(parts) >= 3 {
+		return parts[0], parts[1], parts[2], nil
+	}
+	if len(parts) >= 2 {
+		return parts[0], parts[1], "", nil
+	}
+	if len(parts) == 1 {
+		return parts[0], "", "", nil
+	}
+	return "", "", "", nil
+}
+
+func (g githubProvider) EditPRBody(repoRoot string, number int, body string) error {
+	cmd := exec.Command("gh", "pr", "edit", strconv.Itoa(number), "--body", body)
+	cmd.Dir = repoRoot
+	var errBuf bytes.Buffer
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("gh pr edit: %w: %s", err, strings.TrimSpace(errBuf.String()))
+	}
+	return nil
+}
+
+func (g githubProvider) FetchPRDetails(repoRoot, ref string) (number int, body, url string, err error) {
+	cmd := exec.Command("gh", "pr", "view", ref, "--json", "number,body,url")
+	cmd.Dir = repoRoot
+	var out, errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+	if err = cmd.Run(); err != nil {
+		return 0, "", "", fmt.Errorf("gh pr view: %w: %s", err, strings.TrimSpace(errBuf.String()))
+	}
+	var result struct {
+		Number int    `json:"number"`
+		Body   string `json:"body"`
+		URL    string `json:"url"`
+	}
+	if err = json.Unmarshal(out.Bytes(), &result); err != nil {
+		return 0, "", "", fmt.Errorf("gh pr view: unexpected output: %w", err)
+	}
+	return result.Number, result.Body, result.URL, nil
+}
+
+func (g githubProvider) MergePR(repoRoot, branch, strategy string) error {
+	args := []string{"pr", "merge", branch, "--yes"}
+	switch strategy {
+	case "squash":
+		args = append(args, "--squash")
+	case "merge":
+		args = append(args, "--merge")
+	case "rebase":
+		args = append(args, "--rebase")
+	}
+	cmd := exec.Command("gh", args...)
+	cmd.Dir = repoRoot
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%s", strings.TrimSpace(out.String()))
+	}
+	return nil
+}
+
+func (g githubProvider) Clone(ownerRepo, targetDir string, out io.Writer) error {
+	cmd := exec.Command("gh", "repo", "clone", ownerRepo, targetDir)
+	cmd.Stdout = out
+	cmd.Stderr = out
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("gh repo clone %s: %w", ownerRepo, err)
+	}
+	return nil
+}

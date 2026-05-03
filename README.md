@@ -1,6 +1,6 @@
 # agentctl
 
-**agentctl** is a **Go** CLI that combines [git worktrees](https://git-scm.com/docs/git-worktree), coding agents, and optional spec-driven development (SDD) methodologies to tackle GitHub issues in isolated workspaces, with pluggability across both agents and SDD workflows.
+**agentctl** is a **Go** CLI that combines [git worktrees](https://git-scm.com/docs/git-worktree), coding agents, and optional spec-driven development (SDD) methodologies to tackle GitHub and GitLab issues in isolated workspaces, with pluggability across both agents and SDD workflows.
 
 | Coding agents | SDD methodologies |
 |---|---|
@@ -41,8 +41,9 @@ brew update && brew upgrade agentctl
 cd /path/to/your/app-repo
 agentctl start 42
 
-# Or from anywhere, using a full GitHub issue URL
+# Or from anywhere, using a full issue URL (GitHub or GitLab)
 agentctl start https://github.com/owner/repo/issues/42
+agentctl start https://gitlab.com/owner/repo/-/issues/42
 
 # Or from your repo, using a free-form task
 agentctl start --task "Refactor the auth middleware to use JWT"
