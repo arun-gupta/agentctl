@@ -11,5 +11,13 @@ kickoff: |
   - STAGE 2: Run /speckit.plan to break the spec into a plan. Proceed immediately — no pause.
   - STAGE 3: Run /speckit.tasks to create task list. Proceed immediately — no pause.
   - STAGE 4: Run /speckit.implement to implement the tasks.
+  Before opening the PR, run the project's test suite (use test_cmd from
+  .agentctl.yml if present, otherwise infer from AGENTS.md or README.md).
+  In the PR description include a '## Test plan' section with two subsections:
+  - Automated: the command run and a pass/fail summary.
+  - Manual: a bulleted list of scenarios that cannot be automated, each with
+    a one-line explanation of why manual verification is needed.
+  If tests fail, fix the failures before opening the PR. If you cannot fix
+  them, open the PR anyway but clearly mark the failing tests in the plan.
   Push the branch and open a PR when done. Do not merge.
   Dev server is running on port {port}.

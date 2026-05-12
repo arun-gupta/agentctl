@@ -28,6 +28,11 @@ type AgentctlConfig struct {
 	// Valid values: "squash" (default when empty), "merge", "rebase".
 	// Override per-invocation with the --strategy flag.
 	MergeStrategy string `yaml:"merge_strategy,omitempty"`
+
+	// TestCmd is the command to run the project's automated test suite.
+	// When set, agents use this instead of inferring the command from AGENTS.md
+	// or README.md. Example: "go test ./...", "npm test", "pytest"
+	TestCmd string `yaml:"test_cmd,omitempty"`
 }
 
 // Read loads .agentctl.yml from dir. If the file does not exist, an empty

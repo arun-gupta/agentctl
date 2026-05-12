@@ -165,6 +165,14 @@ const kickoffTemplate = `Work on GitHub issue #{issue}. Read AGENTS.md or README
 Make the changes directly, push the branch, and open a PR. Do not merge.
 You are the coding agent — implement changes using your own file-editing and bash tools.
 Do not run agentctl, claude, codex, or any other agent-launcher CLI.
+Before opening the PR, run the project's test suite (use test_cmd from
+.agentctl.yml if present, otherwise infer from AGENTS.md or README.md).
+In the PR description include a '## Test plan' section with two subsections:
+- Automated: the command run and a pass/fail summary.
+- Manual: a bulleted list of scenarios that cannot be automated, each with
+  a one-line explanation of why manual verification is needed.
+If tests fail, fix the failures before opening the PR. If you cannot fix
+them, open the PR anyway but clearly mark the failing tests in the plan.
 Dev server is running on port {port}.`
 
 // buildKickoff returns the default agent kickoff prompt for a plain
@@ -190,7 +198,15 @@ func buildKickoffFromTask(task, port string) string {
 	s := "Work on the following task: " + task + "\n" +
 		"Make the changes directly, push the branch, and open a PR. Do not merge.\n" +
 		"You are the coding agent — implement changes using your own file-editing and bash tools.\n" +
-		"Do not run agentctl, claude, codex, or any other agent-launcher CLI."
+		"Do not run agentctl, claude, codex, or any other agent-launcher CLI.\n" +
+		"Before opening the PR, run the project's test suite (use test_cmd from\n" +
+		".agentctl.yml if present, otherwise infer from AGENTS.md or README.md).\n" +
+		"In the PR description include a '## Test plan' section with two subsections:\n" +
+		"- Automated: the command run and a pass/fail summary.\n" +
+		"- Manual: a bulleted list of scenarios that cannot be automated, each with\n" +
+		"  a one-line explanation of why manual verification is needed.\n" +
+		"If tests fail, fix the failures before opening the PR. If you cannot fix\n" +
+		"them, open the PR anyway but clearly mark the failing tests in the plan."
 	if port != "" {
 		s += "\nDev server is running on port " + port + "."
 	}

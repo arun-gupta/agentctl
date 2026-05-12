@@ -140,3 +140,46 @@ func TestWrite_preservesMergeStrategy(t *testing.T) {
 		t.Errorf("MergeStrategy = %q, want %q", got.MergeStrategy, "squash")
 	}
 }
+
+func TestRead_parsesTestCmd(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"), []byte("test_cmd: \"go test ./...\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Read(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.TestCmd != "go test ./..." {
+		t.Errorf("TestCmd = %q, want %q", cfg.TestCmd, "go test ./...")
+	}
+}
+
+func TestRead_testCmdDefaultsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"), []byte("dev_server: \"npm start\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Read(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.TestCmd != "" {
+		t.Errorf("TestCmd = %q, want empty string (default)", cfg.TestCmd)
+	}
+}
+
+func TestWrite_preservesTestCmd(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.AgentctlConfig{TestCmd: "pytest"}
+	if err := config.Write(dir, cfg); err != nil {
+		t.Fatalf("Write error: %v", err)
+	}
+	got, err := config.Read(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.TestCmd != "pytest" {
+		t.Errorf("TestCmd = %q, want %q", got.TestCmd, "pytest")
+	}
+}
