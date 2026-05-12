@@ -19,6 +19,7 @@ Run `agentctl --help` or `agentctl <command> --help` for generated help from the
   - [agentctl logs](#agentctl-logs)
   - [agentctl attach](#agentctl-attach)
   - [agentctl diff](#agentctl-diff)
+  - [agentctl open](#agentctl-open)
   - [agentctl resume](#agentctl-resume)
   - [agentctl status](#agentctl-status)
   - [agentctl cleanup](#agentctl-cleanup)
@@ -44,7 +45,7 @@ flowchart TD
     C --> D{Review PR}
     D -- changes needed --> E[agentctl resume 42 feedback]
     E --> B
-    D -- approved --> F[Merge PR on GitHub]
+    D -- approved --> F[Merge PR/MR on GitHub/GitLab]
     F --> G[agentctl cleanup 42]
 ```
 
@@ -52,8 +53,9 @@ flowchart TD
 # Start — agent streams output to your terminal
 agentctl start 42
 
-# Or using a full GitHub issue URL (works from any directory)
+# Or using a full issue URL (works from any directory — GitHub or GitLab)
 agentctl start https://github.com/owner/repo/issues/42
+agentctl start https://gitlab.com/owner/repo/-/issues/42
 
 # Suppress log output but still wait for the agent to finish
 agentctl start --quiet 42
@@ -81,7 +83,7 @@ flowchart TD
     E --> F{Review PR}
     F -- changes needed --> G[agentctl resume --headless 42 feedback]
     G --> B
-    F -- approved --> H[Merge PR on GitHub]
+    F -- approved --> H[Merge PR/MR on GitHub/GitLab]
     H --> I[agentctl cleanup 42]
 ```
 
@@ -117,7 +119,7 @@ flowchart TD
     B2 --> C2[PR 211 opened]
     B3 --> C3[PR 212 opened]
     C1 & C2 & C3 --> D[agentctl status]
-    D --> E[Review and merge PRs on GitHub]
+    D --> E[Review and merge PRs/MRs on GitHub/GitLab]
     E --> F[agentctl cleanup --all]
 ```
 
@@ -156,7 +158,7 @@ flowchart TD
     G --> H{Review PR}
     H -- changes needed --> I[agentctl resume 42 feedback]
     I --> G
-    H -- approved --> J[Merge PR on GitHub]
+    H -- approved --> J[Merge PR/MR on GitHub/GitLab]
     J --> K[agentctl cleanup 42]
 ```
 
@@ -208,17 +210,17 @@ agentctl start [--agent <name>] [--headless] [--notify] [--quiet] <issue-number-
 agentctl start [--agent <name>] [--headless] [--notify] [--quiet] [--sdd=<name>] --task "<description>" [--branch <branch-name>]
 ```
 
-Creates a linked worktree for a GitHub issue or a free-form task and launches the selected coding agent inside it.
+Creates a linked worktree for a GitHub or GitLab issue (or a free-form task) and launches the selected coding agent inside it.
 
 - `--agent <name>`: adapter name; default is `claude`. See [adapters.md](adapters.md) for available adapters.
 - `--headless`: run the agent in the background and write agent output to `agent.log`.
 - `--notify`: send a native desktop notification when the headless agent finishes. No-op when `--headless` is not set. See [Desktop notifications](#desktop-notifications).
 - `--quiet`: suppress all agent log output in the terminal; the parent still waits for the agent to finish (foreground). Has no effect with `--headless`.
 - `--sdd=<name>`: opt into an SDD methodology (e.g. `--sdd=plain`, `--sdd=speckit`). Omit to skip SDD and work directly toward a PR. See [sdd.md](sdd.md).
-- `--task "<description>"`: start from a free-form task description instead of a GitHub issue.
+- `--task "<description>"`: start from a free-form task description instead of an issue.
 - `--branch <branch-name>`: explicit branch name for `--task`. Only valid with `--task`.
-- `<issue-number-or-url>`: a bare GitHub issue number (e.g. `42`) **or** a full GitHub issue URL (e.g. `https://github.com/owner/repo/issues/42`). When a URL is supplied, `agentctl` locates or clones the target repository automatically so you do not need to `cd` into it first.
-- `[slug]`: optional branch/worktree slug. If omitted, `agentctl` uses `gh issue view` to fetch the issue title and derive a slug.
+- `<issue-number-or-url>`: a bare issue number (e.g. `42`) **or** a full issue URL from GitHub (`https://github.com/owner/repo/issues/42`) or GitLab (`https://gitlab.com/owner/repo/-/issues/42`). When a URL is supplied, `agentctl` locates or clones the target repository automatically so you do not need to `cd` into it first. The VCS provider is detected from the repository's git origin.
+- `[slug]`: optional branch/worktree slug. If omitted, `agentctl` fetches the issue title from the VCS provider (via `gh` for GitHub, `glab` for GitLab) and derives a slug.
 
 Side effects:
 
@@ -317,6 +319,48 @@ Error cases:
 | Condition | Error message |
 |-----------|---------------|
 | Issue not found | `no worktree found for issue N — has it been started?` |
+
+### `agentctl open`
+
+```bash
+agentctl open <issue-number-or-url>
+agentctl open <issue-number-or-url> --editor code
+agentctl open <issue-number-or-url> --editor cursor
+cd $(agentctl open <issue-number-or-url> --path)
+```
+
+Opens the worktree for an issue in the configured editor.
+
+Editor resolution order:
+
+1. `--editor` flag (per-invocation override)
+2. `editor` key in `.agentctl.yml`
+3. `AGENTCTL_EDITOR` env var
+4. `VISUAL` env var
+5. `EDITOR` env var
+6. Falls back to printing the worktree path if none are set
+
+Flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--editor <name>` | — | Editor to open the worktree in; overrides config and env vars |
+| `--path` | `false` | Print the worktree path to stdout without opening an editor |
+| `--agent <name>` | — | Disambiguate when multiple worktrees exist for the same issue |
+
+Behavior:
+
+- Resolves the linked worktree path for the given issue.
+- Launches the editor with the worktree path as a non-blocking background process (`.Start()`, not `.Run()`), so the command returns immediately.
+- When no editor is resolved, prints the worktree path to stdout and exits with no error — same as `--path`.
+- `--path` is useful for scripting: `cd $(agentctl open 42 --path)`.
+
+Error cases:
+
+| Condition | Error message |
+|-----------|---------------|
+| Issue not found | `no worktree found for issue N — has it been started?` |
+| Editor binary not found | `cannot open editor "<name>": ...` |
 
 ### `agentctl resume`
 
@@ -478,6 +522,10 @@ port: 3010
 # Send a native desktop notification when a headless agent finishes.
 # Can also be enabled per-invocation with --notify.
 notify: true
+
+# Editor opened by agentctl open. Overridden per-invocation with --editor.
+# Examples: "cursor", "code", "idea"
+editor: cursor
 ```
 
 ---
