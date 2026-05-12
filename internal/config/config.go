@@ -28,6 +28,11 @@ type AgentctlConfig struct {
 	// Valid values: "squash" (default when empty), "merge", "rebase".
 	// Override per-invocation with the --strategy flag.
 	MergeStrategy string `yaml:"merge_strategy,omitempty"`
+
+	// Editor is the program used by agentctl open to open a worktree.
+	// Overridden per-invocation by the --editor flag.
+	// Example: "cursor", "code", "idea"
+	Editor string `yaml:"editor,omitempty"`
 }
 
 // Read loads .agentctl.yml from dir. If the file does not exist, an empty

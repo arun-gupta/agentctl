@@ -19,6 +19,7 @@ Run `agentctl --help` or `agentctl <command> --help` for generated help from the
   - [agentctl logs](#agentctl-logs)
   - [agentctl attach](#agentctl-attach)
   - [agentctl diff](#agentctl-diff)
+  - [agentctl open](#agentctl-open)
   - [agentctl resume](#agentctl-resume)
   - [agentctl status](#agentctl-status)
   - [agentctl cleanup](#agentctl-cleanup)
@@ -318,6 +319,48 @@ Error cases:
 |-----------|---------------|
 | Issue not found | `no worktree found for issue N — has it been started?` |
 
+### `agentctl open`
+
+```bash
+agentctl open <issue-number-or-url>
+agentctl open <issue-number-or-url> --editor code
+agentctl open <issue-number-or-url> --editor cursor
+cd $(agentctl open <issue-number-or-url> --path)
+```
+
+Opens the worktree for an issue in the configured editor.
+
+Editor resolution order:
+
+1. `--editor` flag (per-invocation override)
+2. `editor` key in `.agentctl.yml`
+3. `AGENTCTL_EDITOR` env var
+4. `VISUAL` env var
+5. `EDITOR` env var
+6. Falls back to printing the worktree path if none are set
+
+Flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--editor <name>` | — | Editor to open the worktree in; overrides config and env vars |
+| `--path` | `false` | Print the worktree path to stdout without opening an editor |
+| `--agent <name>` | — | Disambiguate when multiple worktrees exist for the same issue |
+
+Behavior:
+
+- Resolves the linked worktree path for the given issue.
+- Launches the editor with the worktree path as a non-blocking background process (`.Start()`, not `.Run()`), so the command returns immediately.
+- When no editor is resolved, prints the worktree path to stdout and exits with no error — same as `--path`.
+- `--path` is useful for scripting: `cd $(agentctl open 42 --path)`.
+
+Error cases:
+
+| Condition | Error message |
+|-----------|---------------|
+| Issue not found | `no worktree found for issue N — has it been started?` |
+| Editor binary not found | `cannot open editor "<name>": ...` |
+
 ### `agentctl resume`
 
 ```bash
@@ -478,6 +521,10 @@ port: 3010
 # Send a native desktop notification when a headless agent finishes.
 # Can also be enabled per-invocation with --notify.
 notify: true
+
+# Editor opened by agentctl open. Overridden per-invocation with --editor.
+# Examples: "cursor", "code", "idea"
+editor: cursor
 ```
 
 ---
