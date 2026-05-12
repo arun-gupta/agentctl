@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -42,16 +43,22 @@ Use --path to print the worktree path to stdout without opening an editor.`,
 			if _, _, num, ok := parseIssueURL(arg); ok {
 				arg = num
 			}
-			wtPath, err := findWorktreePath(arg, agentSuffix)
+			repoRoot, err := git.RepoRoot()
+			if err != nil {
+				return fmt.Errorf("cannot determine repo root: %w", err)
+			}
+			wt, err := resolveWorktree(repoRoot, arg, agentSuffix)
 			if err != nil {
 				return err
 			}
+			wtPath := wt.Path
 
 			var editor string
 			if !printPath {
-				repoRoot, _ := git.RepoRoot()
-				cfg, _ := config.Read(repoRoot)
-				editor = resolveEditor(flagEditor, cfg)
+				editor, err = resolveEditorForRepo(flagEditor, repoRoot)
+				if err != nil {
+					return err
+				}
 			}
 
 			return openWorktree(wtPath, editor, printPath, cmd.OutOrStdout())
@@ -81,6 +88,17 @@ func resolveEditor(flagEditor string, cfg *config.AgentctlConfig) string {
 	return os.Getenv("EDITOR")
 }
 
+func resolveEditorForRepo(flagEditor, repoRoot string) (string, error) {
+	if flagEditor != "" {
+		return flagEditor, nil
+	}
+	cfg, err := config.Read(repoRoot)
+	if err != nil {
+		return "", fmt.Errorf("cannot read config: %w", err)
+	}
+	return resolveEditor("", cfg), nil
+}
+
 // openWorktree launches editor for wtPath, or prints wtPath if printPath is true
 // or no editor is resolved.
 func openWorktree(wtPath, editor string, printPath bool, out io.Writer) error {
@@ -88,7 +106,13 @@ func openWorktree(wtPath, editor string, printPath bool, out io.Writer) error {
 		fmt.Fprintln(out, wtPath)
 		return nil
 	}
-	editorCmd := exec.Command(editor, wtPath) //nolint:gosec
+	editorArgs := strings.Fields(editor)
+	if len(editorArgs) == 0 {
+		fmt.Fprintln(out, wtPath)
+		return nil
+	}
+
+	editorCmd := exec.Command(editorArgs[0], append(editorArgs[1:], wtPath)...) //nolint:gosec
 	if err := editorCmd.Start(); err != nil {
 		return fmt.Errorf("cannot open editor %q: %w", editor, err)
 	}

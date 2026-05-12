@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -112,5 +114,42 @@ func TestOpenWorktree_badEditor(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "cannot open editor") {
 		t.Errorf("error = %q, want it to mention 'cannot open editor'", err.Error())
+	}
+}
+
+func TestOpenWorktree_editorWithArgs(t *testing.T) {
+	var buf bytes.Buffer
+	if err := openWorktree("/tmp/worktree-42", "echo -n", false, &buf); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestResolveEditorForRepo_badConfig(t *testing.T) {
+	repoRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repoRoot, ".agentctl.yml"), []byte("editor: ["), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	_, err := resolveEditorForRepo("", repoRoot)
+	if err == nil {
+		t.Fatal("expected error for malformed config, got nil")
+	}
+	if !strings.Contains(err.Error(), "cannot read config") {
+		t.Fatalf("error = %q, want it to mention cannot read config", err)
+	}
+}
+
+func TestResolveEditorForRepo_flagSkipsMalformedConfig(t *testing.T) {
+	repoRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repoRoot, ".agentctl.yml"), []byte("editor: ["), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	got, err := resolveEditorForRepo("code", repoRoot)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "code" {
+		t.Fatalf("resolveEditorForRepo() = %q, want %q", got, "code")
 	}
 }
