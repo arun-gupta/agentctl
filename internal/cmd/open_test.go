@@ -6,9 +6,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/arun-gupta/agentctl/internal/config"
 )
+
+const malformedConfigYAML = "editor: ["
 
 func TestResolveEditor(t *testing.T) {
 	tests := []struct {
@@ -118,15 +121,41 @@ func TestOpenWorktree_badEditor(t *testing.T) {
 }
 
 func TestOpenWorktree_editorWithArgs(t *testing.T) {
+	tmpDir := t.TempDir()
+	argsPath := filepath.Join(tmpDir, "args.txt")
+	scriptPath := filepath.Join(tmpDir, "capture-args.sh")
+	wtPath := filepath.Join(tmpDir, "worktree-42")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + argsPath + "\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
 	var buf bytes.Buffer
-	if err := openWorktree("/tmp/worktree-42", "echo -n", false, &buf); err != nil {
+	if err := openWorktree(wtPath, "sh "+scriptPath, false, &buf); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var got []byte
+	var err error
+	for i := 0; i < 20; i++ {
+		got, err = os.ReadFile(argsPath)
+		if err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("read args output: %v", err)
+	}
+
+	if strings.TrimSpace(string(got)) != wtPath {
+		t.Fatalf("captured args = %q, want %q", strings.TrimSpace(string(got)), wtPath)
 	}
 }
 
 func TestResolveEditorForRepo_badConfig(t *testing.T) {
 	repoRoot := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repoRoot, ".agentctl.yml"), []byte("editor: ["), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(repoRoot, ".agentctl.yml"), []byte(malformedConfigYAML), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
@@ -141,7 +170,7 @@ func TestResolveEditorForRepo_badConfig(t *testing.T) {
 
 func TestResolveEditorForRepo_flagSkipsMalformedConfig(t *testing.T) {
 	repoRoot := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repoRoot, ".agentctl.yml"), []byte("editor: ["), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(repoRoot, ".agentctl.yml"), []byte(malformedConfigYAML), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
