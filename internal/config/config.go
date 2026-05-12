@@ -38,6 +38,11 @@ type AgentctlConfig struct {
 	// Override per-invocation with the --strategy flag.
 	MergeStrategy string `yaml:"merge_strategy,omitempty"`
 
+	// DefaultAgent overrides the built-in "claude" default for agentctl start.
+	// Any installed adapter name is valid (e.g. "codex", "copilot").
+	// Overridden per-invocation by the --agent flag.
+	DefaultAgent string `yaml:"default_agent,omitempty"`
+
 	// VCS holds optional VCS provider overrides for self-hosted instances.
 	VCS VCSConfig `yaml:"vcs,omitempty"`
 }
