@@ -5832,3 +5832,75 @@ func TestStartCmd_defaultAgent_flagOverridesConfig(t *testing.T) {
 		t.Errorf("config agent leaked into error when flag was set: %v", err)
 	}
 }
+
+// TestStartCmd_defaultAgent_fromIssueURLRepo verifies default_agent is resolved
+// from the target repo even when cwd is outside that repo and issue is a URL.
+func TestStartCmd_defaultAgent_fromIssueURLRepo(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found in PATH")
+	}
+
+	parent := t.TempDir()
+	repo := filepath.Join(parent, "myrepo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"init"},
+		{"remote", "add", "origin", "https://github.com/myorg/myrepo.git"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".agentctl.yml"),
+		[]byte("default_agent: zqxuniqurlconfigagent\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd := filepath.Join(parent, "workspace")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	chdirTemp(t, cwd)
+
+	c := NewStartCmd()
+	c.SilenceUsage = true
+	c.SilenceErrors = true
+	c.SetArgs([]string{"https://github.com/myorg/myrepo/issues/99"})
+	err := c.Execute()
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown adapter: zqxuniqurlconfigagent") {
+		t.Errorf("error %q does not contain URL-repo default agent", err.Error())
+	}
+}
+
+// TestStartCmd_defaultAgent_invalidConfigReturnsError verifies parse/read errors
+// in .agentctl.yml are surfaced instead of silently falling back to defaults.
+func TestStartCmd_defaultAgent_invalidConfigReturnsError(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found in PATH")
+	}
+
+	dir := initGitRepoForStale(t)
+	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"),
+		[]byte("default_agent: [\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	chdirTemp(t, dir)
+
+	c := NewStartCmd()
+	c.SilenceUsage = true
+	c.SilenceErrors = true
+	c.SetArgs([]string{"--task", "do something"})
+	err := c.Execute()
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), ".agentctl.yml") {
+		t.Errorf("error %q does not mention .agentctl.yml", err.Error())
+	}
+}

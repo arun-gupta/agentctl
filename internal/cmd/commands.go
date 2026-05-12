@@ -70,21 +70,29 @@ Use --sdd <name> to opt into a spec-driven development (SDD) methodology
 (e.g. plain, speckit, or a custom methodology).`,
 		Args: cobra.RangeArgs(0, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Apply per-project default_agent when --agent was not explicitly set.
-			if !cmd.Flags().Changed("agent") {
-				if root, err := git.RepoRoot(); err == nil {
-					if cfg, err := config.Read(root); err == nil && cfg.DefaultAgent != "" {
-						agentName = cfg.DefaultAgent
-					}
-				}
-			}
-
 			if task != "" && len(args) > 0 {
 				return fmt.Errorf("--task and a positional issue argument are mutually exclusive")
 			}
 			if branch != "" && task == "" {
 				return fmt.Errorf("--branch requires --task")
 			}
+			// Apply per-project default_agent when --agent was not explicitly set.
+			if !cmd.Flags().Changed("agent") {
+				root, err := startConfigRepoRoot(args, os.Stdout)
+				if err != nil {
+					return err
+				}
+				if root != "" {
+					cfg, cfgErr := config.Read(root)
+					if cfgErr != nil {
+						return fmt.Errorf("read %s: %w", filepath.Join(root, config.Filename), cfgErr)
+					}
+					if cfg.DefaultAgent != "" {
+						agentName = cfg.DefaultAgent
+					}
+				}
+			}
+
 			if task != "" {
 				return startTask(task, branch, agentName, sddName, headless, quiet, sendNotify, os.Stdout)
 			}
@@ -163,6 +171,40 @@ Use --sdd <name> to opt into a spec-driven development (SDD) methodology
 	c.Flags().StringVar(&task, "task", "", "Free-form task description (alternative to a GitHub issue)")
 	c.Flags().BoolVar(&sendNotify, "notify", false, "Send a desktop notification when the headless agent finishes")
 	return c
+}
+
+// startConfigRepoRoot returns the repo root used for loading start-time config.
+// For single issue URLs, this resolves/locates the target repository so
+// default_agent is honoured even when invoked outside that repo.
+func startConfigRepoRoot(args []string, out io.Writer) (string, error) {
+	if len(args) == 0 {
+		root, err := git.RepoRoot()
+		if err != nil {
+			return "", nil
+		}
+		return root, nil
+	}
+	rawIssues := strings.Split(args[0], ",")
+	issues := make([]string, 0, len(rawIssues))
+	for _, iss := range rawIssues {
+		if s := strings.TrimSpace(iss); s != "" {
+			issues = append(issues, s)
+		}
+	}
+	if len(issues) == 1 {
+		if _, _, _, _, isURL := vcs.ParseIssueURL(issues[0]); isURL {
+			root, _, _, _, err := repoRootForIssue(issues[0], out)
+			if err != nil {
+				return "", err
+			}
+			return root, nil
+		}
+	}
+	root, err := git.RepoRoot()
+	if err != nil {
+		return "", nil
+	}
+	return root, nil
 }
 
 // resumeHintFmt is printed after a foreground agent exits so users know how
