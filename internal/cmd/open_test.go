@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -123,7 +124,8 @@ func TestOpenWorktree_badEditor(t *testing.T) {
 func TestOpenWorktree_editorWithArgs(t *testing.T) {
 	tmpDir := t.TempDir()
 	argsPath := filepath.Join(tmpDir, "args.txt")
-	scriptPath := filepath.Join(tmpDir, "capture-args.sh")
+	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("agentctl-open-capture-%d.sh", time.Now().UnixNano()))
+	t.Cleanup(func() { _ = os.Remove(scriptPath) })
 	wtPath := filepath.Join(tmpDir, "worktree-42")
 	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + argsPath + "\n"
 	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
@@ -139,7 +141,7 @@ func TestOpenWorktree_editorWithArgs(t *testing.T) {
 	var err error
 	for i := 0; i < 20; i++ {
 		got, err = os.ReadFile(argsPath)
-		if err == nil {
+		if err == nil && strings.TrimSpace(string(got)) != "" {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
