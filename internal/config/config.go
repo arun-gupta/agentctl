@@ -38,6 +38,11 @@ type AgentctlConfig struct {
 	// Override per-invocation with the --strategy flag.
 	MergeStrategy string `yaml:"merge_strategy,omitempty"`
 
+	// Editor is the program used by agentctl open to open a worktree.
+	// Overridden per-invocation by the --editor flag.
+	// Example: "cursor", "code", "idea"
+	Editor string `yaml:"editor,omitempty"`
+
 	// DefaultAgent overrides the built-in "claude" default for agentctl start.
 	// Any installed adapter name is valid (e.g. "codex", "copilot").
 	// Overridden per-invocation by the --agent flag.
