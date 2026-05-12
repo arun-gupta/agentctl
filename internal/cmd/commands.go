@@ -225,7 +225,7 @@ You are the coding agent — implement changes using your own file-editing and b
 Do not run agentctl, claude, codex, or any other agent-launcher CLI.
 Before opening the PR, run the project's test suite (use test_cmd from
 .agentctl.yml if present, otherwise infer from AGENTS.md or README.md).
-In the PR description include a '## Test plan' section with two subsections:
+In the PR description include a `## Test plan` section with two subsections:
 - Automated: the command run and a pass/fail summary.
 - Manual: a bulleted list of scenarios that cannot be automated, each with
   a one-line explanation of why manual verification is needed.
