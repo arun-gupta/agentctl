@@ -5845,18 +5845,18 @@ func TestStartCmd_defaultAgent_fromIssueURLRepo(t *testing.T) {
 	if err := os.MkdirAll(repo, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, args := range [][]string{
+	for _, gitArgs := range [][]string{
 		{"init"},
 		{"remote", "add", "origin", "https://github.com/myorg/myrepo.git"},
 	} {
-		cmd := exec.Command("git", args...)
+		cmd := exec.Command("git", gitArgs...)
 		cmd.Dir = repo
 		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
+			t.Fatalf("git %v: %v\n%s", gitArgs, err, out)
 		}
 	}
 	if err := os.WriteFile(filepath.Join(repo, ".agentctl.yml"),
-		[]byte("default_agent: zqxuniqurlconfigagent\n"), 0o644); err != nil {
+		[]byte("default_agent: unique_url_test_agent\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cwd := filepath.Join(parent, "workspace")
@@ -5868,12 +5868,13 @@ func TestStartCmd_defaultAgent_fromIssueURLRepo(t *testing.T) {
 	c := NewStartCmd()
 	c.SilenceUsage = true
 	c.SilenceErrors = true
-	c.SetArgs([]string{"https://github.com/myorg/myrepo/issues/99"})
+	const issueURL = "https://github.com/myorg/myrepo/issues/99"
+	c.SetArgs([]string{issueURL})
 	err := c.Execute()
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "unknown adapter: zqxuniqurlconfigagent") {
+	if !strings.Contains(err.Error(), "unknown adapter: unique_url_test_agent") {
 		t.Errorf("error %q does not contain URL-repo default agent", err.Error())
 	}
 }
@@ -5902,5 +5903,8 @@ func TestStartCmd_defaultAgent_invalidConfigReturnsError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), ".agentctl.yml") {
 		t.Errorf("error %q does not mention .agentctl.yml", err.Error())
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "yaml") {
+		t.Errorf("error %q does not describe YAML parsing failure", err.Error())
 	}
 }

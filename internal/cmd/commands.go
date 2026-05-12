@@ -80,7 +80,7 @@ Use --sdd <name> to opt into a spec-driven development (SDD) methodology
 			if !cmd.Flags().Changed("agent") {
 				root, err := startConfigRepoRoot(args, os.Stdout)
 				if err != nil {
-					return err
+					return fmt.Errorf("failed to determine repository for configuration: %w", err)
 				}
 				if root != "" {
 					cfg, cfgErr := config.Read(root)
@@ -192,7 +192,7 @@ func startConfigRepoRoot(args []string, out io.Writer) (string, error) {
 		}
 	}
 	if len(issues) == 1 {
-		if _, _, _, _, isURL := vcs.ParseIssueURL(issues[0]); isURL {
+		if isSupportedIssueURL(issues[0]) {
 			root, _, _, _, err := repoRootForIssue(issues[0], out)
 			if err != nil {
 				return "", err
@@ -205,6 +205,11 @@ func startConfigRepoRoot(args []string, out io.Writer) (string, error) {
 		return "", nil
 	}
 	return root, nil
+}
+
+func isSupportedIssueURL(arg string) bool {
+	_, _, _, ok := parseIssueURL(arg)
+	return ok
 }
 
 // resumeHintFmt is printed after a foreground agent exits so users know how
