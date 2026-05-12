@@ -20,6 +20,7 @@ import (
 	"github.com/arun-gupta/agentctl/internal/process"
 	"github.com/arun-gupta/agentctl/internal/sdd"
 	"github.com/arun-gupta/agentctl/internal/state"
+	"github.com/arun-gupta/agentctl/internal/vcs"
 )
 
 // TestMain handles the hidden __stream-log subprocess that launchAgent/agentResume
@@ -297,7 +298,7 @@ Initializing agent...
 }
 
 func TestBuildKickoff_substitution(t *testing.T) {
-	kickoff := buildKickoff("42", "3010")
+	kickoff := buildKickoff("42", "3010", "GitHub", "PR")
 	if strings.Contains(kickoff, "{issue}") {
 		t.Error("buildKickoff did not substitute {issue}")
 	}
@@ -313,7 +314,7 @@ func TestBuildKickoff_substitution(t *testing.T) {
 }
 
 func TestBuildKickoff_noPort_omitsDevServerLine(t *testing.T) {
-	kickoff := buildKickoff("42", "")
+	kickoff := buildKickoff("42", "", "GitHub", "PR")
 	if strings.Contains(kickoff, "port") || strings.Contains(kickoff, "{port}") {
 		t.Errorf("buildKickoff with empty port must not mention port, got:\n%s", kickoff)
 	}
@@ -323,7 +324,7 @@ func TestBuildKickoff_noPort_omitsDevServerLine(t *testing.T) {
 }
 
 func TestBuildKickoff_isAgentNeutral(t *testing.T) {
-	kickoff := buildKickoff("42", "3010")
+	kickoff := buildKickoff("42", "3010", "GitHub", "PR")
 	if strings.Contains(kickoff, "CLAUDE.md") {
 		t.Errorf("buildKickoff must not reference CLAUDE.md; got:\n%s", kickoff)
 	}
@@ -338,8 +339,18 @@ func TestBuildKickoff_isAgentNeutral(t *testing.T) {
 	}
 }
 
+func TestBuildKickoff_gitlab(t *testing.T) {
+	kickoff := buildKickoff("42", "3010", "GitLab", "MR")
+	if !strings.Contains(kickoff, "GitLab") {
+		t.Error("buildKickoff with GitLab platform should contain 'GitLab'")
+	}
+	if !strings.Contains(kickoff, "open a MR") {
+		t.Error("buildKickoff with MR prTerm should say 'open a MR'")
+	}
+}
+
 func TestBuildKickoffFromTask_noPortUsesTaskDescription(t *testing.T) {
-	kickoff := buildKickoffFromTask("Refactor the auth middleware to use JWT", "")
+	kickoff := buildKickoffFromTask("Refactor the auth middleware to use JWT", "", "PR")
 	if !strings.Contains(kickoff, "Refactor the auth middleware to use JWT") {
 		t.Fatalf("task kickoff must include the task description, got:\n%s", kickoff)
 	}
@@ -570,7 +581,7 @@ func TestParseIssueURL_invalidPaths(t *testing.T) {
 	}
 }
 
-// ─── matchesGitHubOrigin ─────────────────────────────────────────────────────
+// ─── vcs.MatchesOrigin ───────────────────────────────────────────────────────
 
 // initGitRepoWithOrigin creates a bare git repo and sets a given origin URL.
 // Returns the repo directory path.
@@ -590,85 +601,104 @@ func initGitRepoWithOrigin(t *testing.T, originURL string) string {
 	return dir
 }
 
-func TestMatchesGitHubOrigin_https(t *testing.T) {
+func TestMatchesOrigin_https(t *testing.T) {
 	dir := initGitRepoWithOrigin(t, "https://github.com/myorg/myrepo.git")
-	if !matchesGitHubOrigin(dir, "myorg", "myrepo") {
-		t.Error("expected matchesGitHubOrigin to return true for https URL")
+	p, _ := vcs.ProviderForName("github")
+	if !vcs.MatchesOrigin(dir, "myorg", "myrepo", p) {
+		t.Error("expected MatchesOrigin to return true for https URL")
 	}
 }
 
-func TestMatchesGitHubOrigin_ssh(t *testing.T) {
+func TestMatchesOrigin_ssh(t *testing.T) {
 	dir := initGitRepoWithOrigin(t, "git@github.com:myorg/myrepo.git")
-	if !matchesGitHubOrigin(dir, "myorg", "myrepo") {
-		t.Error("expected matchesGitHubOrigin to return true for SSH URL")
+	p, _ := vcs.ProviderForName("github")
+	if !vcs.MatchesOrigin(dir, "myorg", "myrepo", p) {
+		t.Error("expected MatchesOrigin to return true for SSH URL")
 	}
 }
 
-func TestMatchesGitHubOrigin_noGitSuffix(t *testing.T) {
+func TestMatchesOrigin_noGitSuffix(t *testing.T) {
 	dir := initGitRepoWithOrigin(t, "https://github.com/myorg/myrepo")
-	if !matchesGitHubOrigin(dir, "myorg", "myrepo") {
-		t.Error("expected matchesGitHubOrigin to return true when .git suffix absent")
+	p, _ := vcs.ProviderForName("github")
+	if !vcs.MatchesOrigin(dir, "myorg", "myrepo", p) {
+		t.Error("expected MatchesOrigin to return true when .git suffix absent")
 	}
 }
 
-func TestMatchesGitHubOrigin_wrongOwner(t *testing.T) {
+func TestMatchesOrigin_wrongOwner(t *testing.T) {
 	dir := initGitRepoWithOrigin(t, "https://github.com/otherorg/myrepo.git")
-	if matchesGitHubOrigin(dir, "myorg", "myrepo") {
-		t.Error("expected matchesGitHubOrigin to return false for wrong owner")
+	p, _ := vcs.ProviderForName("github")
+	if vcs.MatchesOrigin(dir, "myorg", "myrepo", p) {
+		t.Error("expected MatchesOrigin to return false for wrong owner")
 	}
 }
 
-func TestMatchesGitHubOrigin_noOrigin(t *testing.T) {
+func TestMatchesOrigin_noOrigin(t *testing.T) {
 	dir := t.TempDir()
 	cmd := exec.Command("git", "init")
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v\n%s", err, out)
 	}
-	if matchesGitHubOrigin(dir, "myorg", "myrepo") {
-		t.Error("expected matchesGitHubOrigin to return false when no origin remote")
+	p, _ := vcs.ProviderForName("github")
+	if vcs.MatchesOrigin(dir, "myorg", "myrepo", p) {
+		t.Error("expected MatchesOrigin to return false when no origin remote")
 	}
 }
 
-// ─── githubIssueURL ──────────────────────────────────────────────────────────
+// ─── Provider.IssueURL ───────────────────────────────────────────────────────
 
-func TestGithubIssueURL_https(t *testing.T) {
+func TestProviderIssueURL_github_https(t *testing.T) {
 	dir := initGitRepoWithOrigin(t, "https://github.com/myorg/myrepo.git")
-	got := githubIssueURL(dir, "42")
+	p, _ := vcs.ProviderForName("github")
+	got := p.IssueURL(dir, "42")
 	want := "https://github.com/myorg/myrepo/issues/42"
 	if got != want {
-		t.Errorf("githubIssueURL (HTTPS) = %q, want %q", got, want)
+		t.Errorf("IssueURL (HTTPS) = %q, want %q", got, want)
 	}
 }
 
-func TestGithubIssueURL_ssh(t *testing.T) {
+func TestProviderIssueURL_github_ssh(t *testing.T) {
 	dir := initGitRepoWithOrigin(t, "git@github.com:myorg/myrepo.git")
-	got := githubIssueURL(dir, "7")
+	p, _ := vcs.ProviderForName("github")
+	got := p.IssueURL(dir, "7")
 	want := "https://github.com/myorg/myrepo/issues/7"
 	if got != want {
-		t.Errorf("githubIssueURL (SSH) = %q, want %q", got, want)
+		t.Errorf("IssueURL (SSH) = %q, want %q", got, want)
 	}
 }
 
-func TestGithubIssueURL_sshURL(t *testing.T) {
+func TestProviderIssueURL_github_sshURL(t *testing.T) {
 	dir := initGitRepoWithOrigin(t, "ssh://git@github.com/myorg/myrepo.git")
-	got := githubIssueURL(dir, "5")
+	p, _ := vcs.ProviderForName("github")
+	got := p.IssueURL(dir, "5")
 	want := "https://github.com/myorg/myrepo/issues/5"
 	if got != want {
-		t.Errorf("githubIssueURL (ssh://) = %q, want %q", got, want)
+		t.Errorf("IssueURL (ssh://) = %q, want %q", got, want)
 	}
 }
 
-func TestGithubIssueURL_noOrigin(t *testing.T) {
+func TestProviderIssueURL_github_noOrigin(t *testing.T) {
 	dir := t.TempDir()
 	cmd := exec.Command("git", "init")
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v\n%s", err, out)
 	}
-	got := githubIssueURL(dir, "1")
+	p, _ := vcs.ProviderForName("github")
+	got := p.IssueURL(dir, "1")
 	if got != "" {
-		t.Errorf("githubIssueURL without origin = %q, want empty string", got)
+		t.Errorf("IssueURL without origin = %q, want empty string", got)
+	}
+}
+
+func TestProviderIssueURL_gitlab_https(t *testing.T) {
+	dir := initGitRepoWithOrigin(t, "https://gitlab.com/myorg/myrepo.git")
+	p, _ := vcs.ProviderForName("gitlab")
+	got := p.IssueURL(dir, "42")
+	want := "https://gitlab.com/myorg/myrepo/-/issues/42"
+	if got != want {
+		t.Errorf("GitLab IssueURL (HTTPS) = %q, want %q", got, want)
 	}
 }
 
@@ -677,8 +707,9 @@ func TestGithubIssueURL_noOrigin(t *testing.T) {
 func TestLocateOrCloneRepo_cwdMatch(t *testing.T) {
 	dir := initGitRepoWithOrigin(t, "https://github.com/myorg/myrepo.git")
 	chdirTemp(t, dir)
+	p, _ := vcs.ProviderForName("github")
 
-	got, err := locateOrCloneRepo("myorg", "myrepo", io.Discard)
+	got, err := locateOrCloneRepo("myorg", "myrepo", p, io.Discard)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -720,7 +751,8 @@ func TestLocateOrCloneRepo_siblingMatch(t *testing.T) {
 		}
 	}
 
-	got, err := locateOrCloneRepo("myorg", "myrepo", io.Discard)
+	p, _ := vcs.ProviderForName("github")
+	got, err := locateOrCloneRepo("myorg", "myrepo", p, io.Discard)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -752,7 +784,8 @@ func TestLocateOrCloneRepo_siblingWrongOrigin(t *testing.T) {
 		}
 	}
 
-	_, err := locateOrCloneRepo("myorg", "myrepo", io.Discard)
+	p, _ := vcs.ProviderForName("github")
+	_, err := locateOrCloneRepo("myorg", "myrepo", p, io.Discard)
 	if err == nil {
 		t.Fatal("expected error when sibling has wrong origin")
 	}
@@ -767,7 +800,7 @@ func TestRepoRootForIssue_bareNumber(t *testing.T) {
 	dir := initGitRepoWithOrigin(t, "https://github.com/myorg/myrepo.git")
 	chdirTemp(t, dir)
 
-	root, issueNum, ghArg, err := repoRootForIssue("42", io.Discard)
+	root, issueNum, issueArg, p, err := repoRootForIssue("42", io.Discard)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -780,8 +813,11 @@ func TestRepoRootForIssue_bareNumber(t *testing.T) {
 	if issueNum != "42" {
 		t.Errorf("issueNum = %q, want %q", issueNum, "42")
 	}
-	if ghArg != "https://github.com/myorg/myrepo/issues/42" {
-		t.Errorf("ghArg = %q, want full GitHub URL", ghArg)
+	if issueArg != "42" {
+		t.Errorf("issueArg = %q, want bare issue number", issueArg)
+	}
+	if p == nil || p.CLI() != "gh" {
+		t.Errorf("expected GitHub provider, got %v", p)
 	}
 }
 
@@ -790,7 +826,7 @@ func TestRepoRootForIssue_urlCwdMatch(t *testing.T) {
 	chdirTemp(t, dir)
 
 	const rawURL = "https://github.com/myorg/myrepo/issues/99"
-	root, issueNum, ghArg, err := repoRootForIssue(rawURL, io.Discard)
+	root, issueNum, issueArg, p, err := repoRootForIssue(rawURL, io.Discard)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -803,8 +839,11 @@ func TestRepoRootForIssue_urlCwdMatch(t *testing.T) {
 	if issueNum != "99" {
 		t.Errorf("issueNum = %q, want %q", issueNum, "99")
 	}
-	if ghArg != rawURL {
-		t.Errorf("ghArg = %q, want %q", ghArg, rawURL)
+	if issueArg != rawURL {
+		t.Errorf("issueArg = %q, want %q", issueArg, rawURL)
+	}
+	if p == nil || p.CLI() != "gh" {
+		t.Errorf("expected GitHub provider, got %v", p)
 	}
 }
 
@@ -831,6 +870,8 @@ func TestRemoveBranchRefs_alreadyRemovedIsQuiet(t *testing.T) {
 
 func TestRunCleanupAllMerged_prunesRemoteOnlyMergedBranch(t *testing.T) {
 	repo := initGitRepoWithBareOrigin(t)
+	// Test repos use local file paths as origins; configure the provider explicitly.
+	writeVCSProvider(t, repo, "github")
 
 	createCommittedFile(t, repo, "tracked.txt", "initial\n")
 	gitRun(t, repo, "checkout", "-b", "main")
@@ -851,7 +892,7 @@ func TestRunCleanupAllMerged_prunesRemoteOnlyMergedBranch(t *testing.T) {
 	gitRun(t, repo, "branch", "-D", nonAgentBranch)
 
 	stubDir := t.TempDir()
-	makeGHCleanupStateStub(t, stubDir, "MERGED 251")
+	makeGHCleanupStateStub(t, stubDir, `{"state":"MERGED","number":251,"url":""}`)
 	prependPath(t, stubDir)
 
 	chdirTemp(t, repo)
@@ -870,6 +911,8 @@ func TestRunCleanupAllMerged_prunesRemoteOnlyMergedBranch(t *testing.T) {
 
 func TestRunCleanupAllMerged_skipsRemoteOnlyOpenBranch(t *testing.T) {
 	repo := initGitRepoWithBareOrigin(t)
+	// Test repos use local file paths as origins; configure the provider explicitly.
+	writeVCSProvider(t, repo, "github")
 
 	createCommittedFile(t, repo, "tracked.txt", "initial\n")
 	gitRun(t, repo, "checkout", "-b", "main")
@@ -884,7 +927,7 @@ func TestRunCleanupAllMerged_skipsRemoteOnlyOpenBranch(t *testing.T) {
 	gitRun(t, repo, "branch", "-D", openBranch)
 
 	stubDir := t.TempDir()
-	makeGHCleanupStateStub(t, stubDir, "OPEN 252")
+	makeGHCleanupStateStub(t, stubDir, `{"state":"OPEN","number":252,"url":""}`)
 	prependPath(t, stubDir)
 
 	chdirTemp(t, repo)
@@ -1110,6 +1153,16 @@ func writeLocalAdapter(t *testing.T, dir, name, content string) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(adapterDir, name+".yml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// writeVCSProvider writes a .agentctl.yml with a vcs.provider override so
+// that Detect works in test repos whose origin is a local file path.
+func writeVCSProvider(t *testing.T, dir, provider string) {
+	t.Helper()
+	yaml := "vcs:\n  provider: " + provider + "\n"
+	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"), []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -2677,6 +2730,27 @@ func TestAgentEnv_preservesExistingToken(t *testing.T) {
 	t.Error("GITHUB_TOKEN not found in env at all")
 }
 
+// ensureGHToken is a test-local helper that exercises the GitHub provider's
+// AuthCheck logic (the former ensureGHToken function, now part of vcs package).
+func ensureGHToken() error {
+	p, _ := vcs.ProviderForName("github")
+	return p.AuthCheck()
+}
+
+// ghHasPR is a test-local helper that exercises the GitHub provider's HasPR
+// logic (the former ghHasPR function, now part of the vcs package).
+func ghHasPR(repoRoot, branch string) (bool, error) {
+	p, _ := vcs.ProviderForName("github")
+	return p.HasPR(repoRoot, branch)
+}
+
+// ghPRInfoWithURL is a test-local helper that exercises the GitHub provider's
+// PRForBranch logic (the former ghPRInfoWithURL function, now vcs package).
+func ghPRInfoWithURL(repoRoot, ref string) (prState string, number int, url string, err error) {
+	p, _ := vcs.ProviderForName("github")
+	return p.PRForBranch(repoRoot, ref)
+}
+
 // TestEnsureGHToken_failsWhenAbsent verifies that ensureGHToken returns an
 // error when neither GITHUB_TOKEN nor GH_TOKEN is set and gh auth token fails.
 // It also checks that gh's stderr diagnostic is included in the error message.
@@ -4236,12 +4310,15 @@ exit 0`,
 	return callsFile
 }
 
-func makeGHCleanupStateStub(t *testing.T, stubDir, prViewOutput string) {
+func makeGHCleanupStateStub(t *testing.T, stubDir, prViewJSON string) {
 	t.Helper()
-
+	responseFile := filepath.Join(stubDir, "gh-response.json")
+	if err := os.WriteFile(responseFile, []byte(prViewJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	script := fmt.Sprintf(`#!/bin/sh
 if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
-  printf '%%s\n' %q
+  cat %s
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
@@ -4249,7 +4326,7 @@ if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
   exit 0
 fi
 exit 0
-`, prViewOutput)
+`, responseFile)
 
 	if err := os.WriteFile(filepath.Join(stubDir, "gh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -4316,7 +4393,7 @@ func TestLinkPRToIssue_alreadyLinked(t *testing.T) {
 
 func TestLinkPRToIssue_addsLink(t *testing.T) {
 	stubDir := t.TempDir()
-	viewJSON := `{"number":7,"body":"some PR work","url":"https://github.com/owner/repo/pull/7"}`
+	viewJSON := `{"state":"OPEN","number":7,"body":"some PR work","url":"https://github.com/owner/repo/pull/7"}`
 	callsFile := makeGHStub(t, stubDir, viewJSON, "", false)
 	prependPath(t, stubDir)
 
@@ -4340,7 +4417,7 @@ func TestLinkPRToIssue_addsLink(t *testing.T) {
 
 func TestLinkPRToIssue_addsLink_emptyBody(t *testing.T) {
 	stubDir := t.TempDir()
-	viewJSON := `{"number":3,"body":"","url":"https://github.com/owner/repo/pull/3"}`
+	viewJSON := `{"state":"OPEN","number":3,"body":"","url":"https://github.com/owner/repo/pull/3"}`
 	callsFile := makeGHStub(t, stubDir, viewJSON, "", false)
 	prependPath(t, stubDir)
 
@@ -4357,7 +4434,7 @@ func TestLinkPRToIssue_addsLink_emptyBody(t *testing.T) {
 
 func TestLinkPRToIssue_editError(t *testing.T) {
 	stubDir := t.TempDir()
-	viewJSON := `{"number":7,"body":"some work","url":"https://github.com/owner/repo/pull/7"}`
+	viewJSON := `{"state":"OPEN","number":7,"body":"some work","url":"https://github.com/owner/repo/pull/7"}`
 	makeGHStub(t, stubDir, viewJSON, "", true) // editFail=true
 	prependPath(t, stubDir)
 
@@ -4372,7 +4449,7 @@ func TestLinkPRToIssue_editError(t *testing.T) {
 
 func TestReportPRStatus_printsPRLink(t *testing.T) {
 	stubDir := t.TempDir()
-	viewJSON := `{"number":9,"body":"work","url":"https://github.com/owner/repo/pull/9"}`
+	viewJSON := `{"state":"OPEN","number":9,"body":"work","url":"https://github.com/owner/repo/pull/9"}`
 	makeGHStub(t, stubDir, viewJSON, "", false)
 	prependPath(t, stubDir)
 
@@ -4891,6 +4968,8 @@ func TestRunDiscardStale_confirmationYES_removesWorktreeAndBranch(t *testing.T) 
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git remote add: %v\n%s", err, out)
 	}
+	// Test repos use local file paths as origins; configure the provider explicitly.
+	writeVCSProvider(t, repo, "github")
 
 	wtPath := filepath.Join(t.TempDir(), "42-my-feature")
 	addWorktree(t, repo, wtPath, "42-my-feature")
