@@ -223,6 +223,7 @@ const kickoffTemplate = `Work on {platform} issue #{issue}. Read AGENTS.md or RE
 Make the changes directly, push the branch, and open a {prTerm}. Do not merge.
 You are the coding agent — implement changes using your own file-editing and bash tools.
 Do not run agentctl, claude, codex, or any other agent-launcher CLI.
+When showing agentctl commands to the user, use {issue} as the identifier — not a full URL.
 Dev server is running on port {port}.`
 
 // buildKickoff returns the default agent kickoff prompt for a plain
@@ -251,7 +252,8 @@ func buildKickoffFromTask(task, port, prTerm string) string {
 	s := "Work on the following task: " + task + "\n" +
 		"Make the changes directly, push the branch, and open a " + prTerm + ". Do not merge.\n" +
 		"You are the coding agent — implement changes using your own file-editing and bash tools.\n" +
-		"Do not run agentctl, claude, codex, or any other agent-launcher CLI."
+		"Do not run agentctl, claude, codex, or any other agent-launcher CLI.\n" +
+		"When showing agentctl commands to the user, use the branch name as the identifier — not a full URL."
 	if port != "" {
 		s += "\nDev server is running on port " + port + "."
 	}

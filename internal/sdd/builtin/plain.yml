@@ -2,6 +2,7 @@ kickoff: |
   Work on GitHub issue #{issue}. Read AGENTS.md or README.md for project conventions if present.
   You are the coding agent — implement changes using your own file-editing and bash tools.
   Do not run agentctl, claude, codex, or any other agent-launcher CLI.
+  When showing agentctl commands to the user, use {issue} as the identifier — not a full URL.
   Follow the plain spec workflow:
   - STEP 1: Write a `specs/spec.md` describing your intended approach. Use
     `docs/spec-template.md` as a starting point. The spec must contain ALL of

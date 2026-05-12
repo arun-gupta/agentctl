@@ -362,6 +362,23 @@ func TestBuildKickoffFromTask_noPortUsesTaskDescription(t *testing.T) {
 	}
 }
 
+func TestBuildKickoff_agentctlCommandsUseIssueNotURL(t *testing.T) {
+	kickoff := buildKickoff("42", "3010", "GitHub", "PR")
+	if !strings.Contains(kickoff, "42 as the identifier") {
+		t.Errorf("buildKickoff must instruct agent to use issue number as identifier, got:\n%s", kickoff)
+	}
+	if !strings.Contains(kickoff, "not a full URL") {
+		t.Errorf("buildKickoff must warn agent not to use a full URL, got:\n%s", kickoff)
+	}
+}
+
+func TestBuildKickoffFromTask_agentctlCommandsUseIdentifierNotURL(t *testing.T) {
+	kickoff := buildKickoffFromTask("Refactor the auth middleware to use JWT", "3010", "PR")
+	if !strings.Contains(kickoff, "not a full URL") {
+		t.Errorf("task kickoff must warn agent not to use a full URL, got:\n%s", kickoff)
+	}
+}
+
 func TestStartCmd_noSDDFlagRemoved(t *testing.T) {
 	c := NewStartCmd()
 	if f := c.Flags().Lookup("no-sdd"); f != nil {
