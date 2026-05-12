@@ -5682,3 +5682,74 @@ func TestStartCmd_agentFlag_filtersEmptyAndRejectsDuplicates(t *testing.T) {
 		}
 	})
 }
+
+// ─── default_agent resolution ─────────────────────────────────────────────────
+
+// TestStartCmd_defaultAgentFlagDefault verifies the --agent flag default value
+// is "claude", covering the "no config → built-in default" case from issue #265.
+func TestStartCmd_defaultAgentFlagDefault(t *testing.T) {
+	f := NewStartCmd().Flags().Lookup("agent")
+	if f == nil {
+		t.Fatal("--agent flag not registered")
+	}
+	if f.DefValue != "claude" {
+		t.Errorf("--agent default = %q, want %q", f.DefValue, "claude")
+	}
+}
+
+// TestStartCmd_defaultAgent_fromConfig verifies that when .agentctl.yml sets
+// default_agent and --agent is not passed, the configured agent is used.
+// We use --task so startTask calls validateAdapter before any network call,
+// letting us detect the resolved agent name from the adapter error message.
+func TestStartCmd_defaultAgent_fromConfig(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found in PATH")
+	}
+	dir := initGitRepoForStale(t)
+	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"),
+		[]byte("default_agent: zqxuniqconfigagent\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	chdirTemp(t, dir)
+
+	c := NewStartCmd()
+	c.SilenceUsage = true
+	c.SilenceErrors = true
+	c.SetArgs([]string{"--task", "do something"})
+	err := c.Execute()
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown adapter: zqxuniqconfigagent") {
+		t.Errorf("error %q does not contain expected agent name", err.Error())
+	}
+}
+
+// TestStartCmd_defaultAgent_flagOverridesConfig verifies that an explicit
+// --agent flag takes priority over default_agent in .agentctl.yml.
+func TestStartCmd_defaultAgent_flagOverridesConfig(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found in PATH")
+	}
+	dir := initGitRepoForStale(t)
+	if err := os.WriteFile(filepath.Join(dir, ".agentctl.yml"),
+		[]byte("default_agent: zqxuniqconfigagent\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	chdirTemp(t, dir)
+
+	c := NewStartCmd()
+	c.SilenceUsage = true
+	c.SilenceErrors = true
+	c.SetArgs([]string{"--task", "do something", "--agent", "zqxuniqflagagent"})
+	err := c.Execute()
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown adapter: zqxuniqflagagent") {
+		t.Errorf("error %q does not contain flag agent name", err.Error())
+	}
+	if strings.Contains(err.Error(), "zqxuniqconfigagent") {
+		t.Errorf("config agent leaked into error when flag was set: %v", err)
+	}
+}

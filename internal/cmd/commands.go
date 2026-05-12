@@ -69,6 +69,15 @@ Use --sdd <name> to opt into a spec-driven development (SDD) methodology
 (e.g. plain, speckit, or a custom methodology).`,
 		Args: cobra.RangeArgs(0, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Apply per-project default_agent when --agent was not explicitly set.
+			if !cmd.Flags().Changed("agent") {
+				if root, err := git.RepoRoot(); err == nil {
+					if cfg, err := config.Read(root); err == nil && cfg.DefaultAgent != "" {
+						agentName = cfg.DefaultAgent
+					}
+				}
+			}
+
 			if task != "" && len(args) > 0 {
 				return fmt.Errorf("--task and a positional issue argument are mutually exclusive")
 			}
