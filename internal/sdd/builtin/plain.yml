@@ -35,7 +35,7 @@ kickoff: |
   - STEP 2: After approval, implement the changes, run the project's test suite
     (use test_cmd from .agentctl.yml if present, otherwise infer from AGENTS.md
     or README.md), then push the branch and open a PR. Do not merge.
-    In the PR description include a '## Test plan' section with two subsections:
+    In the PR description include a `## Test plan` section with two subsections:
     - Automated: the command run and a pass/fail summary.
     - Manual: a bulleted list of scenarios that cannot be automated, each with
       a one-line explanation of why manual verification is needed.
