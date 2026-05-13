@@ -317,6 +317,15 @@ func startOne(issue, slug, agentName, sddName, agentSuffix string, headless, qui
 		}
 	}
 
+	// Resolve default SDD from config when --sdd was not passed.
+	// config.SDDNone ("none") means explicitly no SDD, so we leave sddName "".
+	if sddName == "" {
+		if cfg, cfgErr := config.ReadMerged(repoRoot); cfgErr == nil &&
+			cfg.DefaultSDD != "" && cfg.DefaultSDD != config.SDDNone {
+			sddName = cfg.DefaultSDD
+		}
+	}
+
 	// Validate methodology-specific prerequisites before any side effects.
 	if err := validateSDD(sddName, repoRoot); err != nil {
 		return err
@@ -454,6 +463,15 @@ func startTask(task, branch, agentName, sddName string, headless, quiet, sendNot
 	if !sendNotify {
 		if cfg, cfgErr := config.ReadMerged(repoRoot); cfgErr == nil && cfg.Notify != nil && *cfg.Notify {
 			sendNotify = true
+		}
+	}
+
+	// Resolve default SDD from config when --sdd was not passed.
+	// config.SDDNone ("none") means explicitly no SDD, so we leave sddName "".
+	if sddName == "" {
+		if cfg, cfgErr := config.ReadMerged(repoRoot); cfgErr == nil &&
+			cfg.DefaultSDD != "" && cfg.DefaultSDD != config.SDDNone {
+			sddName = cfg.DefaultSDD
 		}
 	}
 

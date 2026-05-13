@@ -6293,3 +6293,80 @@ func TestRunStatus_showsWorktreesWithAgentFile(t *testing.T) {
 		t.Errorf("worktree with .agent file should appear; got:\n%s", buf.String())
 	}
 }
+
+// TestStartTask_defaultSDD_speckit_fromConfig verifies that when default_sdd is
+// "speckit" in .agentctl.yml, startTask resolves it from config and fails with
+// the speckit-not-found error (skill files are absent in the temp repo).
+func TestStartTask_defaultSDD_speckit_fromConfig(t *testing.T) {
+	repo := initGitRepoForStale(t)
+	writeLocalAdapter(t, repo, "echoagent", "binary: echo\nsession: --session\n")
+	chdirTemp(t, repo)
+
+	if err := os.WriteFile(filepath.Join(repo, ".agentctl.yml"), []byte("default_sdd: speckit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := startTask("add OAuth flow", "", "echoagent", "", true, false, false, io.Discard)
+	if err == nil {
+		t.Fatal("expected error for missing speckit skills")
+	}
+	if !strings.Contains(err.Error(), "SpecKit skills not found") {
+		t.Fatalf("expected speckit-not-found error, got: %v", err)
+	}
+}
+
+// TestStartTask_defaultSDD_none_skips_sdd verifies that default_sdd: none in
+// .agentctl.yml leaves sddName empty — no SDD is applied even though the global
+// config could have set one.
+func TestStartTask_defaultSDD_none_skips_sdd(t *testing.T) {
+	repo := initGitRepoForStale(t)
+	writeLocalAdapter(t, repo, "echoagent", "binary: echo\nsession: --session\n")
+	chdirTemp(t, repo)
+
+	if err := os.WriteFile(filepath.Join(repo, ".agentctl.yml"), []byte("default_sdd: none\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	task := "sdd-none sentinel test for agentctl default sdd"
+	wantBranch := "task/sdd-none-sentinel-test-for-agentctl"
+	wantWorktree := filepath.Join(filepath.Dir(repo), filepath.Base(repo)+"-task-sdd-none-sentinel-test-for-agentctl")
+
+	var out bytes.Buffer
+	if err := startTask(task, "", "echoagent", "", true, false, false, &out); err != nil {
+		t.Fatalf("startTask: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = git.RemoveWorktree(repo, wantWorktree)
+		_ = git.DeleteLocalBranch(repo, wantBranch)
+	})
+
+	af, err := state.Read(wantWorktree)
+	if err != nil {
+		t.Fatalf("state.Read: %v", err)
+	}
+	if af.SDD != "" {
+		t.Fatalf("SDD = %q, want empty (SDDNone sentinel should suppress SDD)", af.SDD)
+	}
+}
+
+// TestStartOne_defaultSDD_speckit_fromConfig verifies that startOne resolves
+// default_sdd from config when --sdd is not passed, failing with the
+// speckit-not-found error when skill files are absent.
+func TestStartOne_defaultSDD_speckit_fromConfig(t *testing.T) {
+	repo := initGitRepoForStale(t)
+	writeLocalAdapter(t, repo, "echoagent", "binary: echo\nsession: --session\n")
+	chdirTemp(t, repo)
+	t.Setenv("GITHUB_TOKEN", "test-token")
+
+	if err := os.WriteFile(filepath.Join(repo, ".agentctl.yml"), []byte("default_sdd: speckit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := startOne("42", "my-slug", "echoagent", "", "", true, false, false, io.Discard)
+	if err == nil {
+		t.Fatal("expected error for missing speckit skills")
+	}
+	if !strings.Contains(err.Error(), "SpecKit skills not found") {
+		t.Fatalf("expected speckit-not-found error, got: %v", err)
+	}
+}
