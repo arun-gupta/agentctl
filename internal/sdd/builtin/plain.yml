@@ -32,8 +32,16 @@ kickoff: |
       What will not be done in this PR. Write "None" if nothing is excluded.
 
     Stop and wait for human approval before proceeding.
-  - STEP 2: After approval, implement the changes, run tests, push the branch,
-    and open a PR. Do not merge. Run bash commands (tests, linters, builds)
-    directly without asking for human approval — you are authorised to execute
-    any command needed to complete the implementation.
+  - STEP 2: After approval, implement the changes, run the project's test suite
+    (use test_cmd from .agentctl.yml if present, otherwise infer from AGENTS.md
+    or README.md), then push the branch and open a PR. Do not merge.
+    In the PR description include a `## Test plan` section with two subsections:
+    - Automated: the command run and a pass/fail summary.
+    - Manual: a bulleted list of scenarios that cannot be automated, each with
+      a one-line explanation of why manual verification is needed.
+    If tests fail, fix the failures before opening the PR. If you cannot fix
+    them, open the PR anyway but clearly mark the failing tests in the plan.
+    Run bash commands (tests, linters, builds) directly without asking for
+    human approval — you are authorised to execute any command needed to
+    complete the implementation.
   Dev server is running on port {port}.
