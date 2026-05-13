@@ -5850,6 +5850,75 @@ func TestCleanupCmd_agentFlagExists(t *testing.T) {
 	}
 }
 
+// TestCleanupCmd_acceptsMultipleArgs verifies that the cleanup command accepts
+// multiple space-separated issue arguments (cobra Args validator must not reject them).
+func TestCleanupCmd_acceptsMultipleArgs(t *testing.T) {
+	c := NewCleanupCmd()
+	// cobra.Args validation runs during Execute; we can call Args directly.
+	if err := c.Args(c, []string{"240", "277"}); err != nil {
+		t.Errorf("cleanup should accept multiple space-separated args, got: %v", err)
+	}
+}
+
+// TestCleanupCmd_acceptsCommaSeparated verifies that a single comma-separated arg is valid.
+func TestCleanupCmd_acceptsCommaSeparated(t *testing.T) {
+	c := NewCleanupCmd()
+	if err := c.Args(c, []string{"240,277"}); err != nil {
+		t.Errorf("cleanup should accept a comma-separated arg, got: %v", err)
+	}
+}
+
+// TestCleanupCmd_rejectsAllWithIssues verifies --all and issue args are mutually exclusive.
+func TestCleanupCmd_rejectsAllWithIssues(t *testing.T) {
+	c := NewCleanupCmd()
+	c.SilenceUsage = true
+	c.SilenceErrors = true
+	if err := c.Flags().Set("all", "true"); err != nil {
+		t.Fatalf("set --all: %v", err)
+	}
+	err := c.RunE(c, []string{"240", "277"})
+	if err == nil {
+		t.Error("expected error when --all is combined with issue args")
+	}
+	if !strings.Contains(err.Error(), "--all and issue arguments are mutually exclusive") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// TestParseCleanupIssues verifies the comma+space issue list parsing logic.
+func TestParseCleanupIssues(t *testing.T) {
+	tests := []struct {
+		args []string
+		want []string
+	}{
+		{[]string{"240,277"}, []string{"240", "277"}},
+		{[]string{"240", "277"}, []string{"240", "277"}},
+		{[]string{"240,277", "300"}, []string{"240", "277", "300"}},
+		{[]string{"42"}, []string{"42"}},
+		{[]string{" 42 , 43 "}, []string{"42", "43"}},
+		{
+			[]string{"https://github.com/org/repo/issues/42"},
+			[]string{"42"},
+		},
+		{
+			[]string{"240, https://github.com/org/repo/issues/42", "https://github.com/org/repo/issues/43,277"},
+			[]string{"240", "42", "43", "277"},
+		},
+	}
+	for _, tt := range tests {
+		got := parseCleanupIssues(tt.args)
+		if len(got) != len(tt.want) {
+			t.Errorf("parseCleanupIssues(%v) = %v, want %v", tt.args, got, tt.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tt.want[i] {
+				t.Errorf("parseCleanupIssues(%v)[%d] = %q, want %q", tt.args, i, got[i], tt.want[i])
+			}
+		}
+	}
+}
+
 func TestStartCmd_multiAgent_rejectsSlug(t *testing.T) {
 	c := NewStartCmd()
 	if err := c.Flags().Set("agent", "claude,codex"); err != nil {
