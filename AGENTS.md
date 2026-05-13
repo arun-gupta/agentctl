@@ -15,10 +15,14 @@ cmd/agentctl/     ← Go CLI entry point (cobra); one file: main.go
 internal/
   adapters/       ← YAML adapter loader, built-in YAMLs, tests
   cmd/            ← subcommand implementations + tests
+  config/         ← .agentctl.yml schema, read/write helpers
   git/            ← git worktree operations + tests
+  notify/         ← desktop notification helpers (macOS osascript, Linux notify-send)
   process/        ← process management + tests
   sdd/            ← SDD methodology loader, built-in YAMLs, tests
   state/          ← .agent metadata read/write + tests
+  vcs/            ← VCS provider abstraction (GitHub, GitLab); detect, auth, PR ops
+  xdg/            ← XDG base-directory helpers for config/data paths
 docs/
   cli.md          ← command reference and workflows
   adapters.md     ← adapter YAML schema and built-in adapter reference

@@ -55,8 +55,36 @@ agentctl cleanup 42
 
 `agentctl --help` and `agentctl <command> --help` list all flags.
 
+## How it works
+
+```mermaid
+flowchart TD
+    issue["GitHub / GitLab issue"] --> start["agentctl start &lt;issue&gt;\n--headless: agent runs in background"]
+    start --> wt["Isolated git worktree"]
+    wt -.->|"if dev_server set\nin .agentctl.yml"| port["Reserved port\n+ dev server"]
+    wt --> agent["Coding agent\n(Claude, Codex, Copilot…)"]
+    port --> agent
+
+    agent -->|"--sdd=plain / --sdd=speckit"| spec["Agent writes spec\nspecs/spec.md"]
+    spec --> specreview{"Spec review\n(checkpoint 1)"}
+    specreview -->|"agentctl resume 'feedback'"| spec
+    specreview -->|"agentctl resume"| code
+
+    agent -->|no SDD| code["Code written\ntests run"]
+
+    code --> pr["Pull request opened"]
+    pr --> prereview{"PR review\n(checkpoint 2)"}
+    prereview -->|"agentctl resume 'feedback'"| agent
+    prereview -->|"merge on GitHub / GitLab"| cleanup["agentctl cleanup"]
+    prereview -->|"agentctl merge\nmerge + cleanup in one step"| done["Done ✓"]
+    cleanup --> done
+```
+
+For a deeper walkthrough see **[Introducing agentctl](docs/articles/introducing-agentctl.md)** and **[docs/cli.md](docs/cli.md)**.
+
 ## Documentation
 
+- **[docs/articles/introducing-agentctl.md](docs/articles/introducing-agentctl.md)** — full walkthrough: the problem, how it works, quick start, batch mode, and SDD  
 - **[docs/install.md](docs/install.md)** — prerequisites, install paths, releases  
 - **[docs/cli.md](docs/cli.md)** — command reference and workflows  
 - **[docs/sdd.md](docs/sdd.md)** — SDD overview, methodology YAML schema, resolution chain, drop-in locations  

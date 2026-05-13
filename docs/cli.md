@@ -15,16 +15,22 @@ Run `agentctl --help` or `agentctl <command> --help` for generated help from the
   - [Spec-driven development (SDD)](#spec-driven-development-sdd)
   - [Recovery and maintenance](#recovery-and-maintenance)
 - [Command reference](#command-reference)
-  - [agentctl start](#agentctl-start)
-  - [agentctl logs](#agentctl-logs)
-  - [agentctl attach](#agentctl-attach)
-  - [agentctl diff](#agentctl-diff)
-  - [agentctl open](#agentctl-open)
-  - [agentctl resume](#agentctl-resume)
-  - [agentctl status](#agentctl-status)
-  - [agentctl cleanup](#agentctl-cleanup)
-  - [agentctl discard](#agentctl-discard)
-  - [agentctl dev start](#agentctl-dev-start)
+  - [Start](#start)
+    - [agentctl start](#agentctl-start)
+  - [Monitor](#monitor)
+    - [agentctl status](#agentctl-status)
+    - [agentctl logs](#agentctl-logs)
+    - [agentctl attach](#agentctl-attach)
+    - [agentctl diff](#agentctl-diff)
+    - [agentctl open](#agentctl-open)
+  - [Interact](#interact)
+    - [agentctl resume](#agentctl-resume)
+  - [Finish](#finish)
+    - [agentctl merge](#agentctl-merge)
+    - [agentctl cleanup](#agentctl-cleanup)
+    - [agentctl discard](#agentctl-discard)
+  - [Dev server](#dev-server)
+    - [agentctl dev start](#agentctl-dev-start)
 - [`.agentctl.yml` configuration](#agentctlyml-configuration)
 - [Desktop notifications](#desktop-notifications)
 - [Worktree state files](#worktree-state-files)
@@ -203,7 +209,9 @@ tail -f ../<repo>-42-<slug>/dev.log
 
 ## Command reference
 
-### `agentctl start`
+### Start
+
+#### `agentctl start`
 
 ```bash
 agentctl start [--agent <name>] [--headless] [--notify] [--quiet] <issue-number-or-url> [slug] [--sdd=<name>]
@@ -233,7 +241,40 @@ Side effects:
 - Launches the selected adapter.
 - In issue mode, when the agent exits, appends `Closes #<issue>` to the PR body retrieved via `gh pr view <branch>`, unless the body already contains `closes #<issue>` or `fixes #<issue>` (case-insensitive).
 
-### `agentctl logs`
+### Monitor
+
+#### `agentctl status`
+
+```bash
+agentctl status
+agentctl status --verbose
+agentctl list
+```
+
+Shows all linked worktrees and their current state.
+
+Default columns:
+
+```text
+ISSUE  BRANCH  AGENT  PORT  SPEC  PR
+```
+
+Verbose columns:
+
+```text
+ISSUE  BRANCH  AGENT  PATH  PORT  DEV-PID  AGENT-PID  SPEC  PR  SESSION
+```
+
+Spec states:
+
+- `no-spec`: no spec found for the issue.
+- `paused`: `spec.md` exists, but no `plan.md` or `tasks.md`.
+- `in-progress`: `plan.md` exists, but no `tasks.md`.
+- `done`: `tasks.md` exists.
+
+PR column shows the PR number and state from `gh pr view <branch>`, e.g. `#42 OPEN`, `#42 MERGED`. Shows `none` when no PR exists for the branch.
+
+#### `agentctl logs`
 
 ```bash
 agentctl logs <issue-number-or-url>
@@ -264,7 +305,7 @@ Error cases:
 | Issue not found | `no worktree found for issue N — has it been started?` |
 | `agent.log` missing after 10s | `agent log not found — is the agent running? (looked for <path>)` |
 
-### `agentctl attach`
+#### `agentctl attach`
 
 ```bash
 agentctl attach <issue-number-or-url>
@@ -287,7 +328,7 @@ Error cases:
 | `.agent` file missing or no PID | `no agent PID recorded for issue N — was it started headless?` |
 | `agent.log` missing after 10s | `agent log not found — is the agent running? (looked for <path>)` |
 
-### `agentctl diff`
+#### `agentctl diff`
 
 ```bash
 agentctl diff <issue-number-or-url>
@@ -320,7 +361,7 @@ Error cases:
 |-----------|---------------|
 | Issue not found | `no worktree found for issue N — has it been started?` |
 
-### `agentctl open`
+#### `agentctl open`
 
 ```bash
 agentctl open <issue-number-or-url>
@@ -362,7 +403,9 @@ Error cases:
 | Issue not found | `no worktree found for issue N — has it been started?` |
 | Editor binary not found | `cannot open editor "<name>": ...` |
 
-### `agentctl resume`
+### Interact
+
+#### `agentctl resume`
 
 ```bash
 agentctl resume [--headless] [--notify] [--quiet] <issue-number-or-url>
@@ -388,38 +431,41 @@ The command requires:
 - A `.agent` metadata file with the selected agent and session ID.
 - A generated spec at `specs/*/spec.md`.
 
-### `agentctl status`
+### Finish
+
+#### `agentctl merge`
 
 ```bash
-agentctl status
-agentctl status --verbose
-agentctl list
+agentctl merge [issue-number-or-url]
+agentctl merge [issue-number-or-url] --strategy squash|merge|rebase
+agentctl merge [issue-number-or-url] --dry-run
+agentctl merge [issue-number-or-url] --no-delete
 ```
 
-Shows all linked worktrees and their current state.
+One-step merge: verifies the PR is approved and mergeable, runs `gh pr merge`, pulls `main`, and removes the worktree and branches. Equivalent to merging on GitHub/GitLab and then running `agentctl cleanup`, but in a single command.
 
-Default columns:
+Run without arguments inside a linked worktree to infer the issue from the current branch.
 
-```text
-ISSUE  BRANCH  AGENT  PORT  SPEC  PR
-```
+Flags:
 
-Verbose columns:
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--strategy <name>` | `squash` | Merge strategy: `squash`, `merge`, or `rebase`. Overrides `merge_strategy` in `.agentctl.yml`. |
+| `--no-delete` | `false` | Skip worktree and branch deletion after merge; leaves the worktree intact |
+| `--dry-run` | `false` | Show what would happen without executing any destructive steps |
+| `--agent <name>` | — | Disambiguate when multiple worktrees exist for the same issue |
 
-```text
-ISSUE  BRANCH  AGENT  PATH  PORT  DEV-PID  AGENT-PID  SPEC  PR  SESSION
-```
+Strategy resolution order: `--strategy` flag → `merge_strategy` in `.agentctl.yml` → `squash`.
 
-Spec states:
+Error cases:
 
-- `no-spec`: no spec found for the issue.
-- `paused`: `spec.md` exists, but no `plan.md` or `tasks.md`.
-- `in-progress`: `plan.md` exists, but no `tasks.md`.
-- `done`: `tasks.md` exists.
+| Condition | Error message |
+|-----------|---------------|
+| Issue not found | `no worktree or local branch found for issue N` |
+| PR not merged-ready | `PR is not in a mergeable state` |
+| Unknown strategy | `unknown merge strategy "<name>": must be squash, merge, or rebase` |
 
-PR column shows the PR number and state from `gh pr view <branch>`, e.g. `#42 OPEN`, `#42 MERGED`. Shows `none` when no PR exists for the branch.
-
-### `agentctl cleanup`
+#### `agentctl cleanup`
 
 ```bash
 agentctl cleanup [issue-number-or-url]
@@ -442,7 +488,7 @@ Use `--all` to scan all linked worktrees and run the cleanup flow for every bran
 
 If the PR is not merged, use `agentctl discard` for abandoned work.
 
-### `agentctl discard`
+#### `agentctl discard`
 
 ```bash
 agentctl discard [issue-number-or-url]
@@ -467,7 +513,9 @@ When `agentctl cleanup --all` skips worktrees with no PR, it prints a hint if an
 Note: N stale worktree(s) found with no agent and no PR — run `agentctl discard --stale` to remove them.
 ```
 
-### `agentctl dev start`
+### Dev server
+
+#### `agentctl dev start`
 
 ```bash
 agentctl dev start [issue]
@@ -526,6 +574,21 @@ notify: true
 # Editor opened by agentctl open. Overridden per-invocation with --editor.
 # Examples: "cursor", "code", "idea"
 editor: cursor
+
+# Default coding agent for agentctl start. Overrides the built-in default
+# ("claude"). Overridden per-invocation with --agent.
+# Examples: "codex", "copilot", "gemini"
+default_agent: claude
+
+# Command agents use to run the test suite before opening a PR. When set,
+# agents use this instead of inferring the command from AGENTS.md or README.md.
+# Use {output} as a placeholder for the binary path (agentctl build only).
+# Examples: "go test ./...", "npm test", "pytest tests/ -v"
+test_cmd: pytest tests/ -v
+
+# Default merge strategy for agentctl merge. Overridden per-invocation with
+# --strategy. Valid values: squash (default when omitted), merge, rebase.
+merge_strategy: squash
 ```
 
 ---
