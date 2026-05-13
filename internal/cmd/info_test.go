@@ -12,6 +12,16 @@ import (
 	"github.com/arun-gupta/agentctl/internal/state"
 )
 
+func writeFakeGHScript(t *testing.T, script string) string {
+	t.Helper()
+	dir := t.TempDir()
+	ghPath := filepath.Join(dir, "gh")
+	if err := os.WriteFile(ghPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write gh script: %v", err)
+	}
+	return dir
+}
+
 func TestRunInfo_versionInOutput(t *testing.T) {
 	var buf bytes.Buffer
 	if err := runInfo(&buf, "v1.2.3", ""); err != nil {
@@ -226,24 +236,26 @@ func TestRunInfo_ghSection(t *testing.T) {
 }
 
 func TestRunInfo_ghVersionErrorShown(t *testing.T) {
-	dir := t.TempDir()
-	ghPath := filepath.Join(dir, "gh")
-	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then exit 1; fi\nif [ \"$1\" = \"auth\" ] && [ \"$2\" = \"status\" ]; then echo \"Logged in to github.com account fake-user\"; exit 0; fi\nexit 1\n"
-	if err := os.WriteFile(ghPath, []byte(script), 0o755); err != nil {
-		t.Fatalf("write gh script: %v", err)
-	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	scriptDir := writeFakeGHScript(t, `#!/bin/sh
+if [ "$1" = "--version" ]; then exit 1; fi
+if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+	echo "Logged in to github.com account fake-user"
+	exit 0
+fi
+exit 1
+`)
+	t.Setenv("PATH", scriptDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	var buf bytes.Buffer
 	if err := runInfo(&buf, "dev", ""); err != nil {
 		t.Fatalf("runInfo error: %v", err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, "GitHub CLI: unknown version ✗") {
+	if !strings.Contains(out, "GitHub CLI: unknown version (authenticated as fake-user)") {
 		t.Errorf("expected gh version error indicator; got:\n%s", out)
 	}
-	if strings.Contains(out, "authenticated as") {
-		t.Errorf("did not expect authenticated status when gh --version fails; got:\n%s", out)
+	if strings.Contains(out, "GitHub CLI: unknown version ✓") {
+		t.Errorf("did not expect success marker when gh --version fails; got:\n%s", out)
 	}
 }
 

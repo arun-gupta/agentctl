@@ -53,7 +53,11 @@ func runInfo(out io.Writer, version, repoRoot string) error {
 	} else {
 		ghOut, err := runToolCmd("gh", "--version")
 		if err != nil {
-			fmt.Fprintln(out, "GitHub CLI: unknown version ✗")
+			if user := ghAuthUser(); user != "" {
+				fmt.Fprintf(out, "GitHub CLI: unknown version (authenticated as %s)\n", user)
+			} else {
+				fmt.Fprintln(out, "GitHub CLI: unknown version (not authenticated)")
+			}
 		} else {
 			ver := parseGHVersion(ghOut)
 			if user := ghAuthUser(); user != "" {
@@ -73,12 +77,13 @@ func runInfo(out io.Writer, version, repoRoot string) error {
 		}
 	}
 
-	if repoRoot != "" {
-		if cwd, err := os.Getwd(); err == nil {
-			if err := os.Chdir(repoRoot); err == nil {
-				defer func() { _ = os.Chdir(cwd) }()
-			}
-		}
+	adapterLookupWarning := ""
+	restoreCWD, warning := switchToRepoRoot(repoRoot)
+	if warning != "" {
+		adapterLookupWarning = warning
+	}
+	if restoreCWD != nil {
+		defer restoreCWD()
 	}
 
 	// Coding Agents — show ALL known adapters, including those not installed.
@@ -86,6 +91,9 @@ func runInfo(out io.Writer, version, repoRoot string) error {
 	// Adapters that fail to load (e.g. invalid YAML) show an error indicator
 	// rather than being silently omitted.
 	fmt.Fprintln(out, "Coding Agents:")
+	if adapterLookupWarning != "" {
+		fmt.Fprintf(out, "  ! %s\n", adapterLookupWarning)
+	}
 	for _, name := range adapters.List() {
 		defaultLabel := ""
 		if name == defaultAgent {
@@ -236,4 +244,25 @@ func runToolCmd(name string, args ...string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+func switchToRepoRoot(repoRoot string) (func(), string) {
+	if repoRoot == "" {
+		return nil, ""
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Sprintf("cannot get current directory for adapter lookup: %v", err)
+	}
+
+	if err := os.Chdir(repoRoot); err != nil {
+		return nil, fmt.Sprintf("cannot switch to repo root for adapter lookup: %v", err)
+	}
+
+	return func() {
+		if err := os.Chdir(cwd); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: cannot restore working directory after adapter lookup: %v\n", err)
+		}
+	}, ""
 }
