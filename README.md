@@ -58,16 +58,22 @@ agentctl cleanup 42
 ## How it works
 
 ```mermaid
-flowchart LR
-    issue["GitHub / GitLab\nissue"] --> start["agentctl start &lt;issue&gt;"]
+flowchart TD
+    issue["GitHub / GitLab issue"] --> start["agentctl start &lt;issue&gt;"]
     start --> wt["Isolated git worktree\n+ reserved port"]
-    start --> agent["Coding agent\n(Claude, Codex, Copilot…)"]
-    wt --> agent
-    agent --> code["Code written\ntests run"]
-    code --> pr["Pull request\nopened"]
-    pr --> review{"Human\nreview"}
-    review -->|"agentctl resume 'feedback'"| agent
-    review -->|approved & merged| cleanup["agentctl cleanup"]
+    wt --> agent["Coding agent\n(Claude, Codex, Copilot…)"]
+
+    agent -->|"--sdd=plain / --sdd=speckit"| spec["Agent writes spec\nspecs/spec.md"]
+    spec --> specreview{"Spec review\n(checkpoint 1)"}
+    specreview -->|"agentctl resume 'feedback'"| spec
+    specreview -->|"agentctl resume"| code
+
+    agent -->|no SDD| code["Code written\ntests run"]
+
+    code --> pr["Pull request opened"]
+    pr --> prereview{"PR review\n(checkpoint 2)"}
+    prereview -->|"agentctl resume 'feedback'"| agent
+    prereview -->|approved & merged| cleanup["agentctl cleanup"]
 ```
 
 For a deeper walkthrough see **[Introducing agentctl](docs/articles/introducing-agentctl.md)** and **[docs/cli.md](docs/cli.md)**.
