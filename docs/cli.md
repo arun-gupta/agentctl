@@ -15,22 +15,30 @@ Run `agentctl --help` or `agentctl <command> --help` for generated help from the
   - [Spec-driven development (SDD)](#spec-driven-development-sdd)
   - [Recovery and maintenance](#recovery-and-maintenance)
 - [Command reference](#command-reference)
-  - [Start](#start)
-    - [agentctl start](#agentctl-start)
-  - [Monitor](#monitor)
-    - [agentctl status](#agentctl-status)
-    - [agentctl logs](#agentctl-logs)
-    - [agentctl attach](#agentctl-attach)
-    - [agentctl diff](#agentctl-diff)
-    - [agentctl open](#agentctl-open)
-  - [Interact](#interact)
-    - [agentctl resume](#agentctl-resume)
-  - [Finish](#finish)
-    - [agentctl merge](#agentctl-merge)
-    - [agentctl cleanup](#agentctl-cleanup)
-    - [agentctl discard](#agentctl-discard)
+  - [agent group](#agent-group)
+    - [agentctl agent start](#agentctl-agent-start)
+    - [agentctl agent status](#agentctl-agent-status)
+    - [agentctl agent logs](#agentctl-agent-logs)
+    - [agentctl agent attach](#agentctl-agent-attach)
+    - [agentctl agent diff](#agentctl-agent-diff)
+    - [agentctl agent resume](#agentctl-agent-resume)
+  - [worktree group](#worktree-group)
+    - [agentctl worktree merge](#agentctl-worktree-merge)
+    - [agentctl worktree cleanup](#agentctl-worktree-cleanup)
+    - [agentctl worktree discard](#agentctl-worktree-discard)
+    - [agentctl worktree open](#agentctl-worktree-open)
   - [Dev server](#dev-server)
     - [agentctl dev start](#agentctl-dev-start)
+  - [Build](#build)
+    - [agentctl build](#agentctl-build)
+  - [Report](#report)
+    - [agentctl report](#agentctl-report)
+  - [Info](#info)
+    - [agentctl info](#agentctl-info)
+  - [Setup](#setup)
+    - [agentctl setup](#agentctl-setup)
+  - [Backward-compat alias](#backward-compat-alias)
+    - [agentctl start](#agentctl-start)
 - [Global user config](#global-user-config)
 - [`.agentctl.yml` configuration](#agentctlyml-configuration)
 - [Desktop notifications](#desktop-notifications)
@@ -47,34 +55,34 @@ The agent runs in your terminal with its output streamed live.
 
 ```mermaid
 flowchart TD
-    A[agentctl start 42] --> B[Agent runs in terminal]
+    A[agentctl agent start 42] --> B[Agent runs in terminal]
     B --> C[PR opened by agent]
     C --> D{Review PR}
-    D -- changes needed --> E[agentctl resume 42 feedback]
+    D -- changes needed --> E[agentctl agent resume 42 feedback]
     E --> B
     D -- approved --> F[Merge PR/MR on GitHub/GitLab]
-    F --> G[agentctl cleanup 42]
+    F --> G[agentctl worktree cleanup 42]
 ```
 
 ```bash
 # Start — agent streams output to your terminal
-agentctl start 42
+agentctl agent start 42
 
 # Or using a full issue URL (works from any directory — GitHub or GitLab)
-agentctl start https://github.com/owner/repo/issues/42
-agentctl start https://gitlab.com/owner/repo/-/issues/42
+agentctl agent start https://github.com/owner/repo/issues/42
+agentctl agent start https://gitlab.com/owner/repo/-/issues/42
 
 # Suppress log output but still wait for the agent to finish
-agentctl start --quiet 42
+agentctl agent start --quiet 42
 
 # Check what the agent has changed so far
-agentctl diff 42
+agentctl agent diff 42
 
 # Request changes after reviewing the PR
-agentctl resume 42 "Narrow scope to the API layer; avoid UI changes."
+agentctl agent resume 42 "Narrow scope to the API layer; avoid UI changes."
 
 # After the PR is merged
-agentctl cleanup 42
+agentctl worktree cleanup 42
 ```
 
 ### Headless workflow
@@ -83,104 +91,104 @@ The agent runs in the background; you check in at your own pace.
 
 ```mermaid
 flowchart TD
-    A[agentctl start --headless 42] --> B[Agent runs in background]
-    B --> C[agentctl logs 42 / agentctl attach 42]
-    C --> D[agentctl diff 42]
+    A[agentctl agent start --headless 42] --> B[Agent runs in background]
+    B --> C[agentctl agent logs 42 / agentctl agent attach 42]
+    C --> D[agentctl agent diff 42]
     D --> E[PR opened by agent]
     E --> F{Review PR}
-    F -- changes needed --> G[agentctl resume --headless 42 feedback]
+    F -- changes needed --> G[agentctl agent resume --headless 42 feedback]
     G --> B
     F -- approved --> H[Merge PR/MR on GitHub/GitLab]
-    H --> I[agentctl cleanup 42]
+    H --> I[agentctl worktree cleanup 42]
 ```
 
 ```bash
 # Start in the background; get a desktop notification when done
-agentctl start --headless --notify 42
+agentctl agent start --headless --notify 42
 
 # Stream logs live
-agentctl logs 42
+agentctl agent logs 42
 
 # Or attach and wait for the agent to finish automatically
-agentctl attach 42
+agentctl agent attach 42
 
 # Inspect what the agent changed
-agentctl diff 42
-agentctl diff 42 --stat
+agentctl agent diff 42
+agentctl agent diff 42 --stat
 
 # Request changes (resumes in background to match original headless behaviour)
-agentctl resume --headless 42 "Add error handling for the edge case."
+agentctl agent resume --headless 42 "Add error handling for the edge case."
 
 # After the PR is merged
-agentctl cleanup 42
+agentctl worktree cleanup 42
 ```
 
 ### Batch headless workflow
 
 ```mermaid
 flowchart TD
-    A[agentctl start --headless 210,211,212] --> B1[Agent 210 running]
+    A[agentctl agent start --headless 210,211,212] --> B1[Agent 210 running]
     A --> B2[Agent 211 running]
     A --> B3[Agent 212 running]
     B1 --> C1[PR 210 opened]
     B2 --> C2[PR 211 opened]
     B3 --> C3[PR 212 opened]
-    C1 & C2 & C3 --> D[agentctl status]
+    C1 & C2 & C3 --> D[agentctl agent status]
     D --> E[Review and merge PRs/MRs on GitHub/GitLab]
-    E --> F[agentctl cleanup --all]
+    E --> F[agentctl worktree cleanup --all]
 ```
 
 ```bash
 # Start several issues at once
-agentctl start --headless 210,211,212
+agentctl agent start --headless 210,211,212
 
 # Monitor all worktrees
-agentctl status
-agentctl status --verbose
+agentctl agent status
+agentctl agent status --verbose
 
 # Review what each agent changed
-agentctl diff 210 --stat
-agentctl diff 211 --stat
+agentctl agent diff 210 --stat
+agentctl agent diff 211 --stat
 
 # Approve each spec in background
-agentctl resume --headless 210
-agentctl resume --headless 211
-agentctl resume --headless 212
+agentctl agent resume --headless 210
+agentctl agent resume --headless 211
+agentctl agent resume --headless 212
 
 # Sweep all merged PRs
-agentctl cleanup --all
+agentctl worktree cleanup --all
 ```
 
 ### Spec-driven development (SDD)
 
 ```mermaid
 flowchart TD
-    A[agentctl start 42 --sdd=plain] --> B[Agent writes spec]
+    A[agentctl agent start 42 --sdd=plain] --> B[Agent writes spec]
     B --> C[Agent pauses for review]
     C --> D{Spec review}
-    D -- approve --> E[agentctl resume 42]
-    D -- revise --> F[agentctl resume 42 feedback]
+    D -- approve --> E[agentctl agent resume 42]
+    D -- revise --> F[agentctl agent resume 42 feedback]
     F --> B
     E --> G[Agent implements and opens PR]
     G --> H{Review PR}
-    H -- changes needed --> I[agentctl resume 42 feedback]
+    H -- changes needed --> I[agentctl agent resume 42 feedback]
     I --> G
     H -- approved --> J[Merge PR/MR on GitHub/GitLab]
-    J --> K[agentctl cleanup 42]
+    J --> K[agentctl worktree cleanup 42]
 ```
 
-`agentctl start 42` works out of the box for any repo — by default there is no spec step and the agent opens a PR directly.
+`agentctl agent start 42` works out of the box for any repo — by default there is no spec step and the agent opens a PR directly.
 
 Use `--sdd=plain` to add a lightweight spec-review checkpoint (no external tooling required):
 
 ```bash
-agentctl start 42 --sdd=plain
+agentctl agent start 42 --sdd=plain
 ```
 
 Use `--sdd=speckit` to opt into the Spec Kit workflow if your repo is set up for it:
 
 ```bash
-agentctl start 42 --sdd=speckit
+agentctl agent start 42 --sdd=speckit
 ```
 
 See [sdd.md](sdd.md) for the SDD methodology schema and drop-in locations.
@@ -189,18 +197,18 @@ See [sdd.md](sdd.md) for the SDD methodology schema and drop-in locations.
 
 ```bash
 # Discard abandoned work (unrecoverable — prompts for YES)
-agentctl discard 42
+agentctl worktree discard 42
 
 # Discard all worktrees with no running agent and no PR
-agentctl discard --stale
+agentctl worktree discard --stale
 
 # Run cleanup/discard from inside a linked worktree (no issue number needed)
 cd ../myrepo-42-my-feature
-agentctl cleanup
-agentctl discard
+agentctl worktree cleanup
+agentctl worktree discard
 
 # Inspect state
-agentctl status --verbose
+agentctl agent status --verbose
 cat ../<repo>-42-<slug>/.agent
 tail -f ../<repo>-42-<slug>/agent.log
 tail -f ../<repo>-42-<slug>/dev.log
@@ -210,13 +218,13 @@ tail -f ../<repo>-42-<slug>/dev.log
 
 ## Command reference
 
-### Start
+### agent group
 
-#### `agentctl start`
+#### `agentctl agent start`
 
 ```bash
-agentctl start [--agent <name>] [--headless] [--notify] [--quiet] <issue-number-or-url> [slug] [--sdd=<name>]
-agentctl start [--agent <name>] [--headless] [--notify] [--quiet] [--sdd=<name>] --task "<description>" [--branch <branch-name>]
+agentctl agent start [--agent <name>] [--headless] [--notify] [--quiet] <issue-number-or-url> [slug] [--sdd=<name>]
+agentctl agent start [--agent <name>] [--headless] [--notify] [--quiet] [--sdd=<name>] --task "<description>" [--branch <branch-name>]
 ```
 
 Creates a linked worktree for a GitHub or GitLab issue (or a free-form task) and launches the selected coding agent inside it.
@@ -242,14 +250,12 @@ Side effects:
 - Launches the selected adapter.
 - In issue mode, when the agent exits, appends `Closes #<issue>` to the PR body retrieved via `gh pr view <branch>`, unless the body already contains `closes #<issue>` or `fixes #<issue>` (case-insensitive).
 
-### Monitor
-
-#### `agentctl status`
+#### `agentctl agent status`
 
 ```bash
-agentctl status
-agentctl status --verbose
-agentctl list
+agentctl agent status
+agentctl agent status --verbose
+agentctl agent list
 ```
 
 Shows all linked worktrees and their current state.
@@ -275,12 +281,12 @@ Spec states:
 
 PR column shows the PR number and state from `gh pr view <branch>`, e.g. `#42 OPEN`, `#42 MERGED`. Shows `none` when no PR exists for the branch.
 
-#### `agentctl logs`
+#### `agentctl agent logs`
 
 ```bash
-agentctl logs <issue-number-or-url>
-agentctl logs <issue-number-or-url> --lines 100
-agentctl logs <issue-number-or-url> --no-follow
+agentctl agent logs <issue-number-or-url>
+agentctl agent logs <issue-number-or-url> --lines 100
+agentctl agent logs <issue-number-or-url> --no-follow
 ```
 
 Streams `agent.log` for the given issue to stdout.
@@ -294,7 +300,7 @@ Flags:
 
 Behavior:
 
-- Looks up the worktree path from state (same as `agentctl status`).
+- Looks up the worktree path from state (same as `agentctl agent status`).
 - Prints the last `--lines N` lines of `agent.log`.
 - Then follows new output until Ctrl+C (unless `--no-follow` is set).
 - If `agent.log` does not exist yet, waits up to 10 seconds for it to appear.
@@ -306,10 +312,10 @@ Error cases:
 | Issue not found | `no worktree found for issue N — has it been started?` |
 | `agent.log` missing after 10s | `agent log not found — is the agent running? (looked for <path>)` |
 
-#### `agentctl attach`
+#### `agentctl agent attach`
 
 ```bash
-agentctl attach <issue-number-or-url>
+agentctl agent attach <issue-number-or-url>
 ```
 
 Streams `agent.log` and exits automatically when the agent process finishes — mirrors the non-headless `start` experience for an already-running headless agent.
@@ -329,13 +335,13 @@ Error cases:
 | `.agent` file missing or no PID | `no agent PID recorded for issue N — was it started headless?` |
 | `agent.log` missing after 10s | `agent log not found — is the agent running? (looked for <path>)` |
 
-#### `agentctl diff`
+#### `agentctl agent diff`
 
 ```bash
-agentctl diff <issue-number-or-url>
-agentctl diff <issue-number-or-url> --stat
-agentctl diff <issue-number-or-url> --base <branch>
-agentctl diff <issue-number-or-url> --no-pager
+agentctl agent diff <issue-number-or-url>
+agentctl agent diff <issue-number-or-url> --stat
+agentctl agent diff <issue-number-or-url> --base <branch>
+agentctl agent diff <issue-number-or-url> --no-pager
 ```
 
 Shows the git diff for the agent's worktree without leaving your primary working directory.
@@ -350,7 +356,7 @@ Flags:
 
 Behavior:
 
-- Resolves the worktree path for the given issue (same lookup as `agentctl logs`).
+- Resolves the worktree path for the given issue (same lookup as `agentctl agent logs`).
 - Without `--base`: runs `git diff HEAD` — shows all uncommitted changes (staged + unstaged).
 - With `--base <branch>`: runs `git diff <branch>...HEAD` — shows everything the agent added since branching from `<branch>`.
 - Output is piped through `$PAGER` (defaulting to `less -R`) with `--color=always` when stdout is a TTY.
@@ -362,13 +368,121 @@ Error cases:
 |-----------|---------------|
 | Issue not found | `no worktree found for issue N — has it been started?` |
 
-#### `agentctl open`
+#### `agentctl agent resume`
 
 ```bash
-agentctl open <issue-number-or-url>
-agentctl open <issue-number-or-url> --editor code
-agentctl open <issue-number-or-url> --editor cursor
-cd $(agentctl open <issue-number-or-url> --path)
+agentctl agent resume [--headless] [--notify] [--quiet] <issue-number-or-url>
+agentctl agent resume [--headless] [--notify] [--quiet] <issue-number-or-url> [feedback]
+```
+
+Resumes a paused agent after the spec-review checkpoint.
+
+- Without feedback: approves the spec and the agent begins implementation.
+- With feedback: sends the revision text and the agent rewrites the spec.
+
+By default the resumed agent streams its output to the terminal (foreground mode), identical to `agentctl agent start` without `--headless`. Press Ctrl+C to detach without stopping the agent.
+
+- `--headless`: run the resumed agent in the background and write output to `agent.log`.
+- `--notify`: send a native desktop notification when the headless agent finishes. No-op when `--headless` is not set. See [Desktop notifications](#desktop-notifications).
+- `--quiet`: suppress all agent log output in the terminal; the parent still waits for the agent to finish (foreground). Has no effect with `--headless`.
+
+`--agent` is not accepted by `resume` — the agent is recorded in `.agent` at `start` time and reused automatically.
+
+The command requires:
+
+- A linked worktree for the issue.
+- A `.agent` metadata file with the selected agent and session ID.
+- A generated spec at `specs/*/spec.md`.
+
+### worktree group
+
+#### `agentctl worktree merge`
+
+```bash
+agentctl worktree merge [issue-number-or-url]
+agentctl worktree merge [issue-number-or-url] --strategy squash|merge|rebase
+agentctl worktree merge [issue-number-or-url] --dry-run
+agentctl worktree merge [issue-number-or-url] --no-delete
+```
+
+One-step merge: verifies the PR is approved and mergeable, runs `gh pr merge`, pulls `main`, and removes the worktree and branches. Equivalent to merging on GitHub/GitLab and then running `agentctl worktree cleanup`, but in a single command.
+
+Run without arguments inside a linked worktree to infer the issue from the current branch.
+
+Flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--strategy <name>` | `squash` | Merge strategy: `squash`, `merge`, or `rebase`. Overrides `merge_strategy` in `.agentctl.yml`. |
+| `--no-delete` | `false` | Skip worktree and branch deletion after merge; leaves the worktree intact |
+| `--dry-run` | `false` | Show what would happen without executing any destructive steps |
+| `--agent <name>` | — | Disambiguate when multiple worktrees exist for the same issue |
+
+Strategy resolution order: `--strategy` flag → `merge_strategy` in `.agentctl.yml` → `squash`.
+
+Error cases:
+
+| Condition | Error message |
+|-----------|---------------|
+| Issue not found | `no worktree or local branch found for issue N` |
+| PR not merged-ready | `PR is not in a mergeable state` |
+| Unknown strategy | `unknown merge strategy "<name>": must be squash, merge, or rebase` |
+
+#### `agentctl worktree cleanup`
+
+```bash
+agentctl worktree cleanup [issue-number-or-url]
+agentctl worktree cleanup --all
+```
+
+Cleans up a worktree after its PR is merged.
+
+Behavior:
+
+- Infers the issue number from the current branch when run inside a linked worktree and no issue is provided.
+- Ensures the primary worktree is on `main`.
+- Verifies the branch PR is `MERGED` via `gh`.
+- Pulls `main` with fast-forward only.
+- Stops recorded dev/agent PIDs when possible.
+- Removes the linked worktree.
+- Deletes local and remote branches.
+
+Use `--all` to scan all linked worktrees and run the cleanup flow for every branch whose PR state is `MERGED`. Also prunes orphaned remote branches (branches with no local worktree whose PR is MERGED or CLOSED). Branches without PRs, unmerged PRs, detached worktrees, or branches without a numeric issue prefix are skipped.
+
+If the PR is not merged, use `agentctl worktree discard` for abandoned work.
+
+#### `agentctl worktree discard`
+
+```bash
+agentctl worktree discard [issue-number-or-url]
+agentctl worktree discard --stale
+```
+
+Permanently discards a worktree and deletes local/remote branches. This is unrecoverable and prompts for `YES`.
+
+Use this for abandoned or failed work where the PR should not be merged.
+
+Like `cleanup`, the issue number can be inferred from the current branch when run inside a linked worktree.
+
+Use `--stale` to discard all linked worktrees at once that have no running agent and no PR. All matching worktrees are listed before the confirmation prompt. `--stale` and a positional issue number are mutually exclusive.
+
+A worktree is considered stale when both conditions hold:
+1. No agent is running (no `.agent` file, empty `agent-pid`, or the recorded PID is not alive).
+2. No PR of any state exists for the branch (`gh pr list --state all` returns no results).
+
+When `agentctl worktree cleanup --all` skips worktrees with no PR, it prints a hint if any of them are also stale:
+
+```
+Note: N stale worktree(s) found with no agent and no PR — run `agentctl worktree discard --stale` to remove them.
+```
+
+#### `agentctl worktree open`
+
+```bash
+agentctl worktree open <issue-number-or-url>
+agentctl worktree open <issue-number-or-url> --editor code
+agentctl worktree open <issue-number-or-url> --editor cursor
+cd $(agentctl worktree open <issue-number-or-url> --path)
 ```
 
 Opens the worktree for an issue in the configured editor.
@@ -395,7 +509,7 @@ Behavior:
 - Resolves the linked worktree path for the given issue.
 - Launches the editor with the worktree path as a non-blocking background process (`.Start()`, not `.Run()`), so the command returns immediately.
 - When no editor is resolved, prints the worktree path to stdout and exits with no error — same as `--path`.
-- `--path` is useful for scripting: `cd $(agentctl open 42 --path)`.
+- `--path` is useful for scripting: `cd $(agentctl worktree open 42 --path)`.
 
 Error cases:
 
@@ -403,116 +517,6 @@ Error cases:
 |-----------|---------------|
 | Issue not found | `no worktree found for issue N — has it been started?` |
 | Editor binary not found | `cannot open editor "<name>": ...` |
-
-### Interact
-
-#### `agentctl resume`
-
-```bash
-agentctl resume [--headless] [--notify] [--quiet] <issue-number-or-url>
-agentctl resume [--headless] [--notify] [--quiet] <issue-number-or-url> [feedback]
-```
-
-Resumes a paused agent after the spec-review checkpoint.
-
-- Without feedback: approves the spec and the agent begins implementation.
-- With feedback: sends the revision text and the agent rewrites the spec.
-
-By default the resumed agent streams its output to the terminal (foreground mode), identical to `agentctl start` without `--headless`. Press Ctrl+C to detach without stopping the agent.
-
-- `--headless`: run the resumed agent in the background and write output to `agent.log`.
-- `--notify`: send a native desktop notification when the headless agent finishes. No-op when `--headless` is not set. See [Desktop notifications](#desktop-notifications).
-- `--quiet`: suppress all agent log output in the terminal; the parent still waits for the agent to finish (foreground). Has no effect with `--headless`.
-
-`--agent` is not accepted by `resume` — the agent is recorded in `.agent` at `start` time and reused automatically.
-
-The command requires:
-
-- A linked worktree for the issue.
-- A `.agent` metadata file with the selected agent and session ID.
-- A generated spec at `specs/*/spec.md`.
-
-### Finish
-
-#### `agentctl merge`
-
-```bash
-agentctl merge [issue-number-or-url]
-agentctl merge [issue-number-or-url] --strategy squash|merge|rebase
-agentctl merge [issue-number-or-url] --dry-run
-agentctl merge [issue-number-or-url] --no-delete
-```
-
-One-step merge: verifies the PR is approved and mergeable, runs `gh pr merge`, pulls `main`, and removes the worktree and branches. Equivalent to merging on GitHub/GitLab and then running `agentctl cleanup`, but in a single command.
-
-Run without arguments inside a linked worktree to infer the issue from the current branch.
-
-Flags:
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--strategy <name>` | `squash` | Merge strategy: `squash`, `merge`, or `rebase`. Overrides `merge_strategy` in `.agentctl.yml`. |
-| `--no-delete` | `false` | Skip worktree and branch deletion after merge; leaves the worktree intact |
-| `--dry-run` | `false` | Show what would happen without executing any destructive steps |
-| `--agent <name>` | — | Disambiguate when multiple worktrees exist for the same issue |
-
-Strategy resolution order: `--strategy` flag → `merge_strategy` in `.agentctl.yml` → `squash`.
-
-Error cases:
-
-| Condition | Error message |
-|-----------|---------------|
-| Issue not found | `no worktree or local branch found for issue N` |
-| PR not merged-ready | `PR is not in a mergeable state` |
-| Unknown strategy | `unknown merge strategy "<name>": must be squash, merge, or rebase` |
-
-#### `agentctl cleanup`
-
-```bash
-agentctl cleanup [issue-number-or-url]
-agentctl cleanup --all
-```
-
-Cleans up a worktree after its PR is merged.
-
-Behavior:
-
-- Infers the issue number from the current branch when run inside a linked worktree and no issue is provided.
-- Ensures the primary worktree is on `main`.
-- Verifies the branch PR is `MERGED` via `gh`.
-- Pulls `main` with fast-forward only.
-- Stops recorded dev/agent PIDs when possible.
-- Removes the linked worktree.
-- Deletes local and remote branches.
-
-Use `--all` to scan all linked worktrees and run the cleanup flow for every branch whose PR state is `MERGED`. Also prunes orphaned remote branches (branches with no local worktree whose PR is MERGED or CLOSED). Branches without PRs, unmerged PRs, detached worktrees, or branches without a numeric issue prefix are skipped.
-
-If the PR is not merged, use `agentctl discard` for abandoned work.
-
-#### `agentctl discard`
-
-```bash
-agentctl discard [issue-number-or-url]
-agentctl discard --stale
-```
-
-Permanently discards a worktree and deletes local/remote branches. This is unrecoverable and prompts for `YES`.
-
-Use this for abandoned or failed work where the PR should not be merged.
-
-Like `cleanup`, the issue number can be inferred from the current branch when run inside a linked worktree.
-
-Use `--stale` to discard all linked worktrees at once that have no running agent and no PR. All matching worktrees are listed before the confirmation prompt. `--stale` and a positional issue number are mutually exclusive.
-
-A worktree is considered stale when both conditions hold:
-1. No agent is running (no `.agent` file, empty `agent-pid`, or the recorded PID is not alive).
-2. No PR of any state exists for the branch (`gh pr list --state all` returns no results).
-
-When `agentctl cleanup --all` skips worktrees with no PR, it prints a hint if any of them are also stale:
-
-```
-Note: N stale worktree(s) found with no agent and no PR — run `agentctl discard --stale` to remove them.
-```
 
 ### Dev server
 
@@ -523,7 +527,7 @@ agentctl dev start [issue]
 agentctl dev start [issue] --quiet
 ```
 
-Launches the `dev_server` command from `.agentctl.yml` using the port already recorded in `.agent`. Does **not** allocate a new port — use this when the dev server was skipped during `agentctl start` (e.g. `.agentctl.yml` was added mid-PR) or after it crashed.
+Launches the `dev_server` command from `.agentctl.yml` using the port already recorded in `.agent`. Does **not** allocate a new port — use this when the dev server was skipped during `agentctl agent start` (e.g. `.agentctl.yml` was added mid-PR) or after it crashed.
 
 Run without arguments inside a linked worktree to infer the issue number from the current branch.
 
@@ -535,23 +539,108 @@ Flags:
 
 Behavior:
 
-- Reads the port from `.agent` (set by `agentctl start`).
+- Reads the port from `.agent` (set by `agentctl agent start`).
 - Checks that the dev server is not already running; exits 1 if it is.
 - Starts `dev_server` with `{port}` substituted, writing output to `dev.log`.
 - Prints `Dev server ready → http://localhost:<port>` to stdout.
 - Sends an OS notification when ready if `notify: true` in `.agentctl.yml`.
 - Default: streams `dev.log` to stdout until Ctrl+C or the process exits.
 - `--quiet`: prints the URL and exits immediately.
-- Records the new dev server PID in `.agent` so `agentctl cleanup` can tear it down.
+- Records the new dev server PID in `.agent` so `agentctl worktree cleanup` can tear it down.
 
 Error cases:
 
 | Condition | Error message |
 |-----------|---------------|
 | `dev_server` not set in `.agentctl.yml` | `dev_server not set in .agentctl.yml — nothing to start` |
-| `.agent` has no port recorded | `no port recorded in .agent — run agentctl start first` |
+| `.agent` has no port recorded | `no port recorded in .agent — run agentctl agent start first` |
 | Dev server already running | `dev server already running (PID N) — stop that process and clear the recorded dev-pid before restarting` |
 | Port already in use | `port N already in use` (with PID if detectable) |
+
+### Build
+
+#### `agentctl build`
+
+```bash
+agentctl build <issue>
+agentctl build <issue> --output <path>
+```
+
+Compile a binary from the worktree associated with an issue. Useful for smoke-testing a build before or instead of running the full test suite.
+
+Source resolution order:
+
+1. Linked worktree exists — build directly from the worktree.
+2. No worktree, but a local branch exists — check out into a temporary worktree, build, then remove it.
+3. Neither — error with a clear message.
+
+Build command resolution:
+
+1. `build_cmd` in `.agentctl.yml` (use `{output}` as the binary path placeholder).
+2. `go.mod` present → `go build -o {output} ./cmd/<first-subdir>` (or `./` if none).
+3. `package.json` with a `build` script → `npm run build`.
+4. `Makefile` with a `build` target → `make build`.
+
+The built binary path is printed to stdout on success.
+
+Flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--output <path>` / `-o` | `/tmp/<repo>-<issue>` | Output path for the compiled binary |
+| `--agent <name>` | — | Disambiguate when multiple worktrees exist for the same issue |
+
+### Report
+
+#### `agentctl report`
+
+```bash
+agentctl report
+agentctl report --json
+```
+
+Prints an aggregate summary of all agent runs recorded in `.agentctl/runs/` in the current repository.
+
+Default output shows period aggregates (last 7 and 30 days) and the slowest individual runs.
+
+Flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--json` | `false` | Emit all run records as a JSON array suitable for piping into dashboards or cost-accounting scripts |
+
+### Info
+
+#### `agentctl info`
+
+```bash
+agentctl info
+agentctl info --no-unicode
+```
+
+Prints a diagnostics report useful for troubleshooting: agentctl version, OS/arch, prerequisite tool availability (`git`, `gh`), available coding agents, current configuration (global and project-local), and active worktrees.
+
+Flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--no-unicode` | `false` | Use ASCII markers (`OK`/`X`) instead of Unicode glyphs (`✓`/`✗`). Also honored via `AGENTCTL_ASCII=1`. |
+
+### Setup
+
+#### `agentctl setup`
+
+```bash
+agentctl setup
+```
+
+Interactive setup wizard for new developers. Checks prerequisites (`git`, GitHub CLI), shows available coding agents, and prompts for preferences (default agent, notifications, SDD methodology). Preferences are saved to the global config file (`~/.config/agentctl/config.yml`).
+
+No flags beyond `--help`.
+
+### Backward-compat alias
+
+`agentctl start` is a hidden top-level alias that maps directly to `agentctl agent start`. All flags and arguments are identical. Existing scripts and muscle memory continue to work unchanged.
 
 ---
 
@@ -574,7 +663,7 @@ Only user-preference fields belong in the global config. Repo-specific fields (`
 ```yaml
 # ~/.config/agentctl/config.yml
 
-# Personal default agent for agentctl start.
+# Personal default agent for agentctl agent start.
 default_agent: codex
 
 # Send desktop notifications when headless agents finish.
@@ -583,7 +672,7 @@ notify: true
 # Personal default merge strategy.
 merge_strategy: squash
 
-# Editor opened by agentctl open.
+# Editor opened by agentctl worktree open.
 editor: cursor
 
 # Opt out of per-run diagnostics globally.
@@ -633,11 +722,11 @@ port: 3010
 # Can also be enabled per-invocation with --notify.
 notify: true
 
-# Editor opened by agentctl open. Overridden per-invocation with --editor.
+# Editor opened by agentctl worktree open. Overridden per-invocation with --editor.
 # Examples: "cursor", "code", "idea"
 editor: cursor
 
-# Default coding agent for agentctl start. Overrides the built-in default
+# Default coding agent for agentctl agent start. Overrides the built-in default
 # ("claude"). Overridden per-invocation with --agent.
 # Examples: "codex", "copilot", "gemini"
 default_agent: claude
@@ -648,7 +737,7 @@ default_agent: claude
 # Examples: "go test ./...", "npm test", "pytest tests/ -v"
 test_cmd: pytest tests/ -v
 
-# Default merge strategy for agentctl merge. Overridden per-invocation with
+# Default merge strategy for agentctl worktree merge. Overridden per-invocation with
 # --strategy. Valid values: squash (default when omitted), merge, rebase.
 merge_strategy: squash
 ```
@@ -657,15 +746,15 @@ merge_strategy: squash
 
 ## Desktop notifications
 
-agentctl can fire a native OS notification the moment a headless agent finishes, so you don't have to poll `agentctl status` or watch `agent.log`.
+agentctl can fire a native OS notification the moment a headless agent finishes, so you don't have to poll `agentctl agent status` or watch `agent.log`.
 
 ### Enabling notifications
 
-**Per-invocation** — pass `--notify` on `start` or `resume`:
+**Per-invocation** — pass `--notify` on `agent start` or `agent resume`:
 
 ```bash
-agentctl start --headless --notify 42
-agentctl resume --headless --notify 42
+agentctl agent start --headless --notify 42
+agentctl agent resume --headless --notify 42
 ```
 
 **Repo-wide default** — add `notify: true` to `.agentctl.yml`:
