@@ -45,11 +45,27 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 	if len(os.Args) > 1 && os.Args[1] == "__finalise-diagnostics" {
-		if len(os.Args) < 4 {
-			fmt.Fprintln(os.Stderr, "usage: __finalise-diagnostics <wtDir> <pid>")
+		if len(os.Args) < 5 {
+			fmt.Fprintln(os.Stderr, "usage: __finalise-diagnostics <wtDir> <pid> <issue> [--notify]")
 			os.Exit(1)
 		}
-		if err := runFinaliseDiagnostics(os.Args[2], os.Args[3]); err != nil {
+		wtDir, pid, issue := os.Args[2], os.Args[3], os.Args[4]
+		doNotify := false
+		for _, a := range os.Args[5:] {
+			if a == "--notify" {
+				doNotify = true
+			}
+		}
+		if doNotify {
+			if notifyFile := os.Getenv("AGENTCTL_TEST_NOTIFY_FILE"); notifyFile != "" {
+				notify.SendFn = func(title, message string) {
+					_ = os.WriteFile(notifyFile, []byte(title+"\n"+message+"\n"), 0o644)
+				}
+			} else {
+				notify.SendFn = func(_, _ string) {} // suppress OS popups in tests
+			}
+		}
+		if err := runFinaliseDiagnostics(wtDir, pid, issue, doNotify); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -1325,44 +1341,37 @@ func TestLaunchAgent_headless_withSDD_showsResumeHint(t *testing.T) {
 }
 
 // TestLaunchAgent_headless_notify verifies that a desktop notification is
-// fired after the headless agent exits when notify=true.
+// fired after the headless agent exits when notify=true. The notification is
+// sent from the detached __finalise-diagnostics subprocess, so we intercept it
+// via a temp file rather than stubbing notify.SendFn in-process.
 func TestLaunchAgent_headless_notify(t *testing.T) {
 	dir := t.TempDir()
 	writeLocalAdapter(t, dir, "echoagent",
 		"binary: echo\nsession: --session\n")
 	chdirTemp(t, dir)
 
-	// Replace the notification sender so we can capture the call without
-	// requiring OS notification tools.
-	origFn := notify.SendFn
-	t.Cleanup(func() { notify.SendFn = origFn })
-
-	notified := make(chan [2]string, 1)
-	notify.SendFn = func(title, message string) {
-		select {
-		case notified <- [2]string{title, message}:
-		default:
-		}
-	}
+	notifyFile := filepath.Join(t.TempDir(), "notify.txt")
+	t.Setenv("AGENTCTL_TEST_NOTIFY_FILE", notifyFile)
 
 	var out bytes.Buffer
-	err := launchAgent("echoagent", dir, "42", "3010", "sess-abc", "do the thing", "", true, false, true, &out)
+	err := launchAgent("echoagent", dir, "99", "3010", "sess-abc", "do the thing", "", true, false, true, &out)
 	if err != nil {
 		t.Fatalf("launchAgent headless notify: %v", err)
 	}
 
-	// Wait for the background notification goroutine to fire.
-	select {
-	case got := <-notified:
-		if got[0] != "agentctl" {
-			t.Errorf("notification title = %q, want %q", got[0], "agentctl")
+	// Poll for the subprocess to write the notification file.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if data, readErr := os.ReadFile(notifyFile); readErr == nil && len(data) > 0 {
+			content := string(data)
+			if !strings.Contains(content, "99") {
+				t.Errorf("notification %q does not mention issue 99", content)
+			}
+			return
 		}
-		if !strings.Contains(got[1], "42") {
-			t.Errorf("notification message %q does not mention issue 42", got[1])
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for desktop notification")
+		time.Sleep(50 * time.Millisecond)
 	}
+	t.Fatal("timed out waiting for desktop notification from __finalise-diagnostics subprocess")
 }
 
 // TestLaunchAgent_headless_finalisesDiagnostics verifies diagnostics are
@@ -2427,7 +2436,9 @@ func TestAgentResume_headless_hints(t *testing.T) {
 }
 
 // TestAgentResume_headless_notify verifies that a desktop notification is
-// fired after the headless resume agent exits when sendNotify=true.
+// fired after the headless resume agent exits when sendNotify=true. The
+// notification is sent from the detached __finalise-diagnostics subprocess,
+// so we intercept it via a temp file rather than stubbing notify.SendFn.
 func TestAgentResume_headless_notify(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "test-token")
 	dir := t.TempDir()
@@ -2435,33 +2446,26 @@ func TestAgentResume_headless_notify(t *testing.T) {
 		"binary: echo\nsession: --session\n")
 	chdirTemp(t, dir)
 
-	origFn := notify.SendFn
-	t.Cleanup(func() { notify.SendFn = origFn })
+	notifyFile := filepath.Join(t.TempDir(), "notify.txt")
+	t.Setenv("AGENTCTL_TEST_NOTIFY_FILE", notifyFile)
 
-	notified := make(chan [2]string, 1)
-	notify.SendFn = func(title, message string) {
-		select {
-		case notified <- [2]string{title, message}:
-		default:
-		}
-	}
-
-	if err := agentResume("echoagent", dir, "42", "sess-123", "my feedback", true, false, true); err != nil {
+	if err := agentResume("echoagent", dir, "99", "sess-123", "my feedback", true, false, true); err != nil {
 		t.Fatalf("agentResume headless notify: %v", err)
 	}
 
-	// Wait for the background notification goroutine to fire.
-	select {
-	case got := <-notified:
-		if got[0] != "agentctl" {
-			t.Errorf("notification title = %q, want %q", got[0], "agentctl")
+	// Poll for the subprocess to write the notification file.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if data, readErr := os.ReadFile(notifyFile); readErr == nil && len(data) > 0 {
+			content := string(data)
+			if !strings.Contains(content, "99") {
+				t.Errorf("notification %q does not mention issue 99", content)
+			}
+			return
 		}
-		if !strings.Contains(got[1], "42") {
-			t.Errorf("notification message %q does not mention issue 42", got[1])
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for desktop notification from agentResume")
+		time.Sleep(50 * time.Millisecond)
 	}
+	t.Fatal("timed out waiting for desktop notification from __finalise-diagnostics subprocess")
 }
 
 func TestAgentResume_nonHeadless_exitsWhenAgentDone(t *testing.T) {

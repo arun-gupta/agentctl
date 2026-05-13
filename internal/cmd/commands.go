@@ -3235,12 +3235,8 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 		}
 		if sendNotify {
 			maybeFireTestNotification(issue, out)
-			go func() {
-				<-exitCh
-				sendCompletionNotification(issue, wtPath, sddName, agentExitErr)
-			}()
 		}
-		if err := startDetachedDiagnosticsFinaliser(wtPath, pid); err != nil {
+		if err := startDetachedDiagnosticsFinaliser(wtPath, pid, issue, sendNotify); err != nil {
 			return err
 		}
 		return nil
@@ -3459,8 +3455,12 @@ func NewStreamLogCmd() *cobra.Command {
 	}
 }
 
-func startDetachedDiagnosticsFinaliser(wtPath string, pid int) error {
-	cmd := exec.Command(os.Args[0], "__finalise-diagnostics", wtPath, strconv.Itoa(pid))
+func startDetachedDiagnosticsFinaliser(wtPath string, pid int, issue string, sendNotify bool) error {
+	args := []string{"__finalise-diagnostics", wtPath, strconv.Itoa(pid), issue}
+	if sendNotify {
+		args = append(args, "--notify")
+	}
+	cmd := exec.Command(os.Args[0], args...)
 	cmd.Dir = wtPath
 	detachProcess(cmd)
 	if err := cmd.Start(); err != nil {
@@ -3470,8 +3470,9 @@ func startDetachedDiagnosticsFinaliser(wtPath string, pid int) error {
 }
 
 // runFinaliseDiagnostics waits for pid to exit, then finalises diagnostics for
-// the worktree.
-func runFinaliseDiagnostics(wtPath, pid string) error {
+// the worktree. When sendNotify is true and issue is non-empty, a desktop
+// notification is sent after finalisation.
+func runFinaliseDiagnostics(wtPath, pid, issue string, sendNotify bool) error {
 	const (
 		processCheckInterval = 200 * time.Millisecond
 		logFlushWait         = 200 * time.Millisecond
@@ -3484,41 +3485,49 @@ func runFinaliseDiagnostics(wtPath, pid string) error {
 
 	af, _ := state.Read(wtPath)
 	repoRoot := repoRootFromWorktree(wtPath)
-	if repoRoot == "" {
-		return nil
-	}
-
-	exitReason := "failed"
-	prURL := af.PRURL
-	if prURL == "" {
-		branch, _ := git.CurrentBranch(wtPath)
-		if branch != "" {
-			if p, pErr := resolveProvider(repoRoot); pErr == nil {
-				if _, _, foundURL, pErr := p.PRForBranch(repoRoot, branch); pErr == nil && foundURL != "" {
-					prURL = foundURL
+	if repoRoot != "" {
+		exitReason := "failed"
+		prURL := af.PRURL
+		if prURL == "" {
+			branch, _ := git.CurrentBranch(wtPath)
+			if branch != "" {
+				if p, pErr := resolveProvider(repoRoot); pErr == nil {
+					if _, _, foundURL, pErr := p.PRForBranch(repoRoot, branch); pErr == nil && foundURL != "" {
+						prURL = foundURL
+					}
 				}
 			}
 		}
+		if prURL != "" {
+			exitReason = "pr_opened"
+		}
+		af.PRURL = prURL
+		finaliseDiagnostics(repoRoot, wtPath, af, exitReason)
 	}
-	if prURL != "" {
-		exitReason = "pr_opened"
+	if sendNotify && issue != "" {
+		sendCompletionNotification(issue, wtPath, af.SDD, nil)
 	}
-	af.PRURL = prURL
-	finaliseDiagnostics(repoRoot, wtPath, af, exitReason)
 	return nil
 }
 
 // NewFinaliseDiagnosticsCmd returns a hidden command used by headless start and
 // resume paths to finalise diagnostics after the parent process exits.
 func NewFinaliseDiagnosticsCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:    "__finalise-diagnostics <wtDir> <pid>",
+	var doNotify bool
+	c := &cobra.Command{
+		Use:    "__finalise-diagnostics <wtDir> <pid> <issue>",
 		Hidden: true,
-		Args:   cobra.ExactArgs(2),
+		Args:   cobra.RangeArgs(2, 3),
 		RunE: func(_ *cobra.Command, args []string) error {
-			return runFinaliseDiagnostics(args[0], args[1])
+			issue := ""
+			if len(args) == 3 {
+				issue = args[2]
+			}
+			return runFinaliseDiagnostics(args[0], args[1], issue, doNotify)
 		},
 	}
+	c.Flags().BoolVar(&doNotify, "notify", false, "Send a desktop notification after finalising")
+	return c
 }
 
 // convertOpenHandsStream reads from r, which carries openhands --json output,
@@ -4341,12 +4350,8 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 		fmt.Printf("agentctl discard %s   # abandon\n", id)
 		if sendNotify {
 			maybeFireTestNotification(issue, os.Stdout)
-			go func() {
-				<-exitCh
-				sendCompletionNotification(issue, wtPath, "", resumeExitErr)
-			}()
 		}
-		if err := startDetachedDiagnosticsFinaliser(wtPath, pid); err != nil {
+		if err := startDetachedDiagnosticsFinaliser(wtPath, pid, issue, sendNotify); err != nil {
 			return err
 		}
 		return nil
