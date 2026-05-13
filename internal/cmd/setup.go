@@ -56,7 +56,7 @@ func runSetup(in io.Reader, out io.Writer) error {
 	}
 
 	if _, err := lookPathFn("gh"); err != nil {
-		fmt.Fprintf(out, "%s GitHub CLI not found — install with: brew install gh\n", sym.cross)
+		fmt.Fprintf(out, "%s GitHub CLI not found — install from https://cli.github.com/\n", sym.cross)
 		missingPrereqs = append(missingPrereqs, "gh")
 	} else {
 		if ghVer, err := runToolCmdFn("gh", "--version"); err == nil {
