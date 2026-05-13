@@ -12,6 +12,16 @@ import (
 	"github.com/arun-gupta/agentctl/internal/state"
 )
 
+func writeFakeGHScript(t *testing.T, script string) string {
+	t.Helper()
+	dir := t.TempDir()
+	ghPath := filepath.Join(dir, "gh")
+	if err := os.WriteFile(ghPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write gh script: %v", err)
+	}
+	return dir
+}
+
 func TestRunInfo_versionInOutput(t *testing.T) {
 	var buf bytes.Buffer
 	if err := runInfo(&buf, "v1.2.3", ""); err != nil {
@@ -225,6 +235,30 @@ func TestRunInfo_ghSection(t *testing.T) {
 	}
 }
 
+func TestRunInfo_ghVersionErrorShown(t *testing.T) {
+	scriptDir := writeFakeGHScript(t, `#!/bin/sh
+if [ "$1" = "--version" ]; then exit 1; fi
+if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+	echo "Logged in to github.com account fake-user"
+	exit 0
+fi
+exit 1
+`)
+	t.Setenv("PATH", scriptDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", ""); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "GitHub CLI: unknown version (authenticated as fake-user)") {
+		t.Errorf("expected gh version error indicator; got:\n%s", out)
+	}
+	if strings.Contains(out, "GitHub CLI: unknown version ✓") {
+		t.Errorf("did not expect success marker when gh --version fails; got:\n%s", out)
+	}
+}
+
 func TestRunInfo_configWithDefaultAgent(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &config.AgentctlConfig{DefaultAgent: "gemini"}
@@ -269,6 +303,68 @@ func TestRunInfo_installHintShown(t *testing.T) {
 	out := buf.String()
 	if !strings.Contains(out, "install with:") {
 		t.Errorf("expected install hint in output; got:\n%s", out)
+	}
+}
+
+func TestRunInfo_projectLocalAdapterFoundFromSubdir(t *testing.T) {
+	repoRoot := t.TempDir()
+	adapterDir := filepath.Join(repoRoot, ".agentctl", "adapters")
+	if err := os.MkdirAll(adapterDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(adapterDir, "local-only-adapter.yml"), []byte("binary: nonexistent-local-only-adapter\n"), 0o644); err != nil {
+		t.Fatalf("write adapter: %v", err)
+	}
+	subdir := filepath.Join(repoRoot, "nested", "dir")
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatalf("mkdir subdir: %v", err)
+	}
+
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(subdir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", repoRoot); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "local-only-adapter") {
+		t.Errorf("expected project-local adapter to appear from subdir; got:\n%s", out)
+	}
+}
+
+func TestRunInfo_adapterLoadErrorShown(t *testing.T) {
+	dir := t.TempDir()
+	adapterDir := filepath.Join(dir, ".agentctl", "adapters")
+	if err := os.MkdirAll(adapterDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(adapterDir, "broken-adapter.yml"), []byte("install: some-install-cmd\n"), 0o644); err != nil {
+		t.Fatalf("write adapter: %v", err)
+	}
+
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", dir); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "✗ broken-adapter") || !strings.Contains(out, "(adapter error)") {
+		t.Errorf("expected adapter load error status in output; got:\n%s", out)
 	}
 }
 

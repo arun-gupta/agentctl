@@ -51,12 +51,20 @@ func runInfo(out io.Writer, version, repoRoot string) error {
 	if _, err := exec.LookPath("gh"); err != nil {
 		fmt.Fprintln(out, "GitHub CLI: not found ✗")
 	} else {
-		ghOut, _ := runToolCmd("gh", "--version")
-		ver := parseGHVersion(ghOut)
-		if user := ghAuthUser(); user != "" {
-			fmt.Fprintf(out, "GitHub CLI: %s ✓ (authenticated as %s)\n", ver, user)
+		ghOut, err := runToolCmd("gh", "--version")
+		if err != nil {
+			if user := ghAuthUser(); user != "" {
+				fmt.Fprintf(out, "GitHub CLI: unknown version (authenticated as %s)\n", user)
+			} else {
+				fmt.Fprintln(out, "GitHub CLI: unknown version (not authenticated)")
+			}
 		} else {
-			fmt.Fprintf(out, "GitHub CLI: %s (not authenticated)\n", ver)
+			ver := parseGHVersion(ghOut)
+			if user := ghAuthUser(); user != "" {
+				fmt.Fprintf(out, "GitHub CLI: %s ✓ (authenticated as %s)\n", ver, user)
+			} else {
+				fmt.Fprintf(out, "GitHub CLI: %s (not authenticated)\n", ver)
+			}
 		}
 	}
 	fmt.Fprintln(out)
@@ -69,22 +77,40 @@ func runInfo(out io.Writer, version, repoRoot string) error {
 		}
 	}
 
-	// Coding Agents
+	adapterLookupWarning := ""
+	restoreCWD, warning := switchToRepoRoot(repoRoot)
+	if warning != "" {
+		adapterLookupWarning = warning
+	}
+	if restoreCWD != nil {
+		defer restoreCWD()
+	}
+
+	// Coding Agents — show ALL known adapters, including those not installed.
+	// Adapters whose binary is not on PATH show ✗ with the install hint.
+	// Adapters that fail to load (e.g. invalid YAML) show an error indicator
+	// rather than being silently omitted.
 	fmt.Fprintln(out, "Coding Agents:")
+	if adapterLookupWarning != "" {
+		fmt.Fprintf(out, "  ! %s\n", adapterLookupWarning)
+	}
 	for _, name := range adapters.List() {
-		adapter, err := adapters.Get(name)
-		if err != nil {
-			continue
-		}
 		defaultLabel := ""
 		if name == defaultAgent {
 			defaultLabel = " (default)"
 		}
+
+		adapter, err := adapters.Get(name)
+		if err != nil {
+			fmt.Fprintf(out, "  ✗ %-12s%s (adapter error)\n", name, defaultLabel)
+			continue
+		}
+
 		if binErr := adapter.CheckBinary(); binErr != nil {
 			if adapter.Install != "" {
-				fmt.Fprintf(out, "  ✗ %-12s (not installed)%s — install with: %s\n", name, defaultLabel, adapter.Install)
+				fmt.Fprintf(out, "  ✗ %-12s%s (not installed) — install with: %s\n", name, defaultLabel, adapter.Install)
 			} else {
-				fmt.Fprintf(out, "  ✗ %-12s (not installed)%s\n", name, defaultLabel)
+				fmt.Fprintf(out, "  ✗ %-12s%s (not installed)\n", name, defaultLabel)
 			}
 		} else {
 			fmt.Fprintf(out, "  ✓ %-12s%s\n", name, defaultLabel)
@@ -92,7 +118,7 @@ func runInfo(out io.Writer, version, repoRoot string) error {
 	}
 	fmt.Fprintln(out)
 
-	// Configuration and Active Worktrees require a repo root
+	// Configuration and Active Worktrees require a repo root.
 	if repoRoot == "" {
 		return nil
 	}
@@ -173,7 +199,6 @@ func systemOS() string {
 	if err != nil {
 		return osName
 	}
-	// Trim to major.minor: "6.6.51-rt50" → "6.6"
 	parts := strings.SplitN(out, ".", 3)
 	if len(parts) >= 2 {
 		return fmt.Sprintf("%s %s.%s", osName, parts[0], parts[1])
@@ -189,7 +214,6 @@ func parseGHVersion(ghOut string) string {
 	}
 	firstLine := strings.SplitN(ghOut, "\n", 2)[0]
 	parts := strings.Fields(firstLine)
-	// ["gh", "version", "2.45.0", "(2024-...)"]
 	if len(parts) >= 3 {
 		return parts[2]
 	}
@@ -220,4 +244,25 @@ func runToolCmd(name string, args ...string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+func switchToRepoRoot(repoRoot string) (func(), string) {
+	if repoRoot == "" {
+		return nil, ""
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Sprintf("cannot get current directory for adapter lookup: %v", err)
+	}
+
+	if err := os.Chdir(repoRoot); err != nil {
+		return nil, fmt.Sprintf("cannot switch to repo root for adapter lookup: %v", err)
+	}
+
+	return func() {
+		if err := os.Chdir(cwd); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: cannot restore working directory after adapter lookup: %v\n", err)
+		}
+	}, ""
 }
