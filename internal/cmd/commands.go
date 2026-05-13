@@ -27,6 +27,7 @@ import (
 
 	"github.com/arun-gupta/agentctl/internal/adapters"
 	"github.com/arun-gupta/agentctl/internal/config"
+	"github.com/arun-gupta/agentctl/internal/diagnostics"
 	"github.com/arun-gupta/agentctl/internal/git"
 	"github.com/arun-gupta/agentctl/internal/notify"
 	"github.com/arun-gupta/agentctl/internal/process"
@@ -286,6 +287,8 @@ func resolveProvider(repoRoot string) (vcs.Provider, error) {
 // agentSuffix is non-empty only in multi-agent mode (--agent claude,codex);
 // it is appended to the branch name and worktree path to avoid collisions.
 func startOne(issue, slug, agentName, sddName, agentSuffix string, headless, quiet, sendNotify bool, out io.Writer) error {
+	startedAt := time.Now()
+
 	// Validate the adapter exists before doing any setup work.
 	if err := validateAdapter(agentName); err != nil {
 		return err
@@ -386,6 +389,21 @@ func startOne(issue, slug, agentName, sddName, agentSuffix string, headless, qui
 		return err
 	}
 
+	// Write initial diagnostics record and store the filename in .agent so later
+	// commands can locate and update it.
+	if isDiagnosticsEnabled(repoRoot) {
+		dr := &diagnostics.RunRecord{
+			Issue:      issueNum,
+			Branch:     branch,
+			Agent:      agentName,
+			StartedAt:  startedAt,
+			ExitReason: "in_progress",
+		}
+		if runFile, diagErr := diagnostics.Write(repoRoot, dr); diagErr == nil {
+			_ = state.AppendKey(wtPath, "run-file", runFile)
+		}
+	}
+
 	var kickoff string
 	if sddName == "" {
 		kickoff = buildKickoff(issueNum, portStr, p.Platform(), p.PRTerm())
@@ -411,6 +429,8 @@ func startOne(issue, slug, agentName, sddName, agentSuffix string, headless, qui
 
 // startTask provisions a worktree for a free-form task and launches the agent.
 func startTask(task, branch, agentName, sddName string, headless, quiet, sendNotify bool, out io.Writer) error {
+	startedAt := time.Now()
+
 	if strings.TrimSpace(task) == "" {
 		return fmt.Errorf("--task requires a non-empty task description")
 	}
@@ -490,6 +510,20 @@ func startTask(task, branch, agentName, sddName string, headless, quiet, sendNot
 	}
 	if err := state.Write(wtPath, af); err != nil {
 		return err
+	}
+
+	// Write initial diagnostics record for task-mode runs.
+	if isDiagnosticsEnabled(repoRoot) {
+		dr := &diagnostics.RunRecord{
+			Issue:      branch, // task mode: use branch name as the identifier
+			Branch:     branch,
+			Agent:      agentName,
+			StartedAt:  startedAt,
+			ExitReason: "in_progress",
+		}
+		if runFile, diagErr := diagnostics.Write(repoRoot, dr); diagErr == nil {
+			_ = state.AppendKey(wtPath, "run-file", runFile)
+		}
 	}
 
 	var kickoff string
@@ -998,6 +1032,8 @@ func runRemoveWorktree(issue, agentSuffix string) error {
 	// Kill running processes.
 	if wtPath != "" {
 		af, _ := state.Read(wtPath)
+		// Write diagnostics before removing the worktree (run-file may be inside it).
+		finaliseDiagnostics(repoRoot, wtPath, af, "discarded")
 		process.Kill(af.DevPID)
 		process.Kill(af.AgentPID)
 		if err := git.RemoveWorktree(repoRoot, wtPath); err != nil {
@@ -1167,7 +1203,6 @@ func runMerge(issue, strategy, agentSuffix string, noDelete, dryRun bool) error 
 
 	return cleanupMerged(repoRoot, issue, agentSuffix)
 }
-
 
 // ─── cleanup-merged ───────────────────────────────────────────────────────────
 
@@ -1505,6 +1540,7 @@ func runCleanupAllMerged() error {
 // NewStatusCmd creates the `status` subcommand.
 func NewStatusCmd() *cobra.Command {
 	var verbose bool
+	var asJSON bool
 	c := &cobra.Command{
 		Use:     "status",
 		Aliases: []string{"list"},
@@ -1514,14 +1550,22 @@ func NewStatusCmd() *cobra.Command {
 Compact (default):  ISSUE  BRANCH  AGENT  PORT  SPEC  PR
 Verbose:            ISSUE  BRANCH  AGENT  PATH  PORT  DEV-PID  AGENT-PID  SPEC  PR  SESSION
 
+Use --json to emit a JSON array of run records from .agentctl/runs/.
+Each entry includes issue, branch, agent, status,
+started_at, elapsed_seconds, pr_url, files_changed, and tokens_used.
+
 Spec states:  no-spec | paused | in-progress | done
 PR states:    none | OPEN | MERGED | CLOSED`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if asJSON {
+				return runStatusJSON()
+			}
 			return runStatus(verbose)
 		},
 	}
 	c.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show full table including PATH, PIDs, and SESSION")
+	c.Flags().BoolVar(&asJSON, "json", false, "Emit JSON array of run records from .agentctl/runs/")
 	return c
 }
 
@@ -1626,13 +1670,64 @@ func runStatus(verbose bool) error {
 	return w.Flush()
 }
 
+// runStatusJSON emits a JSON array of run records from .agentctl/runs/,
+// sorted by started_at descending (newest first).
+func runStatusJSON() error {
+	repoRoot, err := git.RepoRoot()
+	if err != nil {
+		return fmt.Errorf("cannot determine repo root: %w", err)
+	}
+	records, err := diagnostics.List(repoRoot)
+	if err != nil {
+		return fmt.Errorf("reading run records: %w", err)
+	}
+	// Reverse to show newest first.
+	for i, j := 0, len(records)-1; i < j; i, j = i+1, j-1 {
+		records[i], records[j] = records[j], records[i]
+	}
+	// statusJSON is a JSON-friendly projection of RunRecord with a "status" alias.
+	type statusJSON struct {
+		Issue          string     `json:"issue"`
+		Branch         string     `json:"branch"`
+		Agent          string     `json:"agent"`
+		Status         string     `json:"status"`
+		StartedAt      time.Time  `json:"started_at"`
+		StoppedAt      *time.Time `json:"stopped_at,omitempty"`
+		ElapsedSeconds float64    `json:"elapsed_seconds,omitempty"`
+		PRURL          string     `json:"pr_url,omitempty"`
+		FilesChanged   int        `json:"files_changed,omitempty"`
+		TokensUsed     int64      `json:"tokens_used,omitempty"`
+	}
+	out := make([]statusJSON, 0, len(records))
+	for _, r := range records {
+		out = append(out, statusJSON{
+			Issue:          r.Issue,
+			Branch:         r.Branch,
+			Agent:          r.Agent,
+			Status:         r.ExitReason,
+			StartedAt:      r.StartedAt,
+			StoppedAt:      r.StoppedAt,
+			ElapsedSeconds: r.ElapsedSeconds,
+			PRURL:          r.PRURL,
+			FilesChanged:   r.FilesChanged,
+			TokensUsed:     r.TokensUsed,
+		})
+	}
+	data, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(data))
+	return nil
+}
+
 // ─── logs ─────────────────────────────────────────────────────────────────────
 
 // NewLogsCmd creates the `logs` subcommand.
 func NewLogsCmd() *cobra.Command {
 	var (
-		lines      int
-		noFollow   bool
+		lines       int
+		noFollow    bool
 		agentSuffix string
 	)
 	c := &cobra.Command{
@@ -1732,19 +1827,36 @@ func streamLog(wtPath, issue string, lines int, noFollow bool, w io.Writer, logW
 				if id == "" {
 					id = issue
 				}
+				branch2, _ := git.CurrentBranch(wtPath)
 				specPath := findSpecPath(wtPath, issue)
 				switch {
 				case af2.SDD != "" && af2.SDDStage < 2 && specPath != "":
 					fmt.Fprintf(w, "Spec: %s\nSpec ready for review — agentctl resume %s\n", specPath, id)
 				case af2.SDD != "" && af2.SDDStage >= 2:
-					branch, _ := git.CurrentBranch(wtPath)
-					if reportPRStatus(w, wtPath, branch, issue, false) {
+					if reportPRStatus(w, wtPath, branch2, issue, false) {
 						fmt.Fprintf(w, "agentctl cleanup %s   # after PR is merged\n", id)
 					} else {
 						fmt.Fprintf(w, "agent process has exited\n")
 					}
 				default:
 					fmt.Fprintf(w, "agent process has exited\n")
+				}
+				// Update diagnostics: determine exit reason and PR URL.
+				if repoRoot2 := repoRootFromWorktree(wtPath); repoRoot2 != "" {
+					exitReason := "failed"
+					prURL := af2.PRURL
+					if prURL == "" && branch2 != "" {
+						if p2, pErr := resolveProvider(repoRoot2); pErr == nil {
+							if _, _, foundURL, pErr := p2.PRForBranch(repoRoot2, branch2); pErr == nil && foundURL != "" {
+								prURL = foundURL
+							}
+						}
+					}
+					if prURL != "" {
+						exitReason = "pr_opened"
+					}
+					af2.PRURL = prURL
+					finaliseDiagnostics(repoRoot2, wtPath, af2, exitReason)
 				}
 				return nil
 			}
@@ -2278,7 +2390,6 @@ func findLinkedWorktree(repoRoot, ref string) (git.Worktree, bool, error) {
 	return git.FindWorktreeByBranch(repoRoot, ref)
 }
 
-
 type prInfo struct {
 	Number int    `json:"number"`
 	Body   string `json:"body"`
@@ -2522,7 +2633,6 @@ func cleanupFailedStart(repoRoot, wtPath, branch, devPID string) error {
 	}
 	return nil
 }
-
 
 // slugFromTask derives a task branch name from the first six words of the
 // task description using the same slugging rules as GitHub issue titles.
@@ -4234,5 +4344,296 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 			fmt.Fprintf(os.Stdout, "  agentctl discard %s  # permanently delete worktree and branches\n", id2)
 			return nil
 		}
+	}
+}
+
+// ─── report ───────────────────────────────────────────────────────────────────
+
+// NewReportCmd creates the `report` subcommand.
+func NewReportCmd() *cobra.Command {
+	var asJSON bool
+	c := &cobra.Command{
+		Use:   "report",
+		Short: "Aggregate view of all agent runs in the current repo",
+		Long: `Print a summary of all agent runs recorded in .agentctl/runs/.
+
+Default output shows period aggregates (last 7 and 30 days) and the
+slowest individual runs. Use --json for machine-readable output suitable
+for piping into dashboards or cost-accounting scripts.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runReport(asJSON, os.Stdout)
+		},
+	}
+	c.Flags().BoolVar(&asJSON, "json", false, "Emit all run records as a JSON array")
+	return c
+}
+
+func runReport(asJSON bool, out io.Writer) error {
+	repoRoot, err := git.RepoRoot()
+	if err != nil {
+		return fmt.Errorf("cannot determine repo root: %w", err)
+	}
+	records, err := diagnostics.List(repoRoot)
+	if err != nil {
+		return fmt.Errorf("reading run records: %w", err)
+	}
+
+	if asJSON {
+		if records == nil {
+			records = []*diagnostics.RunRecord{}
+		}
+		data, err := json.MarshalIndent(records, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(out, string(data))
+		return nil
+	}
+
+	now := time.Now()
+	periods := []struct {
+		label string
+		since time.Duration
+	}{
+		{"Last 7 days", 7 * 24 * time.Hour},
+		{"Last 30 days", 30 * 24 * time.Hour},
+	}
+
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "PERIOD\tRUNS\tSUCCESS\tFAILED\tAVG TIME\tTOTAL TOKENS")
+	for _, p := range periods {
+		cutoff := now.Add(-p.since)
+		var total, success, failed int
+		var totalSec, totalTokens float64
+		for _, r := range records {
+			if r.StartedAt.Before(cutoff) {
+				continue
+			}
+			total++
+			switch r.ExitReason {
+			case "pr_opened":
+				success++
+			case "failed", "discarded":
+				failed++
+			}
+			totalSec += r.ElapsedSeconds
+			totalTokens += float64(r.TokensUsed)
+		}
+		avgTime := "-"
+		if total > 0 {
+			avg := time.Duration((totalSec / float64(total)) * float64(time.Second))
+			avgTime = formatDuration(avg)
+		}
+		totalTokStr := "-"
+		if totalTokens > 0 {
+			totalTokStr = formatTokens(totalTokens)
+		}
+		fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%s\t%s\n",
+			p.label, total, success, failed, avgTime, totalTokStr)
+	}
+	_ = tw.Flush()
+
+	// Slowest completed runs.
+	type slowRun struct {
+		issue   string
+		branch  string
+		elapsed float64
+		outcome string
+	}
+	var completed []slowRun
+	for _, r := range records {
+		if r.ExitReason == "in_progress" || r.ElapsedSeconds == 0 {
+			continue
+		}
+		completed = append(completed, slowRun{
+			issue:   r.Issue,
+			branch:  r.Branch,
+			elapsed: r.ElapsedSeconds,
+			outcome: r.ExitReason,
+		})
+	}
+	// Sort descending by elapsed.
+	for i := 0; i < len(completed)-1; i++ {
+		for j := i + 1; j < len(completed); j++ {
+			if completed[j].elapsed > completed[i].elapsed {
+				completed[i], completed[j] = completed[j], completed[i]
+			}
+		}
+	}
+	if len(completed) > 10 {
+		completed = completed[:10]
+	}
+	if len(completed) > 0 {
+		fmt.Fprintln(out, "\nSLOWEST RUNS")
+		tw2 := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw2, "ISSUE\tBRANCH\tELAPSED\tOUTCOME")
+		for _, r := range completed {
+			fmt.Fprintf(tw2, "%s\t%s\t%s\t%s\n",
+				r.issue, r.branch,
+				formatDuration(time.Duration(r.elapsed)*time.Second),
+				r.outcome)
+		}
+		_ = tw2.Flush()
+	}
+	return nil
+}
+
+// formatDuration renders a duration as "Xh Ym Zs" (or just "Ym Zs" / "Zs").
+func formatDuration(d time.Duration) string {
+	d = d.Truncate(time.Second)
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	s := int(d.Seconds()) % 60
+	if h > 0 {
+		return fmt.Sprintf("%dh %02dm %02ds", h, m, s)
+	}
+	if m > 0 {
+		return fmt.Sprintf("%dm %02ds", m, s)
+	}
+	return fmt.Sprintf("%ds", s)
+}
+
+// formatTokens renders a token count as "1.2M", "87.4K", or the raw number.
+func formatTokens(t float64) string {
+	switch {
+	case t >= 1_000_000:
+		return fmt.Sprintf("%.1fM", t/1_000_000)
+	case t >= 1_000:
+		return fmt.Sprintf("%.1fK", t/1_000)
+	default:
+		return fmt.Sprintf("%.0f", t)
+	}
+}
+
+// ─── diagnostics helpers ──────────────────────────────────────────────────────
+
+// isDiagnosticsEnabled reports whether per-run diagnostics are enabled for repoRoot.
+// Diagnostics are on by default; set diagnostics.enabled: false in .agentctl.yml to opt out.
+func isDiagnosticsEnabled(repoRoot string) bool {
+	cfg, err := config.Read(repoRoot)
+	if err != nil || cfg.Diagnostics.Enabled == nil {
+		return true
+	}
+	return *cfg.Diagnostics.Enabled
+}
+
+// repoRootFromWorktree returns the primary (main) worktree path by running
+// `git worktree list --porcelain` from wtPath. Returns "" on failure.
+func repoRootFromWorktree(wtPath string) string {
+	cmd := exec.Command("git", "worktree", "list", "--porcelain")
+	cmd.Dir = wtPath
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	var first, currWT, currGitDir string
+	lines := append(strings.Split(string(out), "\n"), "")
+	for _, line := range lines {
+		if line == "" {
+			if currWT != "" {
+				if first == "" {
+					first = currWT
+				}
+				if sameGitDir(currWT, currGitDir, filepath.Join(currWT, ".git")) {
+					return currWT
+				}
+			}
+			currWT, currGitDir = "", ""
+			continue
+		}
+		if strings.HasPrefix(line, "worktree ") {
+			currWT = strings.TrimPrefix(line, "worktree ")
+			continue
+		}
+		if strings.HasPrefix(line, "gitdir ") {
+			currGitDir = strings.TrimPrefix(line, "gitdir ")
+		}
+	}
+	return first
+}
+
+func sameGitDir(worktree, a, b string) bool {
+	normalize := func(p string) string {
+		if p == "" {
+			return ""
+		}
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(worktree, p)
+		}
+		if abs, err := filepath.Abs(p); err == nil {
+			p = abs
+		}
+		return filepath.Clean(p)
+	}
+	return normalize(a) == normalize(b)
+}
+
+// countFilesChanged counts unique files modified on the current branch relative
+// to the first reachable base branch among main, master, origin/main, origin/master.
+// Falls back to counting uncommitted (staged+unstaged) changes.
+func countFilesChanged(wtPath string) int {
+	for _, base := range []string{"main", "master", "origin/main", "origin/master"} {
+		cmd := exec.Command("git", "diff", "--name-only", base+"...HEAD")
+		cmd.Dir = wtPath
+		out, err := cmd.Output()
+		if err == nil {
+			return countNonEmptyLines(string(out))
+		}
+	}
+	seen := map[string]struct{}{}
+	for _, args := range [][]string{
+		{"diff", "--name-only"},
+		{"diff", "--cached", "--name-only", "HEAD"},
+		{"ls-files", "--others", "--exclude-standard"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = wtPath
+		out, err := cmd.Output()
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			if line != "" {
+				seen[line] = struct{}{}
+			}
+		}
+	}
+	return len(seen)
+}
+
+// countNonEmptyLines returns the number of non-empty lines in s.
+func countNonEmptyLines(s string) int {
+	n := 0
+	for _, line := range strings.Split(strings.TrimSpace(s), "\n") {
+		if line != "" {
+			n++
+		}
+	}
+	return n
+}
+
+// finaliseDiagnostics updates the run record for wtPath with stop time,
+// exit reason, PR URL, and files changed, then appends to the global history.
+func finaliseDiagnostics(repoRoot, wtPath string, af state.AgentFile, exitReason string) {
+	runFile := af.Extra["run-file"]
+	if runFile == "" || !isDiagnosticsEnabled(repoRoot) {
+		return
+	}
+	stoppedAt := time.Now()
+	prURL := af.PRURL
+	filesChanged := countFilesChanged(wtPath)
+	_ = diagnostics.Update(repoRoot, runFile, func(r *diagnostics.RunRecord) {
+		r.StoppedAt = &stoppedAt
+		r.ElapsedSeconds = stoppedAt.Sub(r.StartedAt).Seconds()
+		r.ExitReason = exitReason
+		if prURL != "" {
+			r.PRURL = prURL
+		}
+		r.FilesChanged = filesChanged
+	})
+	// Append a snapshot to the global cross-repo history.
+	if rec, err := diagnostics.Read(repoRoot, runFile); err == nil {
+		_ = diagnostics.AppendGlobal(&rec)
 	}
 }
