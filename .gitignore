@@ -5,3 +5,6 @@ dist/
 # Go test cache
 *.test
 *.out
+
+# Per-run diagnostics (local only; use agentctl report to view)
+.agentctl/runs/

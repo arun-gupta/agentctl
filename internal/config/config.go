@@ -55,6 +55,17 @@ type AgentctlConfig struct {
 
 	// VCS holds optional VCS provider overrides for self-hosted instances.
 	VCS VCSConfig `yaml:"vcs,omitempty"`
+
+	// Diagnostics controls per-run structured metadata collection.
+	// Set enabled: false to disable writing run records to .agentctl/runs/.
+	Diagnostics DiagnosticsConfig `yaml:"diagnostics,omitempty"`
+}
+
+// DiagnosticsConfig controls per-run structured metadata collection.
+type DiagnosticsConfig struct {
+	// Enabled controls whether per-run diagnostics are written.
+	// Defaults to true when the field is absent.
+	Enabled *bool `yaml:"enabled,omitempty"`
 }
 
 // Read loads .agentctl.yml from dir. If the file does not exist, an empty
