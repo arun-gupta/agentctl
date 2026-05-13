@@ -271,7 +271,7 @@ func TestGlobalPath_usesXDGConfigHome(t *testing.T) {
 	}
 }
 
-func TestGlobalPath_emptyWhenUserConfigDirUnavailable(t *testing.T) {
+func TestGlobalPath_EmptyWhenUserConfigDirUnavailable(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("HOME", "")
 	if runtime.GOOS == "windows" {

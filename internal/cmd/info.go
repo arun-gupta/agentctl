@@ -97,15 +97,13 @@ func runInfo(out io.Writer, version, repoRoot string, ascii bool) error {
 
 	// Determine default agent (config overrides built-in default of "claude").
 	defaultAgent := "claude"
+	if globalCfg, err := config.ReadGlobal(); err == nil && globalCfg.DefaultAgent != "" {
+		defaultAgent = globalCfg.DefaultAgent
+	}
 	if repoRoot != "" {
-		if cfg, err := config.ReadMerged(repoRoot); err == nil && cfg.DefaultAgent != "" {
-			defaultAgent = cfg.DefaultAgent
-		} else if localCfg, localErr := config.Read(repoRoot); localErr == nil && localCfg.DefaultAgent != "" {
-			// If merged read fails (e.g. malformed global config), keep local default_agent.
+		if localCfg, err := config.Read(repoRoot); err == nil && localCfg.DefaultAgent != "" {
 			defaultAgent = localCfg.DefaultAgent
 		}
-	} else if globalCfg, err := config.ReadGlobal(); err == nil && globalCfg.DefaultAgent != "" {
-		defaultAgent = globalCfg.DefaultAgent
 	}
 
 	adapterLookupWarning := ""
