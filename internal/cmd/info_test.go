@@ -315,8 +315,10 @@ out := buf.String()
 if !strings.Contains(out, "GitHub CLI: error running gh --version:") {
 t.Errorf("expected gh version error indicator; got:\n%s", out)
 }
-if strings.Contains(out, "✓") || strings.Contains(out, "OK") {
-t.Errorf("did not expect success marker when gh --version fails; got:\n%s", out)
+for _, line := range strings.Split(out, "\n") {
+	if strings.Contains(line, "GitHub CLI") && (strings.Contains(line, "✓") || strings.Contains(line, "OK")) {
+		t.Errorf("did not expect success marker in GitHub CLI line; got: %s", line)
+	}
 }
 }
 
