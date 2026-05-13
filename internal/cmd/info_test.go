@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,9 +11,33 @@ import (
 	"github.com/arun-gupta/agentctl/internal/config"
 )
 
+// stubToolRunner temporarily replaces runToolCmdFn for the duration of the test.
+func stubToolRunner(t *testing.T, fn func(name string, args ...string) (string, error)) {
+	t.Helper()
+	orig := runToolCmdFn
+	runToolCmdFn = fn
+	t.Cleanup(func() { runToolCmdFn = orig })
+}
+
+// stubLookPath temporarily replaces lookPathFn for the duration of the test.
+func stubLookPath(t *testing.T, fn func(string) (string, error)) {
+	t.Helper()
+	orig := lookPathFn
+	lookPathFn = fn
+	t.Cleanup(func() { lookPathFn = orig })
+}
+
+// stubGHAuthUser temporarily replaces ghAuthUserFn for the duration of the test.
+func stubGHAuthUser(t *testing.T, fn func() string) {
+	t.Helper()
+	orig := ghAuthUserFn
+	ghAuthUserFn = fn
+	t.Cleanup(func() { ghAuthUserFn = orig })
+}
+
 func TestRunInfo_versionInOutput(t *testing.T) {
 	var buf bytes.Buffer
-	if err := runInfo(&buf, "v1.2.3", ""); err != nil {
+	if err := runInfo(&buf, "v1.2.3", "", false); err != nil {
 		t.Fatalf("runInfo error: %v", err)
 	}
 	if !strings.Contains(buf.String(), "agentctl v1.2.3") {
@@ -21,8 +46,15 @@ func TestRunInfo_versionInOutput(t *testing.T) {
 }
 
 func TestRunInfo_systemInOutput(t *testing.T) {
+	stubToolRunner(t, func(name string, args ...string) (string, error) {
+		if name == "uname" {
+			return "5.15.0-91-generic", nil
+		}
+		return "", errors.New("not found")
+	})
+
 	var buf bytes.Buffer
-	if err := runInfo(&buf, "dev", ""); err != nil {
+	if err := runInfo(&buf, "dev", "", false); err != nil {
 		t.Fatalf("runInfo error: %v", err)
 	}
 	if !strings.Contains(buf.String(), "System:") {
@@ -32,7 +64,7 @@ func TestRunInfo_systemInOutput(t *testing.T) {
 
 func TestRunInfo_agentSectionInOutput(t *testing.T) {
 	var buf bytes.Buffer
-	if err := runInfo(&buf, "dev", ""); err != nil {
+	if err := runInfo(&buf, "dev", "", false); err != nil {
 		t.Fatalf("runInfo error: %v", err)
 	}
 	if !strings.Contains(buf.String(), "Coding Agents:") {
@@ -43,7 +75,7 @@ func TestRunInfo_agentSectionInOutput(t *testing.T) {
 func TestRunInfo_noConfigWhenMissing(t *testing.T) {
 	dir := t.TempDir()
 	var buf bytes.Buffer
-	if err := runInfo(&buf, "dev", dir); err != nil {
+	if err := runInfo(&buf, "dev", dir, false); err != nil {
 		t.Fatalf("runInfo error: %v", err)
 	}
 	if !strings.Contains(buf.String(), "Configuration: no .agentctl.yml found") {
@@ -62,7 +94,7 @@ func TestRunInfo_withConfig(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := runInfo(&buf, "dev", dir); err != nil {
+	if err := runInfo(&buf, "dev", dir, false); err != nil {
 		t.Fatalf("runInfo error: %v", err)
 	}
 	out := buf.String()
@@ -80,7 +112,7 @@ func TestRunInfo_withConfig(t *testing.T) {
 func TestRunInfo_noWorktreesForPlainDir(t *testing.T) {
 	dir := t.TempDir()
 	var buf bytes.Buffer
-	if err := runInfo(&buf, "dev", dir); err != nil {
+	if err := runInfo(&buf, "dev", dir, false); err != nil {
 		t.Fatalf("runInfo error: %v", err)
 	}
 	out := buf.String()
@@ -91,7 +123,7 @@ func TestRunInfo_noWorktreesForPlainDir(t *testing.T) {
 
 func TestRunInfo_defaultAgentMarked(t *testing.T) {
 	var buf bytes.Buffer
-	if err := runInfo(&buf, "dev", ""); err != nil {
+	if err := runInfo(&buf, "dev", "", false); err != nil {
 		t.Fatalf("runInfo error: %v", err)
 	}
 	// "claude" is the built-in default; it should be marked "(default)"
@@ -109,7 +141,7 @@ func TestRunInfo_customDefaultAgentFromConfig(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := runInfo(&buf, "dev", dir); err != nil {
+	if err := runInfo(&buf, "dev", dir, false); err != nil {
 		t.Fatalf("runInfo error: %v", err)
 	}
 	out := buf.String()
@@ -129,7 +161,7 @@ func TestRunInfo_customDefaultAgentFromConfig(t *testing.T) {
 
 func TestRunInfo_emptyRepoRootSkipsConfigSection(t *testing.T) {
 	var buf bytes.Buffer
-	if err := runInfo(&buf, "dev", ""); err != nil {
+	if err := runInfo(&buf, "dev", "", false); err != nil {
 		t.Fatalf("runInfo error: %v", err)
 	}
 	// With empty repoRoot, config and worktrees sections should be absent
@@ -208,22 +240,100 @@ func TestInfoCmd_exists(t *testing.T) {
 }
 
 func TestRunInfo_gitSection(t *testing.T) {
+	stubToolRunner(t, func(name string, args ...string) (string, error) {
+		if name == "git" {
+			return "git version 2.50.0", nil
+		}
+		return "", errors.New("not found")
+	})
+
 	var buf bytes.Buffer
-	if err := runInfo(&buf, "dev", ""); err != nil {
+	if err := runInfo(&buf, "dev", "", false); err != nil {
 		t.Fatalf("runInfo error: %v", err)
 	}
-	if !strings.Contains(buf.String(), "Git:") {
-		t.Errorf("output missing Git: line; got:\n%s", buf.String())
+	out := buf.String()
+	if !strings.Contains(out, "Git:") {
+		t.Errorf("output missing Git: line; got:\n%s", out)
+	}
+	if !strings.Contains(out, "2.50.0") {
+		t.Errorf("expected git version in output; got:\n%s", out)
 	}
 }
 
 func TestRunInfo_ghSection(t *testing.T) {
+	stubToolRunner(t, func(name string, args ...string) (string, error) {
+		if name == "gh" {
+			return "gh version 2.78.0 (2025-01-01)", nil
+		}
+		return "", errors.New("not found")
+	})
+	stubLookPath(t, func(name string) (string, error) {
+		if name == "gh" {
+			return "/usr/bin/gh", nil
+		}
+		return "", errors.New("not found")
+	})
+	stubGHAuthUser(t, func() string { return "testuser" })
+
 	var buf bytes.Buffer
-	if err := runInfo(&buf, "dev", ""); err != nil {
+	if err := runInfo(&buf, "dev", "", false); err != nil {
 		t.Fatalf("runInfo error: %v", err)
 	}
-	if !strings.Contains(buf.String(), "GitHub CLI:") {
-		t.Errorf("output missing GitHub CLI: line; got:\n%s", buf.String())
+	out := buf.String()
+	if !strings.Contains(out, "GitHub CLI:") {
+		t.Errorf("output missing GitHub CLI: line; got:\n%s", out)
+	}
+	if !strings.Contains(out, "2.78.0") {
+		t.Errorf("expected gh version in output; got:\n%s", out)
+	}
+	if !strings.Contains(out, "authenticated as testuser") {
+		t.Errorf("expected auth user in output; got:\n%s", out)
+	}
+}
+
+func TestRunInfo_ghVersionError(t *testing.T) {
+	stubLookPath(t, func(name string) (string, error) {
+		if name == "gh" {
+			return "/usr/bin/gh", nil
+		}
+		return "", errors.New("not found")
+	})
+	stubToolRunner(t, func(name string, args ...string) (string, error) {
+		if name == "gh" {
+			return "", errors.New("exec format error")
+		}
+		return "", errors.New("not found")
+	})
+
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", "", false); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "error running gh --version") {
+		t.Errorf("expected gh error message in output; got:\n%s", out)
+	}
+}
+
+func TestRunInfo_asciiMode(t *testing.T) {
+	stubToolRunner(t, func(name string, args ...string) (string, error) {
+		if name == "git" {
+			return "git version 2.50.0", nil
+		}
+		return "", errors.New("not found")
+	})
+
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", "", true); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	out := buf.String()
+	// ASCII mode should use "OK"/"X" not Unicode glyphs
+	if strings.Contains(out, "✓") || strings.Contains(out, "✗") {
+		t.Errorf("expected no Unicode glyphs in ASCII mode; got:\n%s", out)
+	}
+	if !strings.Contains(out, "OK") && !strings.Contains(out, "X") {
+		t.Errorf("expected ASCII markers (OK/X) in output; got:\n%s", out)
 	}
 }
 
@@ -235,7 +345,7 @@ func TestRunInfo_configWithDefaultAgent(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := runInfo(&buf, "dev", dir); err != nil {
+	if err := runInfo(&buf, "dev", dir, false); err != nil {
 		t.Fatalf("runInfo error: %v", err)
 	}
 	out := buf.String()
@@ -267,11 +377,52 @@ func TestRunInfo_installHintShown(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chdir(orig) })
 
 	var buf bytes.Buffer
-	if err := runInfo(&buf, "dev", dir); err != nil {
+	if err := runInfo(&buf, "dev", dir, false); err != nil {
 		t.Fatalf("runInfo error: %v", err)
 	}
 	out := buf.String()
 	if !strings.Contains(out, "install with:") {
 		t.Errorf("expected install hint in output; got:\n%s", out)
+	}
+}
+
+func TestSystemOS_majorMinorExtracted(t *testing.T) {
+	stubToolRunner(t, func(name string, args ...string) (string, error) {
+		if name == "uname" {
+			return "6.6.51-rt50", nil
+		}
+		return "", errors.New("not found")
+	})
+	got := systemOS()
+	if !strings.Contains(got, "6.6") {
+		t.Errorf("systemOS() = %q, want major.minor 6.6", got)
+	}
+	if strings.Contains(got, "51") {
+		t.Errorf("systemOS() = %q, should not include patch/suffix 51", got)
+	}
+}
+
+func TestSystemOS_noDot(t *testing.T) {
+	stubToolRunner(t, func(name string, args ...string) (string, error) {
+		if name == "uname" {
+			return "5", nil
+		}
+		return "", errors.New("not found")
+	})
+	got := systemOS()
+	// No dot: should fall back to raw uname output appended to GOOS
+	if !strings.Contains(got, "5") {
+		t.Errorf("systemOS() = %q, want raw kernel string '5'", got)
+	}
+}
+
+func TestSystemOS_unameFails(t *testing.T) {
+	stubToolRunner(t, func(name string, args ...string) (string, error) {
+		return "", errors.New("uname not available")
+	})
+	got := systemOS()
+	// Should fall back to GOOS alone (no spaces/extra tokens)
+	if strings.Contains(got, " ") {
+		t.Errorf("systemOS() = %q, expected GOOS-only (no space) when uname fails", got)
 	}
 }

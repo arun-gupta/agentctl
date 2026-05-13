@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 
@@ -17,9 +18,33 @@ import (
 	"github.com/arun-gupta/agentctl/internal/state"
 )
 
+// kernelVersionRe extracts "major.minor" from uname output (e.g. "6.6.51-rt50" → groups "6","6").
+var kernelVersionRe = regexp.MustCompile(`^(\d+)\.(\d+)`)
+
+// Injected functions — overridden in tests to avoid running real external tools.
+var (
+	runToolCmdFn = runToolCmd
+	lookPathFn   = exec.LookPath
+	ghAuthUserFn = ghAuthUser
+)
+
+// infoSymbols holds status marker strings used in info output.
+type infoSymbols struct {
+	check string // installed / found
+	cross string // not installed / not found
+}
+
+func newSymbols(ascii bool) infoSymbols {
+	if ascii {
+		return infoSymbols{check: "OK", cross: "X"}
+	}
+	return infoSymbols{check: "✓", cross: "✗"}
+}
+
 // NewInfoCmd creates the `info` subcommand. version is the agentctl version string.
 func NewInfoCmd(version string) *cobra.Command {
-	return &cobra.Command{
+	var noUnicode bool
+	cmd := &cobra.Command{
 		Use:   "info",
 		Short: "Show system diagnostics and configuration",
 		Long: `Show system environment and configuration diagnostics.
@@ -29,34 +54,43 @@ available coding agents, current configuration, and active worktrees.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			repoRoot, _ := git.RepoRoot()
-			return runInfo(cmd.OutOrStdout(), version, repoRoot)
+			ascii := noUnicode || os.Getenv("AGENTCTL_ASCII") == "1"
+			return runInfo(cmd.OutOrStdout(), version, repoRoot, ascii)
 		},
 	}
+	cmd.Flags().BoolVar(&noUnicode, "no-unicode", false, "Use ASCII markers instead of Unicode glyphs (also honoured via AGENTCTL_ASCII=1)")
+	return cmd
 }
 
-func runInfo(out io.Writer, version, repoRoot string) error {
+func runInfo(out io.Writer, version, repoRoot string, ascii bool) error {
+	sym := newSymbols(ascii)
+
 	fmt.Fprintf(out, "agentctl %s\n", version)
 	fmt.Fprintf(out, "System: %s (%s)\n", systemOS(), runtime.GOARCH)
 	fmt.Fprintln(out)
 
 	// Git
-	if gitVer, err := runToolCmd("git", "--version"); err != nil {
-		fmt.Fprintln(out, "Git: not found ✗")
+	if gitVer, err := runToolCmdFn("git", "--version"); err != nil {
+		fmt.Fprintf(out, "Git: not found %s\n", sym.cross)
 	} else {
 		ver := strings.TrimPrefix(strings.TrimSpace(gitVer), "git version ")
-		fmt.Fprintf(out, "Git: %s ✓\n", ver)
+		fmt.Fprintf(out, "Git: %s %s\n", ver, sym.check)
 	}
 
 	// GitHub CLI
-	if _, err := exec.LookPath("gh"); err != nil {
-		fmt.Fprintln(out, "GitHub CLI: not found ✗")
+	if _, err := lookPathFn("gh"); err != nil {
+		fmt.Fprintf(out, "GitHub CLI: not found %s\n", sym.cross)
 	} else {
-		ghOut, _ := runToolCmd("gh", "--version")
-		ver := parseGHVersion(ghOut)
-		if user := ghAuthUser(); user != "" {
-			fmt.Fprintf(out, "GitHub CLI: %s ✓ (authenticated as %s)\n", ver, user)
+		ghOut, err := runToolCmdFn("gh", "--version")
+		if err != nil {
+			fmt.Fprintf(out, "GitHub CLI: error running gh --version: %v\n", err)
 		} else {
-			fmt.Fprintf(out, "GitHub CLI: %s (not authenticated)\n", ver)
+			ver := parseGHVersion(ghOut)
+			if user := ghAuthUserFn(); user != "" {
+				fmt.Fprintf(out, "GitHub CLI: %s %s (authenticated as %s)\n", ver, sym.check, user)
+			} else {
+				fmt.Fprintf(out, "GitHub CLI: %s (not authenticated)\n", ver)
+			}
 		}
 	}
 	fmt.Fprintln(out)
@@ -82,12 +116,12 @@ func runInfo(out io.Writer, version, repoRoot string) error {
 		}
 		if binErr := adapter.CheckBinary(); binErr != nil {
 			if adapter.Install != "" {
-				fmt.Fprintf(out, "  ✗ %-12s%s(not installed) — install with: %s\n", name, defaultLabel, adapter.Install)
+				fmt.Fprintf(out, "  %s %-12s%s(not installed) — install with: %s\n", sym.cross, name, defaultLabel, adapter.Install)
 			} else {
-				fmt.Fprintf(out, "  ✗ %-12s%s(not installed)\n", name, defaultLabel)
+				fmt.Fprintf(out, "  %s %-12s%s(not installed)\n", sym.cross, name, defaultLabel)
 			}
 		} else {
-			fmt.Fprintf(out, "  ✓ %-12s%s\n", name, defaultLabel)
+			fmt.Fprintf(out, "  %s %-12s%s\n", sym.check, name, defaultLabel)
 		}
 	}
 	fmt.Fprintln(out)
@@ -161,18 +195,19 @@ func printConfigFields(out io.Writer, cfg *config.AgentctlConfig) {
 	}
 }
 
-// systemOS returns "GOOS kernel-version" where kernel-version comes from
-// `uname -r`. Falls back to just GOOS if uname is unavailable.
+// systemOS returns "GOOS major.minor" where the kernel version comes from
+// `uname -r`. It extracts only major.minor via regex (e.g. "6.6.51-rt50" → "6.6").
+// Falls back to GOOS alone when uname is unavailable, and to "GOOS raw-output"
+// when the output contains no dot-separated version numbers.
 func systemOS() string {
 	osName := runtime.GOOS
-	out, err := runToolCmd("uname", "-r")
+	out, err := runToolCmdFn("uname", "-r")
 	if err != nil {
 		return osName
 	}
-	// Trim to major.minor: "6.6.51-rt50" → "6.6"
-	parts := strings.SplitN(out, ".", 3)
-	if len(parts) >= 2 {
-		return fmt.Sprintf("%s %s.%s", osName, parts[0], parts[1])
+	out = strings.TrimSpace(out)
+	if m := kernelVersionRe.FindStringSubmatch(out); m != nil {
+		return fmt.Sprintf("%s %s.%s", osName, m[1], m[2])
 	}
 	return fmt.Sprintf("%s %s", osName, out)
 }
