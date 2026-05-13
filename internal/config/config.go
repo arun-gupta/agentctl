@@ -95,14 +95,23 @@ type GlobalConfig struct {
 // GlobalPath returns the path to the user-level global config file:
 // $XDG_CONFIG_HOME/agentctl/config.yml (or the OS default via xdg.UserConfigDir).
 func GlobalPath() string {
-	return filepath.Join(xdg.UserConfigDir(), "agentctl", "config.yml")
+	dir := xdg.UserConfigDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "agentctl", "config.yml")
 }
 
 // ReadGlobal loads the global config file at GlobalPath().
 // Returns an empty GlobalConfig (no error) when the file does not exist.
 // Returns an error if the file exists but contains invalid YAML.
 func ReadGlobal() (*GlobalConfig, error) {
-	data, err := os.ReadFile(GlobalPath())
+	path := GlobalPath()
+	if path == "" {
+		return &GlobalConfig{}, nil
+	}
+
+	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return &GlobalConfig{}, nil
 	}
@@ -119,6 +128,9 @@ func ReadGlobal() (*GlobalConfig, error) {
 // WriteGlobal serialises cfg to GlobalPath(), creating parent directories as needed.
 func WriteGlobal(cfg *GlobalConfig) error {
 	path := GlobalPath()
+	if path == "" {
+		return fmt.Errorf("global config path unavailable")
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}

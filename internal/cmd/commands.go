@@ -86,7 +86,7 @@ Use --sdd <name> to opt into a spec-driven development (SDD) methodology
 				if root != "" {
 					cfg, cfgErr := config.ReadMerged(root)
 					if cfgErr != nil {
-						return fmt.Errorf("read %s: %w", filepath.Join(root, config.Filename), cfgErr)
+						return fmt.Errorf("read merged configuration (.agentctl.yml and global config) for %s: %w", root, cfgErr)
 					}
 					if cfg.DefaultAgent != "" {
 						agentName = cfg.DefaultAgent

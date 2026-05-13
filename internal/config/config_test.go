@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/arun-gupta/agentctl/internal/config"
@@ -267,6 +268,21 @@ func TestGlobalPath_usesXDGConfigHome(t *testing.T) {
 	want := filepath.Join(tmp, "agentctl", "config.yml")
 	if got != want {
 		t.Errorf("GlobalPath() = %q, want %q", got, want)
+	}
+}
+
+func TestGlobalPath_emptyWhenUserConfigDirUnavailable(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", "")
+	if runtime.GOOS == "windows" {
+		t.Setenv("APPDATA", "")
+		t.Setenv("LOCALAPPDATA", "")
+		t.Setenv("USERPROFILE", "")
+	}
+
+	got := config.GlobalPath()
+	if got != "" {
+		t.Skipf("unable to force empty user config dir on this platform/env, got %q", got)
 	}
 }
 
