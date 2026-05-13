@@ -484,7 +484,7 @@ func startTask(task, branch, agentName, sddName string, headless, quiet, sendNot
 		if sddErr != nil {
 			return sddErr
 		}
-		kickoff = m.KickoffPrompt("task", portStr) + "\n\nTask description: " + task
+		kickoff = m.KickoffPrompt(branch, portStr) + "\n\nTask description: " + task
 	}
 
 	if err := launchAgent(agentName, wtPath, branch, portStr, sessionID, kickoff, sddName, headless, quiet, sendNotify, out); err != nil {
@@ -2234,7 +2234,7 @@ func specLookupKey(issue string) string {
 // effectiveSpecKey returns the spec lookup key for a worktree, using the
 // task-mode flag from the .agent file when available. If the worktree was
 // started with `agentctl start --task`, the key is always "task" regardless
-// of the branch name, matching the KickoffPrompt("task", ...) used at start.
+// of the branch name (specs are stored under the "task" key in task mode).
 func effectiveSpecKey(issue string, af state.AgentFile) string {
 	if af.TaskMode {
 		return "task"
