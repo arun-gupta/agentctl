@@ -52,10 +52,11 @@ func TestNewWorktreeCmd(t *testing.T) {
 	}
 }
 
-// TestRootHasAgentAndWorktree verifies that root-level command registration
-// includes both the new parent commands and the backward-compat `start` alias.
+// TestRootCmdHierarchy verifies that the agent and worktree parent commands
+// contain the expected subcommands by constructing them directly (independent
+// of how the root wires them up — that is covered by TestRootCmdRegistration
+// in cmd/agentctl/main_test.go).
 func TestRootCmdHierarchy(t *testing.T) {
-	// Build the same root as main.go does.
 	agentCmd := NewAgentCmd()
 	worktreeCmd := NewWorktreeCmd()
 

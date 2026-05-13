@@ -246,6 +246,7 @@ Side effects:
 ```bash
 agentctl agent status
 agentctl agent status --verbose
+agentctl agent list
 ```
 
 Shows all linked worktrees and their current state.

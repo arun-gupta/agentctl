@@ -76,6 +76,10 @@ func newRootCmd() *cobra.Command {
 	)
 
 	// Backward-compat alias: `agentctl start` → `agentctl agent start`.
+	// NewStartCmd() is safe to call twice because all flag variables are
+	// declared as locals inside that function, so each call returns an
+	// independent *cobra.Command with its own flag set; no state is shared
+	// between the alias registered here and the one inside NewAgentCmd().
 	startAlias := cmd.NewStartCmd()
 	startAlias.Hidden = true
 	root.AddCommand(startAlias)
