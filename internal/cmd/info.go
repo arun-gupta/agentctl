@@ -58,7 +58,7 @@ available coding agents, current configuration, and active worktrees.`,
 			return runInfo(cmd.OutOrStdout(), version, repoRoot, ascii)
 		},
 	}
-	cmd.Flags().BoolVar(&noUnicode, "no-unicode", false, "Use ASCII markers instead of Unicode glyphs (also honoured via AGENTCTL_ASCII=1)")
+	cmd.Flags().BoolVar(&noUnicode, "no-unicode", false, "Use ASCII markers instead of Unicode glyphs (also honored via AGENTCTL_ASCII=1)")
 	return cmd
 }
 
