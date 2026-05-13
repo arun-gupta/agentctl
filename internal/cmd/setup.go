@@ -74,7 +74,14 @@ func runSetup(in io.Reader, out io.Writer) error {
 
 	// Load existing global config so we preserve unrelated fields and can
 	// display the current default in each prompt.
-	existingCfg, _ := config.ReadGlobal()
+	existingCfg, err := config.ReadGlobal()
+	if err != nil {
+		if os.IsNotExist(err) {
+			existingCfg = &config.GlobalConfig{}
+		} else {
+			return fmt.Errorf("failed to read global config: %w", err)
+		}
+	}
 	if existingCfg == nil {
 		existingCfg = &config.GlobalConfig{}
 	}
