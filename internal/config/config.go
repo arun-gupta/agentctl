@@ -53,6 +53,11 @@ type AgentctlConfig struct {
 	// Overridden per-invocation by the --agent flag.
 	DefaultAgent string `yaml:"default_agent,omitempty"`
 
+	// BuildCmd is the command used by agentctl build to compile the project.
+	// Use {output} as a placeholder for the output binary path.
+	// Example: "go build -o {output} ./cmd/myapp"
+	BuildCmd string `yaml:"build_cmd,omitempty"`
+
 	// VCS holds optional VCS provider overrides for self-hosted instances.
 	VCS VCSConfig `yaml:"vcs,omitempty"`
 }
