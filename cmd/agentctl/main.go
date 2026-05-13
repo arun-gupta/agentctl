@@ -64,6 +64,7 @@ func newRootCmd() *cobra.Command {
 		cmd.NewStreamLogOpenHandsCmd(),
 		cmd.NewFinaliseDiagnosticsCmd(),
 		cmd.NewBuildCmd(),
+		cmd.NewSetupCmd(),
 		cmd.NewInfoCmd(version),
 	)
 
