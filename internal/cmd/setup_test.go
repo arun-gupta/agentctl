@@ -272,6 +272,36 @@ func TestRunSetup_emptyInputKeepsDefaultSddUnset(t *testing.T) {
 	}
 }
 
+func TestRunSetup_invalidExistingDefaultSddFallsBackToNone(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+
+	globalDir := filepath.Join(tmp, "agentctl")
+	if err := os.MkdirAll(globalDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(globalDir, "config.yml"), []byte("default_sdd: unknown\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	var captured *config.GlobalConfig
+	stubWriteGlobal(t, func(cfg *config.GlobalConfig) error {
+		captured = cfg
+		return nil
+	})
+
+	var buf bytes.Buffer
+	if err := runSetup(strings.NewReader(""), &buf); err != nil {
+		t.Fatalf("runSetup error: %v", err)
+	}
+	if captured == nil {
+		t.Fatal("expected WriteGlobal to be called")
+	}
+	if captured.DefaultSDD != config.SDDNone {
+		t.Errorf("expected invalid existing DefaultSDD to fallback to %q; got %q", config.SDDNone, captured.DefaultSDD)
+	}
+}
+
 func TestRunSetup_invalidAgentInputFallsToDefault(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", tmp)
@@ -491,7 +521,11 @@ func TestRunSetup_projectLocalAdapterFoundFromSubdir(t *testing.T) {
 	if err := os.Chdir(subdir); err != nil {
 		t.Fatalf("chdir: %v", err)
 	}
-	t.Cleanup(func() { _ = os.Chdir(orig) })
+	t.Cleanup(func() {
+		if err := os.Chdir(orig); err != nil {
+			t.Logf("cleanup chdir failed: %v", err)
+		}
+	})
 
 	var buf bytes.Buffer
 	if err := runSetup(strings.NewReader(""), &buf); err != nil {

@@ -92,10 +92,17 @@ func runSetup(in io.Reader, out io.Writer) error {
 	}
 
 	// Step 2: show coding agents.
-	repoRoot, _ := git.RepoRoot()
-	restoreCWD, _ := switchToRepoRoot(repoRoot)
-	if restoreCWD != nil {
-		defer restoreCWD()
+	// Adapter discovery checks .agentctl/adapters relative to cwd, so switch to
+	// repo root to keep setup behavior consistent from subdirectories.
+	adapterLookupWarning := ""
+	if repoRoot, err := git.RepoRoot(); err == nil {
+		restoreCWD, warning := switchToRepoRoot(repoRoot)
+		if warning != "" {
+			adapterLookupWarning = warning
+		}
+		if restoreCWD != nil {
+			defer restoreCWD()
+		}
 	}
 	allAdapters := adapters.List()
 
@@ -131,6 +138,9 @@ func runSetup(in io.Reader, out io.Writer) error {
 	}
 
 	fmt.Fprintln(out, "Coding Agents (choose one):")
+	if adapterLookupWarning != "" {
+		fmt.Fprintf(out, "  ! %s\n", adapterLookupWarning)
+	}
 
 	for i, name := range allAdapters {
 		adapter, err := adapters.Get(name)
@@ -197,15 +207,28 @@ func runSetup(in io.Reader, out io.Writer) error {
 	sddOptions = append(sddOptions, allSDDs...)
 	sddOptions = append(sddOptions, config.SDDNone)
 
-	currentSDDIdx := len(sddOptions) - 1
+	noneIdx := 0
+	for i, name := range sddOptions {
+		if name == config.SDDNone {
+			noneIdx = i
+			break
+		}
+	}
+	currentSDDIdx := noneIdx
 	selectedSDD := existingCfg.DefaultSDD
+	hasValidExistingSDD := true
 	if selectedSDD != "" {
+		hasValidExistingSDD = false
 		for i, name := range sddOptions {
 			if name == selectedSDD {
 				currentSDDIdx = i
+				hasValidExistingSDD = true
 				break
 			}
 		}
+	}
+	if !hasValidExistingSDD {
+		selectedSDD = sddOptions[noneIdx]
 	}
 
 	fmt.Fprintln(out, "Preferred SDD methodology?")
