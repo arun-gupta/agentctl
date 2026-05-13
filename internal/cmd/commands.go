@@ -4535,7 +4535,7 @@ func repoRootFromWorktree(wtPath string) string {
 				if first == "" {
 					first = currWT
 				}
-				if currGitDir == filepath.Join(currWT, ".git") {
+				if sameGitDir(currWT, currGitDir, filepath.Join(currWT, ".git")) {
 					return currWT
 				}
 			}
@@ -4551,6 +4551,22 @@ func repoRootFromWorktree(wtPath string) string {
 		}
 	}
 	return first
+}
+
+func sameGitDir(worktree, a, b string) bool {
+	normalize := func(p string) string {
+		if p == "" {
+			return ""
+		}
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(worktree, p)
+		}
+		if abs, err := filepath.Abs(p); err == nil {
+			p = abs
+		}
+		return filepath.Clean(p)
+	}
+	return normalize(a) == normalize(b)
 }
 
 // countFilesChanged counts unique files modified on the current branch relative

@@ -164,9 +164,17 @@ func TestRecordFilenameFormat(t *testing.T) {
 
 func TestRecordFilenameSanitizesIssue(t *testing.T) {
 	ts := time.Date(2026, 5, 1, 10, 4, 11, 0, time.UTC)
-	got := diagnostics.RecordFilename("feat/42\\dark mode", ts)
+	got := diagnostics.RecordFilename(`feat/42\dark mode`, ts)
 	if strings.Contains(got, "/") || strings.Contains(got, "\\") {
 		t.Fatalf("RecordFilename contains path separator: %q", got)
+	}
+}
+
+func TestRecordFilenamePreservesEdgeCharactersAfterSanitizing(t *testing.T) {
+	ts := time.Date(2026, 5, 1, 10, 4, 11, 0, time.UTC)
+	got := diagnostics.RecordFilename(".issue-42.", ts)
+	if !strings.HasPrefix(got, ".issue-42.-") {
+		t.Fatalf("RecordFilename normalized unexpectedly: %q", got)
 	}
 }
 
@@ -237,7 +245,7 @@ func TestAppendGlobal(t *testing.T) {
 		t.Fatalf("ReadFile: %v", err)
 	}
 	lines := 0
-	for _, line := range strings.Split(string(data), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
 		if line != "" {
 			lines++
 		}

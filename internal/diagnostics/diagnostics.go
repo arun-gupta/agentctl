@@ -60,7 +60,7 @@ func safeIdentifier(s string) string {
 			b.WriteByte('_')
 		}
 	}
-	out := strings.Trim(b.String(), "._-")
+	out := b.String()
 	if out == "" {
 		return "run"
 	}
@@ -161,6 +161,7 @@ func AppendGlobal(r *RunRecord) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
+	// Tighten permissions for existing directories created by older versions.
 	if err := os.Chmod(dir, 0o700); err != nil {
 		return err
 	}
@@ -170,6 +171,7 @@ func AppendGlobal(r *RunRecord) error {
 		return err
 	}
 	defer f.Close()
+	// Tighten permissions for existing history files created by older versions.
 	if err := os.Chmod(path, 0o600); err != nil {
 		return err
 	}

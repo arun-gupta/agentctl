@@ -5989,7 +5989,7 @@ func TestRepoRootFromWorktreePicksPrimaryWorktree(t *testing.T) {
 		secondary,
 		filepath.Join(repoRoot, ".git", "worktrees", "feature"),
 		repoRoot,
-		filepath.Join(repoRoot, ".git"),
+		".git",
 	)
 	gitPath := filepath.Join(stubDir, "git")
 	if err := os.WriteFile(gitPath, []byte(script), 0o755); err != nil {
