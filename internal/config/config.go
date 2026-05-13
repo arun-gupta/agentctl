@@ -14,6 +14,11 @@ import (
 
 const Filename = ".agentctl.yml"
 
+// SDDNone is the sentinel value for explicitly disabling SDD as the default.
+// It is distinct from the empty string ("not set") so that a project-local
+// default_sdd: none can override a global default_sdd: speckit.
+const SDDNone = "none"
+
 // VCSConfig holds optional VCS provider overrides. Useful for self-hosted
 // GitLab instances where the origin URL does not contain "gitlab.com".
 type VCSConfig struct {
@@ -59,6 +64,12 @@ type AgentctlConfig struct {
 	// Overridden per-invocation by the --agent flag.
 	DefaultAgent string `yaml:"default_agent,omitempty"`
 
+	// DefaultSDD sets the default SDD methodology for agentctl start when
+	// --sdd is not passed. Valid values: "plain", "speckit", a custom name,
+	// or the sentinel "none" (config.SDDNone) to explicitly disable SDD.
+	// Empty string means "not set" and falls through to the built-in default (no SDD).
+	DefaultSDD string `yaml:"default_sdd,omitempty"`
+
 	// BuildCmd is the command used by agentctl build to compile the project.
 	// Use {output} as a placeholder for the output binary path.
 	// Example: "go build -o {output} ./cmd/myapp"
@@ -86,6 +97,7 @@ type DiagnosticsConfig struct {
 // decision here.
 type GlobalConfig struct {
 	DefaultAgent  string            `yaml:"default_agent,omitempty"`
+	DefaultSDD    string            `yaml:"default_sdd,omitempty"`
 	Notify        *bool             `yaml:"notify,omitempty"`
 	MergeStrategy string            `yaml:"merge_strategy,omitempty"`
 	Editor        string            `yaml:"editor,omitempty"`
@@ -162,6 +174,7 @@ func ReadMerged(dir string) (*AgentctlConfig, error) {
 	return &AgentctlConfig{
 		// Global-eligible fields: project-local wins on non-zero value.
 		DefaultAgent:  mergeString(local.DefaultAgent, global.DefaultAgent),
+		DefaultSDD:    mergeString(local.DefaultSDD, global.DefaultSDD),
 		Notify:        mergeBoolPtr(local.Notify, global.Notify),
 		MergeStrategy: mergeString(local.MergeStrategy, global.MergeStrategy),
 		Editor:        mergeString(local.Editor, global.Editor),

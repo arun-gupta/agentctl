@@ -566,3 +566,83 @@ func TestReadMerged_notifyFalseInLocal_overridesGlobalTrue(t *testing.T) {
 		t.Errorf("Notify = %v, want false (project-local explicit false overrides global true)", cfg.Notify)
 	}
 }
+
+func TestGlobalConfig_defaultSDD_roundTrip(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	in := &config.GlobalConfig{DefaultSDD: "speckit"}
+	if err := config.WriteGlobal(in); err != nil {
+		t.Fatalf("WriteGlobal: %v", err)
+	}
+	out, err := config.ReadGlobal()
+	if err != nil {
+		t.Fatalf("ReadGlobal: %v", err)
+	}
+	if out.DefaultSDD != "speckit" {
+		t.Errorf("DefaultSDD = %q, want %q", out.DefaultSDD, "speckit")
+	}
+}
+
+func TestGlobalConfig_defaultSDD_noneConstant(t *testing.T) {
+	if config.SDDNone != "none" {
+		t.Errorf("SDDNone = %q, want %q", config.SDDNone, "none")
+	}
+}
+
+func TestReadMerged_defaultSDD_globalFillsIn(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	if err := config.WriteGlobal(&config.GlobalConfig{DefaultSDD: "plain"}); err != nil {
+		t.Fatalf("WriteGlobal: %v", err)
+	}
+	projectDir := t.TempDir()
+	cfg, err := config.ReadMerged(projectDir)
+	if err != nil {
+		t.Fatalf("ReadMerged: %v", err)
+	}
+	if cfg.DefaultSDD != "plain" {
+		t.Errorf("DefaultSDD = %q, want %q", cfg.DefaultSDD, "plain")
+	}
+}
+
+func TestReadMerged_defaultSDD_projectLocalWins(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	if err := config.WriteGlobal(&config.GlobalConfig{DefaultSDD: "plain"}); err != nil {
+		t.Fatalf("WriteGlobal: %v", err)
+	}
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, ".agentctl.yml"), []byte("default_sdd: speckit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.ReadMerged(projectDir)
+	if err != nil {
+		t.Fatalf("ReadMerged: %v", err)
+	}
+	if cfg.DefaultSDD != "speckit" {
+		t.Errorf("DefaultSDD = %q, want project-local %q", cfg.DefaultSDD, "speckit")
+	}
+}
+
+func TestReadMerged_defaultSDD_noneOverridesGlobal(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	if err := config.WriteGlobal(&config.GlobalConfig{DefaultSDD: "speckit"}); err != nil {
+		t.Fatalf("WriteGlobal: %v", err)
+	}
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, ".agentctl.yml"), []byte("default_sdd: none\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.ReadMerged(projectDir)
+	if err != nil {
+		t.Fatalf("ReadMerged: %v", err)
+	}
+	if cfg.DefaultSDD != config.SDDNone {
+		t.Errorf("DefaultSDD = %q, want %q (project-local none overrides global)", cfg.DefaultSDD, config.SDDNone)
+	}
+}
