@@ -51,12 +51,16 @@ func runInfo(out io.Writer, version, repoRoot string) error {
 	if _, err := exec.LookPath("gh"); err != nil {
 		fmt.Fprintln(out, "GitHub CLI: not found ✗")
 	} else {
-		ghOut, _ := runToolCmd("gh", "--version")
-		ver := parseGHVersion(ghOut)
-		if user := ghAuthUser(); user != "" {
-			fmt.Fprintf(out, "GitHub CLI: %s ✓ (authenticated as %s)\n", ver, user)
+		ghOut, err := runToolCmd("gh", "--version")
+		if err != nil {
+			fmt.Fprintln(out, "GitHub CLI: unknown version ✗")
 		} else {
-			fmt.Fprintf(out, "GitHub CLI: %s (not authenticated)\n", ver)
+			ver := parseGHVersion(ghOut)
+			if user := ghAuthUser(); user != "" {
+				fmt.Fprintf(out, "GitHub CLI: %s ✓ (authenticated as %s)\n", ver, user)
+			} else {
+				fmt.Fprintf(out, "GitHub CLI: %s (not authenticated)\n", ver)
+			}
 		}
 	}
 	fmt.Fprintln(out)
@@ -66,6 +70,14 @@ func runInfo(out io.Writer, version, repoRoot string) error {
 	if repoRoot != "" {
 		if cfg, err := config.Read(repoRoot); err == nil && cfg.DefaultAgent != "" {
 			defaultAgent = cfg.DefaultAgent
+		}
+	}
+
+	if repoRoot != "" {
+		if cwd, err := os.Getwd(); err == nil {
+			if err := os.Chdir(repoRoot); err == nil {
+				defer func() { _ = os.Chdir(cwd) }()
+			}
 		}
 	}
 

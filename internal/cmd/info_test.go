@@ -225,6 +225,28 @@ func TestRunInfo_ghSection(t *testing.T) {
 	}
 }
 
+func TestRunInfo_ghVersionErrorShown(t *testing.T) {
+	dir := t.TempDir()
+	ghPath := filepath.Join(dir, "gh")
+	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then exit 1; fi\nif [ \"$1\" = \"auth\" ] && [ \"$2\" = \"status\" ]; then echo \"Logged in to github.com account fake-user\"; exit 0; fi\nexit 1\n"
+	if err := os.WriteFile(ghPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write gh script: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", ""); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "GitHub CLI: unknown version ✗") {
+		t.Errorf("expected gh version error indicator; got:\n%s", out)
+	}
+	if strings.Contains(out, "authenticated as") {
+		t.Errorf("did not expect authenticated status when gh --version fails; got:\n%s", out)
+	}
+}
+
 func TestRunInfo_configWithDefaultAgent(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &config.AgentctlConfig{DefaultAgent: "gemini"}
@@ -269,6 +291,39 @@ func TestRunInfo_installHintShown(t *testing.T) {
 	out := buf.String()
 	if !strings.Contains(out, "install with:") {
 		t.Errorf("expected install hint in output; got:\n%s", out)
+	}
+}
+
+func TestRunInfo_projectLocalAdapterFoundFromSubdir(t *testing.T) {
+	repoRoot := t.TempDir()
+	adapterDir := filepath.Join(repoRoot, ".agentctl", "adapters")
+	if err := os.MkdirAll(adapterDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(adapterDir, "local-only-adapter.yml"), []byte("binary: nonexistent-local-only-adapter\n"), 0o644); err != nil {
+		t.Fatalf("write adapter: %v", err)
+	}
+	subdir := filepath.Join(repoRoot, "nested", "dir")
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatalf("mkdir subdir: %v", err)
+	}
+
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(subdir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", repoRoot); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "local-only-adapter") {
+		t.Errorf("expected project-local adapter to appear from subdir; got:\n%s", out)
 	}
 }
 
