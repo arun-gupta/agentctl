@@ -98,7 +98,7 @@ fmt.Fprintln(out)
 // Determine default agent (config overrides built-in default of "claude")
 defaultAgent := "claude"
 if repoRoot != "" {
-if cfg, err := config.Read(repoRoot); err == nil && cfg.DefaultAgent != "" {
+if cfg, err := config.ReadMerged(repoRoot); err == nil && cfg.DefaultAgent != "" {
 defaultAgent = cfg.DefaultAgent
 }
 }
@@ -140,6 +140,21 @@ fmt.Fprintf(out, "  %s %-12s%s(not installed)\n", sym.cross, name, defaultLabel)
 }
 } else {
 fmt.Fprintf(out, "  %s %-12s%s\n", sym.check, name, defaultLabel)
+}
+}
+fmt.Fprintln(out)
+
+// Global config — always shown, even outside a repo.
+globalPath := config.GlobalPath()
+if _, statErr := os.Stat(globalPath); os.IsNotExist(statErr) {
+fmt.Fprintln(out, "Global config: none")
+} else {
+globalCfg, globalErr := config.ReadGlobal()
+if globalErr != nil {
+fmt.Fprintf(out, "Global config: error reading %s: %v\n", globalPath, globalErr)
+} else {
+fmt.Fprintf(out, "Global config: %s\n", globalPath)
+printGlobalConfigFields(out, globalCfg)
 }
 }
 fmt.Fprintln(out)
@@ -209,7 +224,7 @@ fmt.Fprintf(out, "  test_cmd: %s\n", cfg.TestCmd)
 if cfg.BuildCmd != "" {
 fmt.Fprintf(out, "  build_cmd: %s\n", cfg.BuildCmd)
 }
-if cfg.Notify {
+if cfg.Notify != nil && *cfg.Notify {
 fmt.Fprintln(out, "  notify: true")
 }
 if cfg.VCS.Provider != "" {
@@ -217,6 +232,24 @@ fmt.Fprintf(out, "  vcs.provider: %s\n", cfg.VCS.Provider)
 }
 if cfg.VCS.Server != "" {
 fmt.Fprintf(out, "  vcs.server: %s\n", cfg.VCS.Server)
+}
+}
+
+// printGlobalConfigFields writes non-zero global config fields to out, one per line, indented.
+func printGlobalConfigFields(out io.Writer, cfg *config.GlobalConfig) {
+if cfg.DefaultAgent != "" {
+fmt.Fprintf(out, "  default_agent: %s\n", cfg.DefaultAgent)
+}
+if cfg.Editor != "" {
+fmt.Fprintf(out, "  editor: %s\n", cfg.Editor)
+}
+if cfg.MergeStrategy != "" {
+fmt.Fprintf(out, "  merge_strategy: %s\n", cfg.MergeStrategy)
+}
+if cfg.Notify != nil && *cfg.Notify {
+fmt.Fprintln(out, "  notify: true")
+} else if cfg.Notify != nil && !*cfg.Notify {
+fmt.Fprintln(out, "  notify: false")
 }
 }
 

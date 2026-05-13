@@ -67,7 +67,7 @@ func runBuild(issue, outputPath, agentSuffix string, out io.Writer) error {
 		outputPath = filepath.Join(os.TempDir(), repoName+"-"+issue)
 	}
 
-	cfg, err := config.Read(repoRoot)
+	cfg, err := config.ReadMerged(repoRoot)
 	if err != nil {
 		return fmt.Errorf("cannot read config: %w", err)
 	}

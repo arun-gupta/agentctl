@@ -84,7 +84,7 @@ Use --sdd <name> to opt into a spec-driven development (SDD) methodology
 					return fmt.Errorf("failed to determine repository for configuration: %w", err)
 				}
 				if root != "" {
-					cfg, cfgErr := config.Read(root)
+					cfg, cfgErr := config.ReadMerged(root)
 					if cfgErr != nil {
 						return fmt.Errorf("read %s: %w", filepath.Join(root, config.Filename), cfgErr)
 					}
@@ -312,7 +312,7 @@ func startOne(issue, slug, agentName, sddName, agentSuffix string, headless, qui
 	// Combine --notify flag with the per-repo config setting (either enables it).
 	// notify: true in .agentctl.yml is only meaningful in headless mode.
 	if !sendNotify {
-		if cfg, cfgErr := config.Read(repoRoot); cfgErr == nil && cfg.Notify {
+		if cfg, cfgErr := config.ReadMerged(repoRoot); cfgErr == nil && cfg.Notify != nil && *cfg.Notify {
 			sendNotify = true
 		}
 	}
@@ -452,7 +452,7 @@ func startTask(task, branch, agentName, sddName string, headless, quiet, sendNot
 	repoName := filepath.Base(repoRoot)
 
 	if !sendNotify {
-		if cfg, cfgErr := config.Read(repoRoot); cfgErr == nil && cfg.Notify {
+		if cfg, cfgErr := config.ReadMerged(repoRoot); cfgErr == nil && cfg.Notify != nil && *cfg.Notify {
 			sendNotify = true
 		}
 	}
@@ -739,7 +739,7 @@ func runReleasePausedSession(issue, feedback, agentSuffix string, headless, quie
 	// Combine --notify flag with the per-repo config setting (either enables it).
 	// notify: true in .agentctl.yml is only meaningful in headless mode.
 	if !sendNotify {
-		if cfg, cfgErr := config.Read(repoRoot); cfgErr == nil && cfg.Notify {
+		if cfg, cfgErr := config.ReadMerged(repoRoot); cfgErr == nil && cfg.Notify != nil && *cfg.Notify {
 			sendNotify = true
 		}
 	}
@@ -1112,7 +1112,7 @@ func runMerge(issue, strategy, agentSuffix string, noDelete, dryRun bool) error 
 		return fmt.Errorf("cannot determine repo root: %w", err)
 	}
 
-	cfg, err := config.Read(repoRoot)
+	cfg, err := config.ReadMerged(repoRoot)
 	if err != nil {
 		return fmt.Errorf("cannot read config: %w", err)
 	}
@@ -1966,7 +1966,7 @@ real time. Use --quiet to suppress log streaming and only print the URL.`,
 // recorded in the .agent state file. It updates dev-pid in .agent after
 // a successful launch.
 func runDevStart(wtPath string, quiet bool, out io.Writer) error {
-	cfg, err := config.Read(wtPath)
+	cfg, err := config.ReadMerged(wtPath)
 	if err != nil {
 		return fmt.Errorf("reading .agentctl.yml: %w", err)
 	}
@@ -2005,7 +2005,7 @@ func runDevStart(wtPath string, quiet bool, out io.Writer) error {
 
 	fmt.Fprintf(out, "Dev server: http://localhost:%s (log: %s/dev.log)\n", af.DevPort, wtPath)
 
-	if cfg.Notify {
+	if cfg.Notify != nil && *cfg.Notify {
 		msg := fmt.Sprintf("Dev server: http://localhost:%s", af.DevPort)
 		if quiet {
 			notify.Send("agentctl", msg)
@@ -2749,7 +2749,7 @@ func seedEnvLocal(src, dst string) error {
 // On success the URL is printed to out and the PID/port are returned to the
 // caller for storage in the .agent state file. .agentctl.yml is not modified.
 func startDevServer(dir string, out io.Writer) (devPID, portStr string, err error) {
-	cfg, err := config.Read(dir)
+	cfg, err := config.ReadMerged(dir)
 	if err != nil {
 		return "", "", fmt.Errorf("reading .agentctl.yml: %w", err)
 	}
@@ -4631,7 +4631,7 @@ func formatTokens(t float64) string {
 // isDiagnosticsEnabled reports whether per-run diagnostics are enabled for repoRoot.
 // Diagnostics are on by default; set diagnostics.enabled: false in .agentctl.yml to opt out.
 func isDiagnosticsEnabled(repoRoot string) bool {
-	cfg, err := config.Read(repoRoot)
+	cfg, err := config.ReadMerged(repoRoot)
 	if err != nil || cfg.Diagnostics.Enabled == nil {
 		return true
 	}

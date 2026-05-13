@@ -174,6 +174,7 @@ t.Errorf("expected no Configuration: section for empty repoRoot; got:\n%s", out)
 }
 
 func TestPrintConfigFields_allFields(t *testing.T) {
+notifyTrue := true
 cfg := &config.AgentctlConfig{
 Editor:        "cursor",
 DefaultAgent:  "codex",
@@ -181,7 +182,7 @@ DevServer:     "npm run dev",
 MergeStrategy: "squash",
 TestCmd:       "go test ./...",
 BuildCmd:      "go build ./...",
-Notify:        true,
+Notify:        &notifyTrue,
 VCS:           config.VCSConfig{Provider: "gitlab", Server: "https://gl.example.com"},
 }
 
@@ -604,5 +605,77 @@ got := systemOS()
 // Should fall back to GOOS alone (no spaces/extra tokens)
 if strings.Contains(got, " ") {
 t.Errorf("systemOS() = %q, expected GOOS-only (no space) when uname fails", got)
+}
+}
+
+// ─── Global config section ────────────────────────────────────────────────────
+
+func TestRunInfo_globalConfigNoneWhenAbsent(t *testing.T) {
+tmp := t.TempDir()
+t.Setenv("XDG_CONFIG_HOME", tmp)
+
+var buf bytes.Buffer
+if err := runInfo(&buf, "dev", "", false); err != nil {
+t.Fatalf("runInfo error: %v", err)
+}
+out := buf.String()
+if !strings.Contains(out, "Global config: none") {
+t.Errorf("expected 'Global config: none' when file absent; got:\n%s", out)
+}
+}
+
+func TestRunInfo_globalConfigShownWhenPresent(t *testing.T) {
+tmp := t.TempDir()
+t.Setenv("XDG_CONFIG_HOME", tmp)
+globalDir := filepath.Join(tmp, "agentctl")
+if err := os.MkdirAll(globalDir, 0o755); err != nil {
+t.Fatalf("mkdir: %v", err)
+}
+if err := os.WriteFile(filepath.Join(globalDir, "config.yml"), []byte("default_agent: codex\nnotify: true\n"), 0o644); err != nil {
+t.Fatalf("write: %v", err)
+}
+
+var buf bytes.Buffer
+if err := runInfo(&buf, "dev", "", false); err != nil {
+t.Fatalf("runInfo error: %v", err)
+}
+out := buf.String()
+if !strings.Contains(out, "Global config:") {
+t.Errorf("expected 'Global config:' header; got:\n%s", out)
+}
+if !strings.Contains(out, "default_agent: codex") {
+t.Errorf("expected 'default_agent: codex' in global config section; got:\n%s", out)
+}
+if !strings.Contains(out, "notify: true") {
+t.Errorf("expected 'notify: true' in global config section; got:\n%s", out)
+}
+}
+
+func TestRunInfo_globalConfigAboveProjectLocal(t *testing.T) {
+tmp := t.TempDir()
+t.Setenv("XDG_CONFIG_HOME", tmp)
+
+dir := t.TempDir()
+cfg := &config.AgentctlConfig{Editor: "cursor"}
+if err := config.Write(dir, cfg); err != nil {
+t.Fatalf("write config: %v", err)
+}
+
+var buf bytes.Buffer
+if err := runInfo(&buf, "dev", dir, false); err != nil {
+t.Fatalf("runInfo error: %v", err)
+}
+out := buf.String()
+// Both sections must appear; Global config must come before Configuration.
+globalIdx := strings.Index(out, "Global config:")
+configIdx := strings.Index(out, "Configuration:")
+if globalIdx < 0 {
+t.Errorf("expected 'Global config:' in output; got:\n%s", out)
+}
+if configIdx < 0 {
+t.Errorf("expected 'Configuration:' in output; got:\n%s", out)
+}
+if globalIdx > configIdx {
+t.Errorf("Global config section should appear before Configuration section; got:\n%s", out)
 }
 }

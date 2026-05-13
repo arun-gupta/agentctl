@@ -1,11 +1,15 @@
-// Package config handles reading and writing the per-repo .agentctl.yml file.
+// Package config handles reading and writing the per-repo .agentctl.yml file
+// as well as the user-level global config at $XDG_CONFIG_HOME/agentctl/config.yml.
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/arun-gupta/agentctl/internal/xdg"
 )
 
 const Filename = ".agentctl.yml"
@@ -31,7 +35,9 @@ type AgentctlConfig struct {
 	// When true, agentctl fires an OS notification (macOS: osascript,
 	// Linux: notify-send) after each agent exits. Can also be enabled
 	// per-invocation with the --notify flag.
-	Notify bool `yaml:"notify,omitempty"`
+	// Uses *bool so that an explicit false in project-local config can
+	// override a global notify: true.
+	Notify *bool `yaml:"notify,omitempty"`
 
 	// MergeStrategy is the default merge strategy used by agentctl merge.
 	// Valid values: "squash" (default when empty), "merge", "rebase".
@@ -71,6 +77,113 @@ type DiagnosticsConfig struct {
 	// Enabled controls whether per-run diagnostics are written.
 	// Defaults to true when the field is absent.
 	Enabled *bool `yaml:"enabled,omitempty"`
+}
+
+// GlobalConfig holds only the user-wide settings that belong in the global
+// config file. Using a dedicated struct prevents accidentally reading or
+// writing repo-specific fields through the global path. A new field added to
+// AgentctlConfig is not silently included in global config without an explicit
+// decision here.
+type GlobalConfig struct {
+	DefaultAgent  string            `yaml:"default_agent,omitempty"`
+	Notify        *bool             `yaml:"notify,omitempty"`
+	MergeStrategy string            `yaml:"merge_strategy,omitempty"`
+	Editor        string            `yaml:"editor,omitempty"`
+	Diagnostics   DiagnosticsConfig `yaml:"diagnostics,omitempty"`
+}
+
+// GlobalPath returns the path to the user-level global config file:
+// $XDG_CONFIG_HOME/agentctl/config.yml (or the OS default via xdg.UserConfigDir).
+func GlobalPath() string {
+	return filepath.Join(xdg.UserConfigDir(), "agentctl", "config.yml")
+}
+
+// ReadGlobal loads the global config file at GlobalPath().
+// Returns an empty GlobalConfig (no error) when the file does not exist.
+// Returns an error if the file exists but contains invalid YAML.
+func ReadGlobal() (*GlobalConfig, error) {
+	data, err := os.ReadFile(GlobalPath())
+	if os.IsNotExist(err) {
+		return &GlobalConfig{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var cfg GlobalConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+// WriteGlobal serialises cfg to GlobalPath(), creating parent directories as needed.
+func WriteGlobal(cfg *GlobalConfig) error {
+	path := GlobalPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
+}
+
+// ReadMerged returns the effective config by merging the global config and the
+// project-local .agentctl.yml. Project-local values win on any non-zero field;
+// the global config fills in the rest. Repo-specific fields (dev_server,
+// test_cmd, build_cmd, vcs) are only read from the project-local file.
+//
+// Error behaviour: a missing global config is silently skipped. If the global
+// config file exists but is malformed, ReadMerged returns an error.
+func ReadMerged(dir string) (*AgentctlConfig, error) {
+	global, err := ReadGlobal()
+	if err != nil {
+		return nil, fmt.Errorf("global config: %w", err)
+	}
+
+	local, err := Read(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	return &AgentctlConfig{
+		// Global-eligible fields: project-local wins on non-zero value.
+		DefaultAgent:  mergeString(local.DefaultAgent, global.DefaultAgent),
+		Notify:        mergeBoolPtr(local.Notify, global.Notify),
+		MergeStrategy: mergeString(local.MergeStrategy, global.MergeStrategy),
+		Editor:        mergeString(local.Editor, global.Editor),
+		Diagnostics:   mergeDiagnostics(local.Diagnostics, global.Diagnostics),
+
+		// Repo-specific fields: always from project-local only.
+		DevServer: local.DevServer,
+		TestCmd:   local.TestCmd,
+		BuildCmd:  local.BuildCmd,
+		VCS:       local.VCS,
+	}, nil
+}
+
+// mergeString returns local if non-empty, otherwise global.
+func mergeString(local, global string) string {
+	if local != "" {
+		return local
+	}
+	return global
+}
+
+// mergeBoolPtr returns local if non-nil, otherwise global.
+func mergeBoolPtr(local, global *bool) *bool {
+	if local != nil {
+		return local
+	}
+	return global
+}
+
+// mergeDiagnostics merges two DiagnosticsConfig values: local wins for non-nil fields.
+func mergeDiagnostics(local, global DiagnosticsConfig) DiagnosticsConfig {
+	return DiagnosticsConfig{
+		Enabled: mergeBoolPtr(local.Enabled, global.Enabled),
+	}
 }
 
 // Read loads .agentctl.yml from dir. If the file does not exist, an empty
