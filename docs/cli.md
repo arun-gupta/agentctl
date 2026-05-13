@@ -22,6 +22,7 @@ Run `agentctl --help` or `agentctl <command> --help` for generated help from the
   - [agentctl open](#agentctl-open)
   - [agentctl resume](#agentctl-resume)
   - [agentctl status](#agentctl-status)
+  - [agentctl merge](#agentctl-merge)
   - [agentctl cleanup](#agentctl-cleanup)
   - [agentctl discard](#agentctl-discard)
   - [agentctl dev start](#agentctl-dev-start)
@@ -419,6 +420,38 @@ Spec states:
 
 PR column shows the PR number and state from `gh pr view <branch>`, e.g. `#42 OPEN`, `#42 MERGED`. Shows `none` when no PR exists for the branch.
 
+### `agentctl merge`
+
+```bash
+agentctl merge [issue-number-or-url]
+agentctl merge [issue-number-or-url] --strategy squash|merge|rebase
+agentctl merge [issue-number-or-url] --dry-run
+agentctl merge [issue-number-or-url] --no-delete
+```
+
+One-step merge: verifies the PR is approved and mergeable, runs `gh pr merge`, pulls `main`, and removes the worktree and branches. Equivalent to merging on GitHub/GitLab and then running `agentctl cleanup`, but in a single command.
+
+Run without arguments inside a linked worktree to infer the issue from the current branch.
+
+Flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--strategy <name>` | `squash` | Merge strategy: `squash`, `merge`, or `rebase`. Overrides `merge_strategy` in `.agentctl.yml`. |
+| `--no-delete` | `false` | Skip worktree and branch deletion after merge; leaves the worktree intact |
+| `--dry-run` | `false` | Show what would happen without executing any destructive steps |
+| `--agent <name>` | — | Disambiguate when multiple worktrees exist for the same issue |
+
+Strategy resolution order: `--strategy` flag → `merge_strategy` in `.agentctl.yml` → `squash`.
+
+Error cases:
+
+| Condition | Error message |
+|-----------|---------------|
+| Issue not found | `no worktree or local branch found for issue N` |
+| PR not merged-ready | `PR is not in a mergeable state` |
+| Unknown strategy | `unknown merge strategy "<name>": must be squash, merge, or rebase` |
+
 ### `agentctl cleanup`
 
 ```bash
@@ -526,6 +559,21 @@ notify: true
 # Editor opened by agentctl open. Overridden per-invocation with --editor.
 # Examples: "cursor", "code", "idea"
 editor: cursor
+
+# Default coding agent for agentctl start. Overrides the built-in default
+# ("claude"). Overridden per-invocation with --agent.
+# Examples: "codex", "copilot", "gemini"
+default_agent: claude
+
+# Command agents use to run the test suite before opening a PR. When set,
+# agents use this instead of inferring the command from AGENTS.md or README.md.
+# Use {output} as a placeholder for the binary path (agentctl build only).
+# Examples: "go test ./...", "npm test", "pytest tests/ -v"
+test_cmd: pytest tests/ -v
+
+# Default merge strategy for agentctl merge. Overridden per-invocation with
+# --strategy. Valid values: squash (default when omitted), merge, rebase.
+merge_strategy: squash
 ```
 
 ---

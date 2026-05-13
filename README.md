@@ -55,8 +55,26 @@ agentctl cleanup 42
 
 `agentctl --help` and `agentctl <command> --help` list all flags.
 
+## How it works
+
+```mermaid
+flowchart LR
+    issue["GitHub / GitLab\nissue"] --> start["agentctl start &lt;issue&gt;"]
+    start --> wt["Isolated git worktree\n+ reserved port"]
+    start --> agent["Coding agent\n(Claude, Codex, Copilot…)"]
+    wt --> agent
+    agent --> code["Code written\ntests run"]
+    code --> pr["Pull request\nopened"]
+    pr --> review{"Human\nreview"}
+    review -->|"agentctl resume 'feedback'"| agent
+    review -->|approved & merged| cleanup["agentctl cleanup"]
+```
+
+For a deeper walkthrough see **[Introducing agentctl](docs/articles/introducing-agentctl.md)** and **[docs/cli.md](docs/cli.md)**.
+
 ## Documentation
 
+- **[docs/articles/introducing-agentctl.md](docs/articles/introducing-agentctl.md)** — full walkthrough: the problem, how it works, quick start, batch mode, and SDD  
 - **[docs/install.md](docs/install.md)** — prerequisites, install paths, releases  
 - **[docs/cli.md](docs/cli.md)** — command reference and workflows  
 - **[docs/sdd.md](docs/sdd.md)** — SDD overview, methodology YAML schema, resolution chain, drop-in locations  
