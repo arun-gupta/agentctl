@@ -31,6 +31,7 @@ Run `agentctl --help` or `agentctl <command> --help` for generated help from the
     - [agentctl discard](#agentctl-discard)
   - [Dev server](#dev-server)
     - [agentctl dev start](#agentctl-dev-start)
+- [Global user config](#global-user-config)
 - [`.agentctl.yml` configuration](#agentctlyml-configuration)
 - [Desktop notifications](#desktop-notifications)
 - [Worktree state files](#worktree-state-files)
@@ -551,6 +552,67 @@ Error cases:
 | `.agent` has no port recorded | `no port recorded in .agent — run agentctl start first` |
 | Dev server already running | `dev server already running (PID N) — stop that process and clear the recorded dev-pid before restarting` |
 | Port already in use | `port N already in use` (with PID if detectable) |
+
+---
+
+## Global user config
+
+Place a config file at `~/.config/agentctl/config.yml` (or `$XDG_CONFIG_HOME/agentctl/config.yml`) to set personal defaults that apply across all repositories.
+
+### Config resolution chain
+
+```
+CLI flags  >  project-local .agentctl.yml  >  global config.yml  >  built-in defaults
+```
+
+This matches the pattern used by `git`, `gh`, `npm`, and `kubectl`. Project-local `.agentctl.yml` always wins for any field it explicitly sets.
+
+### Global-eligible fields
+
+Only user-preference fields belong in the global config. Repo-specific fields (`dev_server`, `test_cmd`, `build_cmd`, `vcs`) are ignored in the global file.
+
+```yaml
+# ~/.config/agentctl/config.yml
+
+# Personal default agent for agentctl start.
+default_agent: codex
+
+# Send desktop notifications when headless agents finish.
+notify: true
+
+# Personal default merge strategy.
+merge_strategy: squash
+
+# Editor opened by agentctl open.
+editor: cursor
+
+# Opt out of per-run diagnostics globally.
+diagnostics:
+  enabled: false
+```
+
+### `notify` and `*bool` semantics
+
+`notify` is stored as a nullable boolean so an explicit `notify: false` in a project-local `.agentctl.yml` can override a global `notify: true`. Omitting `notify` in `.agentctl.yml` means "inherit from global".
+
+### Viewing effective config
+
+`agentctl info` shows both the global config and the project-local config:
+
+```
+Global config: ~/.config/agentctl/config.yml
+  default_agent: codex
+  notify: true
+
+Configuration: .agentctl.yml found
+  dev_server: npm run dev -- --port {port}
+```
+
+If the global config file does not exist, `agentctl info` shows:
+
+```
+Global config: none
+```
 
 ---
 

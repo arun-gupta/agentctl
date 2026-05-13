@@ -20,7 +20,7 @@ import (
 // for backward compatibility with local-only repos.
 func Detect(repoRoot string) (Provider, error) {
 	// Config file override takes priority.
-	if cfg, err := config.Read(repoRoot); err == nil && cfg.VCS.Provider != "" {
+	if cfg, err := config.ReadMerged(repoRoot); err == nil && cfg.VCS.Provider != "" {
 		switch strings.ToLower(cfg.VCS.Provider) {
 		case "github":
 			return githubProvider{server: cfg.VCS.Server}, nil

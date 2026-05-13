@@ -1,608 +1,766 @@
 package cmd
 
 import (
-"bytes"
-"errors"
-"os"
-"os/exec"
-"path/filepath"
-"strings"
-"testing"
+	"bytes"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
 
-"github.com/arun-gupta/agentctl/internal/config"
-"github.com/arun-gupta/agentctl/internal/state"
+	"github.com/arun-gupta/agentctl/internal/config"
+	"github.com/arun-gupta/agentctl/internal/state"
 )
 
 // stubToolRunner temporarily replaces runToolCmdFn for the duration of the test.
 func stubToolRunner(t *testing.T, fn func(name string, args ...string) (string, error)) {
-t.Helper()
-orig := runToolCmdFn
-runToolCmdFn = fn
-t.Cleanup(func() { runToolCmdFn = orig })
+	t.Helper()
+	orig := runToolCmdFn
+	runToolCmdFn = fn
+	t.Cleanup(func() { runToolCmdFn = orig })
 }
 
 // stubLookPath temporarily replaces lookPathFn for the duration of the test.
 func stubLookPath(t *testing.T, fn func(string) (string, error)) {
-t.Helper()
-orig := lookPathFn
-lookPathFn = fn
-t.Cleanup(func() { lookPathFn = orig })
+	t.Helper()
+	orig := lookPathFn
+	lookPathFn = fn
+	t.Cleanup(func() { lookPathFn = orig })
 }
 
 // stubGHAuthUser temporarily replaces ghAuthUserFn for the duration of the test.
 func stubGHAuthUser(t *testing.T, fn func() string) {
-t.Helper()
-orig := ghAuthUserFn
-ghAuthUserFn = fn
-t.Cleanup(func() { ghAuthUserFn = orig })
+	t.Helper()
+	orig := ghAuthUserFn
+	ghAuthUserFn = fn
+	t.Cleanup(func() { ghAuthUserFn = orig })
 }
 
 func TestRunInfo_versionInOutput(t *testing.T) {
-var buf bytes.Buffer
-if err := runInfo(&buf, "v1.2.3", "", false); err != nil {
-t.Fatalf("runInfo error: %v", err)
-}
-if !strings.Contains(buf.String(), "agentctl v1.2.3") {
-t.Errorf("output missing version line; got:\n%s", buf.String())
-}
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "v1.2.3", "", false); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	if !strings.Contains(buf.String(), "agentctl v1.2.3") {
+		t.Errorf("output missing version line; got:\n%s", buf.String())
+	}
 }
 
 func TestRunInfo_systemInOutput(t *testing.T) {
-stubToolRunner(t, func(name string, args ...string) (string, error) {
-if name == "uname" {
-return "5.15.0-91-generic", nil
-}
-return "", errors.New("not found")
-})
+	stubToolRunner(t, func(name string, args ...string) (string, error) {
+		if name == "uname" {
+			return "5.15.0-91-generic", nil
+		}
+		return "", errors.New("not found")
+	})
 
-var buf bytes.Buffer
-if err := runInfo(&buf, "dev", "", false); err != nil {
-t.Fatalf("runInfo error: %v", err)
-}
-if !strings.Contains(buf.String(), "System:") {
-t.Errorf("output missing System: line; got:\n%s", buf.String())
-}
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", "", false); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	if !strings.Contains(buf.String(), "System:") {
+		t.Errorf("output missing System: line; got:\n%s", buf.String())
+	}
 }
 
 func TestRunInfo_agentSectionInOutput(t *testing.T) {
-var buf bytes.Buffer
-if err := runInfo(&buf, "dev", "", false); err != nil {
-t.Fatalf("runInfo error: %v", err)
-}
-if !strings.Contains(buf.String(), "Coding Agents:") {
-t.Errorf("output missing Coding Agents: section; got:\n%s", buf.String())
-}
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", "", false); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	if !strings.Contains(buf.String(), "Coding Agents:") {
+		t.Errorf("output missing Coding Agents: section; got:\n%s", buf.String())
+	}
 }
 
 func TestRunInfo_noConfigWhenMissing(t *testing.T) {
-dir := t.TempDir()
-var buf bytes.Buffer
-if err := runInfo(&buf, "dev", dir, false); err != nil {
-t.Fatalf("runInfo error: %v", err)
-}
-if !strings.Contains(buf.String(), "Configuration: no .agentctl.yml found") {
-t.Errorf("expected no-config message; got:\n%s", buf.String())
-}
+	dir := t.TempDir()
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", dir, false); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	if !strings.Contains(buf.String(), "Configuration: no .agentctl.yml found") {
+		t.Errorf("expected no-config message; got:\n%s", buf.String())
+	}
 }
 
 func TestRunInfo_withConfig(t *testing.T) {
-dir := t.TempDir()
-cfg := &config.AgentctlConfig{
-Editor:    "cursor",
-DevServer: "npm run dev -- --port {port}",
-}
-if err := config.Write(dir, cfg); err != nil {
-t.Fatalf("write config: %v", err)
-}
+	dir := t.TempDir()
+	cfg := &config.AgentctlConfig{
+		Editor:    "cursor",
+		DevServer: "npm run dev -- --port {port}",
+	}
+	if err := config.Write(dir, cfg); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
 
-var buf bytes.Buffer
-if err := runInfo(&buf, "dev", dir, false); err != nil {
-t.Fatalf("runInfo error: %v", err)
-}
-out := buf.String()
-if !strings.Contains(out, "Configuration: .agentctl.yml found") {
-t.Errorf("expected config-found message; got:\n%s", out)
-}
-if !strings.Contains(out, "editor: cursor") {
-t.Errorf("expected editor field in output; got:\n%s", out)
-}
-if !strings.Contains(out, "dev_server:") {
-t.Errorf("expected dev_server field in output; got:\n%s", out)
-}
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", dir, false); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Configuration: .agentctl.yml found") {
+		t.Errorf("expected config-found message; got:\n%s", out)
+	}
+	if !strings.Contains(out, "editor: cursor") {
+		t.Errorf("expected editor field in output; got:\n%s", out)
+	}
+	if !strings.Contains(out, "dev_server:") {
+		t.Errorf("expected dev_server field in output; got:\n%s", out)
+	}
 }
 
 func TestRunInfo_noWorktreesForPlainDir(t *testing.T) {
-dir := t.TempDir()
-var buf bytes.Buffer
-if err := runInfo(&buf, "dev", dir, false); err != nil {
-t.Fatalf("runInfo error: %v", err)
-}
-out := buf.String()
-if !strings.Contains(out, "Active Worktrees: 0") {
-t.Errorf("expected 'Active Worktrees: 0' for non-git dir; got:\n%s", out)
-}
+	dir := t.TempDir()
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", dir, false); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Active Worktrees: 0") {
+		t.Errorf("expected 'Active Worktrees: 0' for non-git dir; got:\n%s", out)
+	}
 }
 
 func TestRunInfo_defaultAgentMarked(t *testing.T) {
-var buf bytes.Buffer
-if err := runInfo(&buf, "dev", "", false); err != nil {
-t.Fatalf("runInfo error: %v", err)
-}
-// "claude" is the built-in default; it should be marked "(default)"
-out := buf.String()
-if !strings.Contains(out, "(default)") {
-t.Errorf("expected default agent marker in output; got:\n%s", out)
-}
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", "", false); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	// "claude" is the built-in default; it should be marked "(default)"
+	out := buf.String()
+	if !strings.Contains(out, "(default)") {
+		t.Errorf("expected default agent marker in output; got:\n%s", out)
+	}
 }
 
 func TestRunInfo_customDefaultAgentFromConfig(t *testing.T) {
-dir := t.TempDir()
-cfg := &config.AgentctlConfig{DefaultAgent: "codex"}
-if err := config.Write(dir, cfg); err != nil {
-t.Fatalf("write config: %v", err)
+	dir := t.TempDir()
+	cfg := &config.AgentctlConfig{DefaultAgent: "codex"}
+	if err := config.Write(dir, cfg); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", dir, false); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	out := buf.String()
+	// codex should be the default now; look for "codex" with "(default)" nearby
+	lines := strings.Split(out, "\n")
+	found := false
+	for _, line := range lines {
+		if strings.Contains(line, "codex") && strings.Contains(line, "(default)") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected codex marked as default; got:\n%s", out)
+	}
 }
 
-var buf bytes.Buffer
-if err := runInfo(&buf, "dev", dir, false); err != nil {
-t.Fatalf("runInfo error: %v", err)
+func TestRunInfo_defaultAgentFromGlobalOutsideRepo(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	globalDir := filepath.Join(tmp, "agentctl")
+	if err := os.MkdirAll(globalDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(globalDir, "config.yml"), []byte("default_agent: codex\n"), 0o644); err != nil {
+		t.Fatalf("write global config: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", "", false); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	out := buf.String()
+	lines := strings.Split(out, "\n")
+	found := false
+	for _, line := range lines {
+		if strings.Contains(line, "codex") && strings.Contains(line, "(default)") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected codex marked as default outside repo when set globally; got:\n%s", out)
+	}
 }
-out := buf.String()
-// codex should be the default now; look for "codex" with "(default)" nearby
-lines := strings.Split(out, "\n")
-found := false
-for _, line := range lines {
-if strings.Contains(line, "codex") && strings.Contains(line, "(default)") {
-found = true
-break
-}
-}
-if !found {
-t.Errorf("expected codex marked as default; got:\n%s", out)
-}
+
+func TestRunInfo_defaultAgentFallsBackToLocalWhenGlobalMalformed(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	globalDir := filepath.Join(tmp, "agentctl")
+	if err := os.MkdirAll(globalDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(globalDir, "config.yml"), []byte("default_agent: [\n"), 0o644); err != nil {
+		t.Fatalf("write malformed global config: %v", err)
+	}
+
+	repoDir := t.TempDir()
+	if err := config.Write(repoDir, &config.AgentctlConfig{DefaultAgent: "gemini"}); err != nil {
+		t.Fatalf("write local config: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", repoDir, false); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	out := buf.String()
+	lines := strings.Split(out, "\n")
+	found := false
+	for _, line := range lines {
+		if strings.Contains(line, "gemini") && strings.Contains(line, "(default)") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected gemini marked as default when global config is malformed; got:\n%s", out)
+	}
 }
 
 func TestRunInfo_emptyRepoRootSkipsConfigSection(t *testing.T) {
-var buf bytes.Buffer
-if err := runInfo(&buf, "dev", "", false); err != nil {
-t.Fatalf("runInfo error: %v", err)
-}
-// With empty repoRoot, config and worktrees sections should be absent
-out := buf.String()
-if strings.Contains(out, "Configuration:") {
-t.Errorf("expected no Configuration: section for empty repoRoot; got:\n%s", out)
-}
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", "", false); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	// With empty repoRoot, config and worktrees sections should be absent
+	out := buf.String()
+	if strings.Contains(out, "Configuration:") {
+		t.Errorf("expected no Configuration: section for empty repoRoot; got:\n%s", out)
+	}
 }
 
 func TestPrintConfigFields_allFields(t *testing.T) {
-cfg := &config.AgentctlConfig{
-Editor:        "cursor",
-DefaultAgent:  "codex",
-DevServer:     "npm run dev",
-MergeStrategy: "squash",
-TestCmd:       "go test ./...",
-BuildCmd:      "go build ./...",
-Notify:        true,
-VCS:           config.VCSConfig{Provider: "gitlab", Server: "https://gl.example.com"},
-}
+	notifyTrue := true
+	cfg := &config.AgentctlConfig{
+		Editor:        "cursor",
+		DefaultAgent:  "codex",
+		DevServer:     "npm run dev",
+		MergeStrategy: "squash",
+		TestCmd:       "go test ./...",
+		BuildCmd:      "go build ./...",
+		Notify:        &notifyTrue,
+		VCS:           config.VCSConfig{Provider: "gitlab", Server: "https://gl.example.com"},
+	}
 
-var buf bytes.Buffer
-printConfigFields(&buf, cfg)
-out := buf.String()
+	var buf bytes.Buffer
+	printConfigFields(&buf, cfg)
+	out := buf.String()
 
-checks := []string{
-"editor: cursor",
-"default_agent: codex",
-"dev_server: npm run dev",
-"merge_strategy: squash",
-"test_cmd: go test ./...",
-"build_cmd: go build ./...",
-"notify: true",
-"vcs.provider: gitlab",
-"vcs.server: https://gl.example.com",
-}
-for _, want := range checks {
-if !strings.Contains(out, want) {
-t.Errorf("printConfigFields missing %q; got:\n%s", want, out)
-}
-}
+	checks := []string{
+		"editor: cursor",
+		"default_agent: codex",
+		"dev_server: npm run dev",
+		"merge_strategy: squash",
+		"test_cmd: go test ./...",
+		"build_cmd: go build ./...",
+		"notify: true",
+		"vcs.provider: gitlab",
+		"vcs.server: https://gl.example.com",
+	}
+	for _, want := range checks {
+		if !strings.Contains(out, want) {
+			t.Errorf("printConfigFields missing %q; got:\n%s", want, out)
+		}
+	}
 }
 
 func TestPrintConfigFields_emptyConfig(t *testing.T) {
-cfg := &config.AgentctlConfig{}
-var buf bytes.Buffer
-printConfigFields(&buf, cfg)
-if buf.Len() != 0 {
-t.Errorf("expected empty output for empty config; got: %q", buf.String())
+	cfg := &config.AgentctlConfig{}
+	var buf bytes.Buffer
+	printConfigFields(&buf, cfg)
+	if buf.Len() != 0 {
+		t.Errorf("expected empty output for empty config; got: %q", buf.String())
+	}
 }
+
+func TestPrintConfigFields_notifyFalse(t *testing.T) {
+	notifyFalse := false
+	cfg := &config.AgentctlConfig{Notify: &notifyFalse}
+	var buf bytes.Buffer
+	printConfigFields(&buf, cfg)
+	if !strings.Contains(buf.String(), "notify: false") {
+		t.Errorf("expected notify: false, got %q", buf.String())
+	}
+}
+
+func TestPrintGlobalConfigFields_diagnosticsEnabled(t *testing.T) {
+	enabled := false
+	cfg := &config.GlobalConfig{
+		Diagnostics: config.DiagnosticsConfig{Enabled: &enabled},
+	}
+	var buf bytes.Buffer
+	printGlobalConfigFields(&buf, cfg)
+	if !strings.Contains(buf.String(), "diagnostics.enabled: false") {
+		t.Errorf("expected diagnostics.enabled: false, got %q", buf.String())
+	}
 }
 
 func TestParseGHVersion(t *testing.T) {
-tests := []struct {
-input string
-want  string
-}{
-{"gh version 2.45.0 (2024-01-15)\nhttps://github.com/cli/cli/releases/tag/v2.45.0", "2.45.0"},
-{"gh version 2.10.1 (2023-06-20)", "2.10.1"},
-{"unexpected output", "unexpected output"},
-{"", ""},
-}
-for _, tt := range tests {
-got := parseGHVersion(tt.input)
-if got != tt.want {
-t.Errorf("parseGHVersion(%q) = %q, want %q", tt.input, got, tt.want)
-}
-}
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"gh version 2.45.0 (2024-01-15)\nhttps://github.com/cli/cli/releases/tag/v2.45.0", "2.45.0"},
+		{"gh version 2.10.1 (2023-06-20)", "2.10.1"},
+		{"unexpected output", "unexpected output"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := parseGHVersion(tt.input)
+		if got != tt.want {
+			t.Errorf("parseGHVersion(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
 }
 
 func TestInfoCmd_exists(t *testing.T) {
-c := NewInfoCmd("test-version")
-if c.Use != "info" {
-t.Errorf("command Use = %q, want %q", c.Use, "info")
-}
+	c := NewInfoCmd("test-version")
+	if c.Use != "info" {
+		t.Errorf("command Use = %q, want %q", c.Use, "info")
+	}
 }
 
 func TestRunInfo_gitSection(t *testing.T) {
-stubToolRunner(t, func(name string, args ...string) (string, error) {
-if name == "git" {
-return "git version 2.50.0", nil
-}
-return "", errors.New("not found")
-})
+	stubToolRunner(t, func(name string, args ...string) (string, error) {
+		if name == "git" {
+			return "git version 2.50.0", nil
+		}
+		return "", errors.New("not found")
+	})
 
-var buf bytes.Buffer
-if err := runInfo(&buf, "dev", "", false); err != nil {
-t.Fatalf("runInfo error: %v", err)
-}
-out := buf.String()
-if !strings.Contains(out, "Git:") {
-t.Errorf("output missing Git: line; got:\n%s", out)
-}
-if !strings.Contains(out, "2.50.0") {
-t.Errorf("expected git version in output; got:\n%s", out)
-}
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", "", false); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Git:") {
+		t.Errorf("output missing Git: line; got:\n%s", out)
+	}
+	if !strings.Contains(out, "2.50.0") {
+		t.Errorf("expected git version in output; got:\n%s", out)
+	}
 }
 
 func TestRunInfo_ghSection(t *testing.T) {
-stubToolRunner(t, func(name string, args ...string) (string, error) {
-if name == "gh" {
-return "gh version 2.78.0 (2025-01-01)", nil
-}
-return "", errors.New("not found")
-})
-stubLookPath(t, func(name string) (string, error) {
-if name == "gh" {
-return "/usr/bin/gh", nil
-}
-return "", errors.New("not found")
-})
-stubGHAuthUser(t, func() string { return "testuser" })
+	stubToolRunner(t, func(name string, args ...string) (string, error) {
+		if name == "gh" {
+			return "gh version 2.78.0 (2025-01-01)", nil
+		}
+		return "", errors.New("not found")
+	})
+	stubLookPath(t, func(name string) (string, error) {
+		if name == "gh" {
+			return "/usr/bin/gh", nil
+		}
+		return "", errors.New("not found")
+	})
+	stubGHAuthUser(t, func() string { return "testuser" })
 
-var buf bytes.Buffer
-if err := runInfo(&buf, "dev", "", false); err != nil {
-t.Fatalf("runInfo error: %v", err)
-}
-out := buf.String()
-if !strings.Contains(out, "GitHub CLI:") {
-t.Errorf("output missing GitHub CLI: line; got:\n%s", out)
-}
-if !strings.Contains(out, "2.78.0") {
-t.Errorf("expected gh version in output; got:\n%s", out)
-}
-if !strings.Contains(out, "authenticated as testuser") {
-t.Errorf("expected auth user in output; got:\n%s", out)
-}
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", "", false); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "GitHub CLI:") {
+		t.Errorf("output missing GitHub CLI: line; got:\n%s", out)
+	}
+	if !strings.Contains(out, "2.78.0") {
+		t.Errorf("expected gh version in output; got:\n%s", out)
+	}
+	if !strings.Contains(out, "authenticated as testuser") {
+		t.Errorf("expected auth user in output; got:\n%s", out)
+	}
 }
 
 func TestRunInfo_ghVersionErrorShown(t *testing.T) {
-stubLookPath(t, func(name string) (string, error) {
-if name == "gh" {
-return "/usr/bin/gh", nil
-}
-return "", errors.New("not found")
-})
-stubToolRunner(t, func(name string, args ...string) (string, error) {
-if name == "gh" {
-return "", errors.New("exec format error")
-}
-return "", errors.New("not found")
-})
+	stubLookPath(t, func(name string) (string, error) {
+		if name == "gh" {
+			return "/usr/bin/gh", nil
+		}
+		return "", errors.New("not found")
+	})
+	stubToolRunner(t, func(name string, args ...string) (string, error) {
+		if name == "gh" {
+			return "", errors.New("exec format error")
+		}
+		return "", errors.New("not found")
+	})
 
-var buf bytes.Buffer
-if err := runInfo(&buf, "dev", "", false); err != nil {
-t.Fatalf("runInfo error: %v", err)
-}
-out := buf.String()
-if !strings.Contains(out, "GitHub CLI: error running gh --version:") {
-t.Errorf("expected gh version error indicator; got:\n%s", out)
-}
-for _, line := range strings.Split(out, "\n") {
-	if strings.Contains(line, "GitHub CLI") && (strings.Contains(line, "✓") || strings.Contains(line, "OK")) {
-		t.Errorf("did not expect success marker in GitHub CLI line; got: %s", line)
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", "", false); err != nil {
+		t.Fatalf("runInfo error: %v", err)
 	}
-}
+	out := buf.String()
+	if !strings.Contains(out, "GitHub CLI: error running gh --version:") {
+		t.Errorf("expected gh version error indicator; got:\n%s", out)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "GitHub CLI") && (strings.Contains(line, "✓") || strings.Contains(line, "OK")) {
+			t.Errorf("did not expect success marker in GitHub CLI line; got: %s", line)
+		}
+	}
 }
 
 func TestRunInfo_asciiMode(t *testing.T) {
-stubToolRunner(t, func(name string, args ...string) (string, error) {
-if name == "git" {
-return "git version 2.50.0", nil
-}
-return "", errors.New("not found")
-})
+	stubToolRunner(t, func(name string, args ...string) (string, error) {
+		if name == "git" {
+			return "git version 2.50.0", nil
+		}
+		return "", errors.New("not found")
+	})
 
-var buf bytes.Buffer
-if err := runInfo(&buf, "dev", "", true); err != nil {
-t.Fatalf("runInfo error: %v", err)
-}
-out := buf.String()
-// ASCII mode should use "OK"/"X" not Unicode glyphs
-if strings.Contains(out, "✓") || strings.Contains(out, "✗") {
-t.Errorf("expected no Unicode glyphs in ASCII mode; got:\n%s", out)
-}
-if !strings.Contains(out, "OK") && !strings.Contains(out, "X") {
-t.Errorf("expected ASCII markers (OK/X) in output; got:\n%s", out)
-}
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", "", true); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	out := buf.String()
+	// ASCII mode should use "OK"/"X" not Unicode glyphs
+	if strings.Contains(out, "✓") || strings.Contains(out, "✗") {
+		t.Errorf("expected no Unicode glyphs in ASCII mode; got:\n%s", out)
+	}
+	if !strings.Contains(out, "OK") && !strings.Contains(out, "X") {
+		t.Errorf("expected ASCII markers (OK/X) in output; got:\n%s", out)
+	}
 }
 
 func TestRunInfo_configWithDefaultAgent(t *testing.T) {
-dir := t.TempDir()
-cfg := &config.AgentctlConfig{DefaultAgent: "gemini"}
-if err := config.Write(dir, cfg); err != nil {
-t.Fatalf("write config: %v", err)
-}
+	dir := t.TempDir()
+	cfg := &config.AgentctlConfig{DefaultAgent: "gemini"}
+	if err := config.Write(dir, cfg); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
 
-var buf bytes.Buffer
-if err := runInfo(&buf, "dev", dir, false); err != nil {
-t.Fatalf("runInfo error: %v", err)
-}
-out := buf.String()
-if !strings.Contains(out, "default_agent: gemini") {
-t.Errorf("expected default_agent shown in config; got:\n%s", out)
-}
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", dir, false); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "default_agent: gemini") {
+		t.Errorf("expected default_agent shown in config; got:\n%s", out)
+	}
 }
 
 func TestRunInfo_installHintShown(t *testing.T) {
-// Create a temp dir with a custom adapter that won't be on PATH
-dir := t.TempDir()
-adapterDir := filepath.Join(dir, ".agentctl", "adapters")
-if err := os.MkdirAll(adapterDir, 0o755); err != nil {
-t.Fatalf("mkdir: %v", err)
-}
-adapterYAML := "binary: nonexistent-agent-xyz-999\ninstall: npm install -g nonexistent-agent-xyz-999\n"
-if err := os.WriteFile(filepath.Join(adapterDir, "nonexistent-agent-xyz-999.yml"), []byte(adapterYAML), 0o644); err != nil {
-t.Fatalf("write adapter: %v", err)
-}
+	// Create a temp dir with a custom adapter that won't be on PATH
+	dir := t.TempDir()
+	adapterDir := filepath.Join(dir, ".agentctl", "adapters")
+	if err := os.MkdirAll(adapterDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	adapterYAML := "binary: nonexistent-agent-xyz-999\ninstall: npm install -g nonexistent-agent-xyz-999\n"
+	if err := os.WriteFile(filepath.Join(adapterDir, "nonexistent-agent-xyz-999.yml"), []byte(adapterYAML), 0o644); err != nil {
+		t.Fatalf("write adapter: %v", err)
+	}
 
-// Change to dir so adapters.List() picks up the local adapter
-orig, err := os.Getwd()
-if err != nil {
-t.Fatalf("getwd: %v", err)
-}
-if err := os.Chdir(dir); err != nil {
-t.Fatalf("chdir: %v", err)
-}
-t.Cleanup(func() { _ = os.Chdir(orig) })
+	// Change to dir so adapters.List() picks up the local adapter
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(orig) })
 
-var buf bytes.Buffer
-if err := runInfo(&buf, "dev", dir, false); err != nil {
-t.Fatalf("runInfo error: %v", err)
-}
-out := buf.String()
-if !strings.Contains(out, "install with:") {
-t.Errorf("expected install hint in output; got:\n%s", out)
-}
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", dir, false); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "install with:") {
+		t.Errorf("expected install hint in output; got:\n%s", out)
+	}
 }
 
 func TestRunInfo_projectLocalAdapterFoundFromSubdir(t *testing.T) {
-repoRoot := t.TempDir()
-adapterDir := filepath.Join(repoRoot, ".agentctl", "adapters")
-if err := os.MkdirAll(adapterDir, 0o755); err != nil {
-t.Fatalf("mkdir: %v", err)
-}
-if err := os.WriteFile(filepath.Join(adapterDir, "local-only-adapter.yml"), []byte("binary: nonexistent-local-only-adapter\n"), 0o644); err != nil {
-t.Fatalf("write adapter: %v", err)
-}
-subdir := filepath.Join(repoRoot, "nested", "dir")
-if err := os.MkdirAll(subdir, 0o755); err != nil {
-t.Fatalf("mkdir subdir: %v", err)
-}
+	repoRoot := t.TempDir()
+	adapterDir := filepath.Join(repoRoot, ".agentctl", "adapters")
+	if err := os.MkdirAll(adapterDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(adapterDir, "local-only-adapter.yml"), []byte("binary: nonexistent-local-only-adapter\n"), 0o644); err != nil {
+		t.Fatalf("write adapter: %v", err)
+	}
+	subdir := filepath.Join(repoRoot, "nested", "dir")
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatalf("mkdir subdir: %v", err)
+	}
 
-orig, err := os.Getwd()
-if err != nil {
-t.Fatalf("getwd: %v", err)
-}
-if err := os.Chdir(subdir); err != nil {
-t.Fatalf("chdir: %v", err)
-}
-t.Cleanup(func() { _ = os.Chdir(orig) })
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(subdir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(orig) })
 
-var buf bytes.Buffer
-if err := runInfo(&buf, "dev", repoRoot, false); err != nil {
-t.Fatalf("runInfo error: %v", err)
-}
-out := buf.String()
-if !strings.Contains(out, "local-only-adapter") {
-t.Errorf("expected project-local adapter to appear from subdir; got:\n%s", out)
-}
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", repoRoot, false); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "local-only-adapter") {
+		t.Errorf("expected project-local adapter to appear from subdir; got:\n%s", out)
+	}
 }
 
 func TestRunInfo_adapterLoadErrorShown(t *testing.T) {
-dir := t.TempDir()
-adapterDir := filepath.Join(dir, ".agentctl", "adapters")
-if err := os.MkdirAll(adapterDir, 0o755); err != nil {
-t.Fatalf("mkdir: %v", err)
-}
-if err := os.WriteFile(filepath.Join(adapterDir, "broken-adapter.yml"), []byte("install: some-install-cmd\n"), 0o644); err != nil {
-t.Fatalf("write adapter: %v", err)
-}
+	dir := t.TempDir()
+	adapterDir := filepath.Join(dir, ".agentctl", "adapters")
+	if err := os.MkdirAll(adapterDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(adapterDir, "broken-adapter.yml"), []byte("install: some-install-cmd\n"), 0o644); err != nil {
+		t.Fatalf("write adapter: %v", err)
+	}
 
-orig, err := os.Getwd()
-if err != nil {
-t.Fatalf("getwd: %v", err)
-}
-if err := os.Chdir(dir); err != nil {
-t.Fatalf("chdir: %v", err)
-}
-t.Cleanup(func() { _ = os.Chdir(orig) })
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(orig) })
 
-var buf bytes.Buffer
-if err := runInfo(&buf, "dev", dir, false); err != nil {
-t.Fatalf("runInfo error: %v", err)
-}
-out := buf.String()
-if !strings.Contains(out, "broken-adapter") || !strings.Contains(out, "(adapter error)") {
-t.Errorf("expected adapter load error status in output; got:\n%s", out)
-}
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", dir, false); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "broken-adapter") || !strings.Contains(out, "(adapter error)") {
+		t.Errorf("expected adapter load error status in output; got:\n%s", out)
+	}
 }
 
 // ─── worktree filtering ───────────────────────────────────────────────────────
 
 func initGitRepoForInfo(t *testing.T) string {
-t.Helper()
-if _, err := exec.LookPath("git"); err != nil {
-t.Skip("git not found in PATH")
-}
-dir := t.TempDir()
-gitRunInfo := func(args ...string) {
-t.Helper()
-cmd := exec.Command("git", args...)
-cmd.Dir = dir
-if out, err := cmd.CombinedOutput(); err != nil {
-t.Fatalf("git %v: %v\n%s", args, err, out)
-}
-}
-gitRunInfo("init")
-gitRunInfo("config", "user.email", "test@example.com")
-gitRunInfo("config", "user.name", "Test")
-gitRunInfo("config", "commit.gpgsign", "false")
-if err := os.WriteFile(filepath.Join(dir, "README"), []byte("test\n"), 0o644); err != nil {
-t.Fatal(err)
-}
-gitRunInfo("add", ".")
-gitRunInfo("commit", "-m", "init")
-return dir
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found in PATH")
+	}
+	dir := t.TempDir()
+	gitRunInfo := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	gitRunInfo("init")
+	gitRunInfo("config", "user.email", "test@example.com")
+	gitRunInfo("config", "user.name", "Test")
+	gitRunInfo("config", "commit.gpgsign", "false")
+	if err := os.WriteFile(filepath.Join(dir, "README"), []byte("test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRunInfo("add", ".")
+	gitRunInfo("commit", "-m", "init")
+	return dir
 }
 
 func TestRunInfo_skipsWorktreesWithoutAgentFile(t *testing.T) {
-repo := initGitRepoForInfo(t)
-wtPath := filepath.Join(t.TempDir(), "42-no-agent")
-cmd := exec.Command("git", "-C", repo, "worktree", "add", wtPath, "-b", "42-no-agent")
-if out, err := cmd.CombinedOutput(); err != nil {
-t.Fatalf("git worktree add: %v\n%s", err, out)
-}
-// No .agent file written — simulates a manually-created worktree.
+	repo := initGitRepoForInfo(t)
+	wtPath := filepath.Join(t.TempDir(), "42-no-agent")
+	cmd := exec.Command("git", "-C", repo, "worktree", "add", wtPath, "-b", "42-no-agent")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add: %v\n%s", err, out)
+	}
+	// No .agent file written — simulates a manually-created worktree.
 
-var buf bytes.Buffer
-if err := runInfo(&buf, "dev", repo, false); err != nil {
-t.Fatalf("runInfo: %v", err)
-}
-out := buf.String()
-if strings.Contains(out, "42-no-agent") {
-t.Errorf("worktree without .agent file should be skipped in info output; got:\n%s", out)
-}
-if !strings.Contains(out, "Active Worktrees: 0") {
-t.Errorf("expected 'Active Worktrees: 0' when all worktrees lack .agent; got:\n%s", out)
-}
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", repo, false); err != nil {
+		t.Fatalf("runInfo: %v", err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "42-no-agent") {
+		t.Errorf("worktree without .agent file should be skipped in info output; got:\n%s", out)
+	}
+	if !strings.Contains(out, "Active Worktrees: 0") {
+		t.Errorf("expected 'Active Worktrees: 0' when all worktrees lack .agent; got:\n%s", out)
+	}
 }
 
 func TestRunInfo_showsWorktreesWithAgentFile(t *testing.T) {
-repo := initGitRepoForInfo(t)
-wtPath := filepath.Join(t.TempDir(), "99-with-agent")
-cmd := exec.Command("git", "-C", repo, "worktree", "add", wtPath, "-b", "99-with-agent")
-if out, err := cmd.CombinedOutput(); err != nil {
-t.Fatalf("git worktree add: %v\n%s", err, out)
-}
-if err := state.Write(wtPath, state.AgentFile{Agent: "claude"}); err != nil {
-t.Fatal(err)
-}
+	repo := initGitRepoForInfo(t)
+	wtPath := filepath.Join(t.TempDir(), "99-with-agent")
+	cmd := exec.Command("git", "-C", repo, "worktree", "add", wtPath, "-b", "99-with-agent")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add: %v\n%s", err, out)
+	}
+	if err := state.Write(wtPath, state.AgentFile{Agent: "claude"}); err != nil {
+		t.Fatal(err)
+	}
 
-var buf bytes.Buffer
-if err := runInfo(&buf, "dev", repo, false); err != nil {
-t.Fatalf("runInfo: %v", err)
-}
-out := buf.String()
-if !strings.Contains(out, "99-with-agent") {
-t.Errorf("worktree with .agent file should appear in info output; got:\n%s", out)
-}
-if !strings.Contains(out, "Active Worktrees: 1") {
-t.Errorf("expected 'Active Worktrees: 1'; got:\n%s", out)
-}
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", repo, false); err != nil {
+		t.Fatalf("runInfo: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "99-with-agent") {
+		t.Errorf("worktree with .agent file should appear in info output; got:\n%s", out)
+	}
+	if !strings.Contains(out, "Active Worktrees: 1") {
+		t.Errorf("expected 'Active Worktrees: 1'; got:\n%s", out)
+	}
 }
 
 func TestRunInfo_mixedWorktrees_onlyManagedShown(t *testing.T) {
-repo := initGitRepoForInfo(t)
+	repo := initGitRepoForInfo(t)
 
-// Manual worktree without .agent file
-manualPath := filepath.Join(t.TempDir(), "manual-review")
-cmd := exec.Command("git", "-C", repo, "worktree", "add", manualPath, "-b", "manual-review")
-if out, err := cmd.CombinedOutput(); err != nil {
-t.Fatalf("git worktree add (manual): %v\n%s", err, out)
-}
+	// Manual worktree without .agent file
+	manualPath := filepath.Join(t.TempDir(), "manual-review")
+	cmd := exec.Command("git", "-C", repo, "worktree", "add", manualPath, "-b", "manual-review")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add (manual): %v\n%s", err, out)
+	}
 
-// Agentctl-managed worktree with .agent file
-managedPath := filepath.Join(t.TempDir(), "55-my-feature")
-cmd = exec.Command("git", "-C", repo, "worktree", "add", managedPath, "-b", "55-my-feature")
-if out, err := cmd.CombinedOutput(); err != nil {
-t.Fatalf("git worktree add (managed): %v\n%s", err, out)
-}
-if err := state.Write(managedPath, state.AgentFile{Agent: "claude"}); err != nil {
-t.Fatal(err)
-}
+	// Agentctl-managed worktree with .agent file
+	managedPath := filepath.Join(t.TempDir(), "55-my-feature")
+	cmd = exec.Command("git", "-C", repo, "worktree", "add", managedPath, "-b", "55-my-feature")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add (managed): %v\n%s", err, out)
+	}
+	if err := state.Write(managedPath, state.AgentFile{Agent: "claude"}); err != nil {
+		t.Fatal(err)
+	}
 
-var buf bytes.Buffer
-if err := runInfo(&buf, "dev", repo, false); err != nil {
-t.Fatalf("runInfo: %v", err)
-}
-out := buf.String()
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", repo, false); err != nil {
+		t.Fatalf("runInfo: %v", err)
+	}
+	out := buf.String()
 
-if strings.Contains(out, "manual-review") {
-t.Errorf("manual worktree (no .agent) should be skipped; got:\n%s", out)
-}
-if !strings.Contains(out, "55-my-feature") {
-t.Errorf("managed worktree should appear; got:\n%s", out)
-}
-if !strings.Contains(out, "Active Worktrees: 1") {
-t.Errorf("expected 'Active Worktrees: 1' (only managed ones counted); got:\n%s", out)
-}
+	if strings.Contains(out, "manual-review") {
+		t.Errorf("manual worktree (no .agent) should be skipped; got:\n%s", out)
+	}
+	if !strings.Contains(out, "55-my-feature") {
+		t.Errorf("managed worktree should appear; got:\n%s", out)
+	}
+	if !strings.Contains(out, "Active Worktrees: 1") {
+		t.Errorf("expected 'Active Worktrees: 1' (only managed ones counted); got:\n%s", out)
+	}
 }
 
 func TestSystemOS_majorMinorExtracted(t *testing.T) {
-stubToolRunner(t, func(name string, args ...string) (string, error) {
-if name == "uname" {
-return "6.6.51-rt50", nil
-}
-return "", errors.New("not found")
-})
-got := systemOS()
-if !strings.Contains(got, "6.6") {
-t.Errorf("systemOS() = %q, want major.minor 6.6", got)
-}
-if strings.Contains(got, "51") {
-t.Errorf("systemOS() = %q, should not include patch/suffix 51", got)
-}
+	stubToolRunner(t, func(name string, args ...string) (string, error) {
+		if name == "uname" {
+			return "6.6.51-rt50", nil
+		}
+		return "", errors.New("not found")
+	})
+	got := systemOS()
+	if !strings.Contains(got, "6.6") {
+		t.Errorf("systemOS() = %q, want major.minor 6.6", got)
+	}
+	if strings.Contains(got, "51") {
+		t.Errorf("systemOS() = %q, should not include patch/suffix 51", got)
+	}
 }
 
 func TestSystemOS_noDot(t *testing.T) {
-stubToolRunner(t, func(name string, args ...string) (string, error) {
-if name == "uname" {
-return "5", nil
-}
-return "", errors.New("not found")
-})
-got := systemOS()
-// No dot: should fall back to raw uname output appended to GOOS
-if !strings.Contains(got, "5") {
-t.Errorf("systemOS() = %q, want raw kernel string '5'", got)
-}
+	stubToolRunner(t, func(name string, args ...string) (string, error) {
+		if name == "uname" {
+			return "5", nil
+		}
+		return "", errors.New("not found")
+	})
+	got := systemOS()
+	// No dot: should fall back to raw uname output appended to GOOS
+	if !strings.Contains(got, "5") {
+		t.Errorf("systemOS() = %q, want raw kernel string '5'", got)
+	}
 }
 
 func TestSystemOS_unameFails(t *testing.T) {
-stubToolRunner(t, func(name string, args ...string) (string, error) {
-return "", errors.New("uname not available")
-})
-got := systemOS()
-// Should fall back to GOOS alone (no spaces/extra tokens)
-if strings.Contains(got, " ") {
-t.Errorf("systemOS() = %q, expected GOOS-only (no space) when uname fails", got)
+	stubToolRunner(t, func(name string, args ...string) (string, error) {
+		return "", errors.New("uname not available")
+	})
+	got := systemOS()
+	// Should fall back to GOOS alone (no spaces/extra tokens)
+	if strings.Contains(got, " ") {
+		t.Errorf("systemOS() = %q, expected GOOS-only (no space) when uname fails", got)
+	}
 }
+
+// ─── Global config section ────────────────────────────────────────────────────
+
+func TestRunInfo_globalConfigNoneWhenAbsent(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", "", false); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Global config: none") {
+		t.Errorf("expected 'Global config: none' when file absent; got:\n%s", out)
+	}
+}
+
+func TestRunInfo_globalConfigShownWhenPresent(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	globalDir := filepath.Join(tmp, "agentctl")
+	if err := os.MkdirAll(globalDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(globalDir, "config.yml"), []byte("default_agent: codex\nnotify: true\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", "", false); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Global config:") {
+		t.Errorf("expected 'Global config:' header; got:\n%s", out)
+	}
+	if !strings.Contains(out, "default_agent: codex") {
+		t.Errorf("expected 'default_agent: codex' in global config section; got:\n%s", out)
+	}
+	if !strings.Contains(out, "notify: true") {
+		t.Errorf("expected 'notify: true' in global config section; got:\n%s", out)
+	}
+}
+
+func TestRunInfo_globalConfigAboveProjectLocal(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+
+	dir := t.TempDir()
+	cfg := &config.AgentctlConfig{Editor: "cursor"}
+	if err := config.Write(dir, cfg); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", dir, false); err != nil {
+		t.Fatalf("runInfo error: %v", err)
+	}
+	out := buf.String()
+	// Both sections must appear; Global config must come before Configuration.
+	globalIdx := strings.Index(out, "Global config:")
+	configIdx := strings.Index(out, "Configuration:")
+	if globalIdx < 0 {
+		t.Errorf("expected 'Global config:' in output; got:\n%s", out)
+	}
+	if configIdx < 0 {
+		t.Errorf("expected 'Configuration:' in output; got:\n%s", out)
+	}
+	if globalIdx > configIdx {
+		t.Errorf("Global config section should appear before Configuration section; got:\n%s", out)
+	}
 }
