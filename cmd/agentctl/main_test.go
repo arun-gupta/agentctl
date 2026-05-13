@@ -37,7 +37,7 @@ func TestRootCmdRegistration(t *testing.T) {
 		hidden[c.Name()] = c.Hidden
 	}
 
-	// Both two-level parent commands must be present.
+	// Two-level parent commands must be present.
 	for _, name := range []string{"agent", "worktree"} {
 		if !found[name] {
 			t.Errorf("expected top-level command %q to be registered", name)
