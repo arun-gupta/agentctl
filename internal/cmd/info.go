@@ -82,9 +82,9 @@ func runInfo(out io.Writer, version, repoRoot string) error {
 		}
 		if binErr := adapter.CheckBinary(); binErr != nil {
 			if adapter.Install != "" {
-				fmt.Fprintf(out, "  ✗ %-12s (not installed) — install with: %s\n", name, adapter.Install)
+				fmt.Fprintf(out, "  ✗ %-12s (not installed)%s — install with: %s\n", name, defaultLabel, adapter.Install)
 			} else {
-				fmt.Fprintf(out, "  ✗ %-12s (not installed)\n", name)
+				fmt.Fprintf(out, "  ✗ %-12s (not installed)%s\n", name, defaultLabel)
 			}
 		} else {
 			fmt.Fprintf(out, "  ✓ %-12s%s\n", name, defaultLabel)
