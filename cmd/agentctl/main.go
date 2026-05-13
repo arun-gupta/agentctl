@@ -8,13 +8,14 @@
 //	agentctl discard    [issue]
 //	agentctl cleanup    [issue | --all]
 //	agentctl merge      [--strategy squash|merge|rebase] [--no-delete] [--dry-run] [issue]
-//	agentctl status     [--verbose]
+//	agentctl status     [--verbose] [--json]
 //	agentctl logs       [--lines N] [--no-follow] <issue>
 //	agentctl attach     <issue>
 //	agentctl diff       [--stat] [--base branch] [--no-pager] <issue>
 //	agentctl open       [--editor name] [--path] [--agent name] <issue>
 //	agentctl dev start  [--quiet] [issue]
 //	agentctl info
+//	agentctl report     [--json]
 package main
 
 import (
@@ -57,6 +58,7 @@ func newRootCmd() *cobra.Command {
 		cmd.NewDiffCmd(),
 		cmd.NewOpenCmd(),
 		cmd.NewDevCmd(),
+		cmd.NewReportCmd(),
 		cmd.NewStreamLogCmd(),
 		cmd.NewStreamLogOpenHandsCmd(),
 		cmd.NewInfoCmd(version),

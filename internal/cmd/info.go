@@ -147,6 +147,9 @@ func printConfigFields(out io.Writer, cfg *config.AgentctlConfig) {
 	if cfg.TestCmd != "" {
 		fmt.Fprintf(out, "  test_cmd: %s\n", cfg.TestCmd)
 	}
+	if cfg.BuildCmd != "" {
+		fmt.Fprintf(out, "  build_cmd: %s\n", cfg.BuildCmd)
+	}
 	if cfg.Notify {
 		fmt.Fprintln(out, "  notify: true")
 	}

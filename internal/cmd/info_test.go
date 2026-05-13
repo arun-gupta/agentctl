@@ -146,6 +146,7 @@ func TestPrintConfigFields_allFields(t *testing.T) {
 		DevServer:     "npm run dev",
 		MergeStrategy: "squash",
 		TestCmd:       "go test ./...",
+		BuildCmd:      "go build ./...",
 		Notify:        true,
 		VCS:           config.VCSConfig{Provider: "gitlab", Server: "https://gl.example.com"},
 	}
@@ -160,6 +161,7 @@ func TestPrintConfigFields_allFields(t *testing.T) {
 		"dev_server: npm run dev",
 		"merge_strategy: squash",
 		"test_cmd: go test ./...",
+		"build_cmd: go build ./...",
 		"notify: true",
 		"vcs.provider: gitlab",
 		"vcs.server: https://gl.example.com",
