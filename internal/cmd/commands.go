@@ -1574,13 +1574,20 @@ func runStatus(verbose bool) error {
 	if err != nil {
 		return fmt.Errorf("cannot determine repo root: %w", err)
 	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	return runStatusTable(repoRoot, verbose, w)
+}
 
+// runStatusTable writes the status table for all agentctl-managed worktrees in
+// repoRoot to out. Worktrees with no .agent file (e.g. created manually with
+// git worktree add) are silently skipped.
+func runStatusTable(repoRoot string, verbose bool, out io.Writer) error {
 	wts, err := git.LinkedWorktrees(repoRoot)
 	if err != nil {
 		return err
 	}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	if verbose {
 		fmt.Fprintln(w, "ISSUE\tBRANCH\tAGENT\tPATH\tPORT\tDEV-PID\tAGENT-PID\tSPEC\tPR\tSESSION")
 	} else {
@@ -1588,6 +1595,11 @@ func runStatus(verbose bool) error {
 	}
 
 	for _, wt := range wts {
+		af, _ := state.Read(wt.Path)
+		if af.Agent == "" {
+			continue // skip worktrees not managed by agentctl
+		}
+
 		issue := wt.Issue
 		if issue == "" {
 			issue = "-"
@@ -1596,8 +1608,6 @@ func runStatus(verbose bool) error {
 		if branch == "" {
 			branch = "?"
 		}
-
-		af, _ := state.Read(wt.Path)
 
 		agentName := dash(af.Agent)
 
