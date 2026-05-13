@@ -9,12 +9,12 @@
 //	agentctl cleanup    [issue | --all]
 //	agentctl merge      [--strategy squash|merge|rebase] [--no-delete] [--dry-run] [issue]
 //	agentctl status     [--verbose] [--json]
+//	agentctl info
 //	agentctl logs       [--lines N] [--no-follow] <issue>
 //	agentctl attach     <issue>
 //	agentctl diff       [--stat] [--base branch] [--no-pager] <issue>
 //	agentctl open       [--editor name] [--path] [--agent name] <issue>
 //	agentctl dev start  [--quiet] [issue]
-//	agentctl info
 //	agentctl report     [--json]
 package main
 
@@ -53,6 +53,7 @@ func newRootCmd() *cobra.Command {
 		cmd.NewCleanupCmd(),
 		cmd.NewMergeCmd(),
 		cmd.NewStatusCmd(),
+		cmd.NewInfoCmd(version),
 		cmd.NewLogsCmd(),
 		cmd.NewAttachCmd(),
 		cmd.NewDiffCmd(),
@@ -61,8 +62,9 @@ func newRootCmd() *cobra.Command {
 		cmd.NewReportCmd(),
 		cmd.NewStreamLogCmd(),
 		cmd.NewStreamLogOpenHandsCmd(),
-		cmd.NewInfoCmd(version),
+		cmd.NewFinaliseDiagnosticsCmd(),
 		cmd.NewBuildCmd(),
+		cmd.NewInfoCmd(version),
 	)
 
 	// Pre-register --version without a short alias so that cobra's lazy

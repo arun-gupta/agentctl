@@ -116,6 +116,26 @@ func TestListEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List on empty dir: %v", err)
 	}
+	if records == nil {
+		t.Error("List returned nil, want non-nil empty slice")
+	}
+	if len(records) != 0 {
+		t.Errorf("expected 0 records, got %d", len(records))
+	}
+}
+
+func TestListEmptyRunsDir(t *testing.T) {
+	repoRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoRoot, ".agentctl", "runs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	records, err := diagnostics.List(repoRoot)
+	if err != nil {
+		t.Fatalf("List on empty runs dir: %v", err)
+	}
+	if records == nil {
+		t.Error("List returned nil, want non-nil empty slice")
+	}
 	if len(records) != 0 {
 		t.Errorf("expected 0 records, got %d", len(records))
 	}

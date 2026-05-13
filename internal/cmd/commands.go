@@ -1208,12 +1208,12 @@ func runMerge(issue, strategy, agentSuffix string, noDelete, dryRun bool) error 
 
 // NewCleanupMergedCmd creates the `cleanup-merged` subcommand.
 // NewCleanupCmd creates the `cleanup` subcommand.
-// With --all it sweeps all merged worktrees; otherwise it cleans up a single issue.
+// With --all it sweeps all merged worktrees; otherwise it cleans up one or more issues.
 func NewCleanupCmd() *cobra.Command {
 	var all bool
 	var agentSuffix string
 	c := &cobra.Command{
-		Use:   "cleanup [issue]",
+		Use:   "cleanup [issue[,issue...]]...",
 		Short: "Remove a merged worktree and its branches",
 		Long: `Post-merge cleanup: pull main, remove the worktree, and delete the local
 and remote branches.
@@ -1221,25 +1221,67 @@ and remote branches.
 Run without arguments inside a linked worktree to infer the issue number
 from the current branch.
 
+Multiple issues may be given as a comma-separated list or as separate
+arguments (e.g. "agentctl cleanup 240,277" or "agentctl cleanup 240 277").
+Each issue is cleaned up in sequence; all failures are reported at the end.
+
 Use --all to sweep every linked worktree whose PR is MERGED in one pass.`,
-		Args: cobra.RangeArgs(0, 1),
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if all {
 				if len(args) > 0 {
-					return fmt.Errorf("--all and an issue number are mutually exclusive")
+					return fmt.Errorf("--all and issue arguments are mutually exclusive")
 				}
 				return runCleanupAllMerged()
 			}
-			issue, err := resolveIssueArg("cleanup", args)
-			if err != nil {
-				return err
+			if len(args) == 0 {
+				// No args: infer from current worktree branch.
+				issue, err := resolveIssueArg("cleanup", args)
+				if err != nil {
+					return err
+				}
+				return runCleanupMerged(issue, agentSuffix)
 			}
-			return runCleanupMerged(issue, agentSuffix)
+			issues := parseCleanupIssues(args)
+			if len(issues) == 0 {
+				return fmt.Errorf("no valid issue tokens found in %q", strings.Join(args, " "))
+			}
+			if len(issues) == 1 {
+				return runCleanupMerged(issues[0], agentSuffix)
+			}
+			var errs []string
+			for _, iss := range issues {
+				if err := runCleanupMerged(iss, agentSuffix); err != nil {
+					fmt.Fprintf(os.Stderr, "cleanup %s: %v\n", iss, err)
+					errs = append(errs, iss)
+				}
+			}
+			if len(errs) > 0 {
+				return fmt.Errorf("%d cleanup(s) failed: %s", len(errs), strings.Join(errs, ", "))
+			}
+			return nil
 		},
 	}
 	c.Flags().BoolVar(&all, "all", false, "Clean up all worktrees whose PR is MERGED")
 	c.Flags().StringVar(&agentSuffix, "agent", "", "Agent name to target a specific worktree when multiple agents ran on the same issue")
 	return c
+}
+
+// parseCleanupIssues expands a mix of space-separated args and comma-separated
+// tokens into a flat, trimmed list of issue identifiers.
+func parseCleanupIssues(args []string) []string {
+	var issues []string
+	for _, arg := range args {
+		for _, tok := range strings.Split(arg, ",") {
+			if s := strings.TrimSpace(tok); s != "" {
+				if _, _, num, ok := parseIssueURL(s); ok {
+					s = num
+				}
+				issues = append(issues, s)
+			}
+		}
+	}
+	return issues
 }
 
 func runCleanupMerged(issue, agentSuffix string) error {
@@ -1574,13 +1616,20 @@ func runStatus(verbose bool) error {
 	if err != nil {
 		return fmt.Errorf("cannot determine repo root: %w", err)
 	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	return runStatusTable(repoRoot, verbose, w)
+}
 
+// runStatusTable writes the status table for all agentctl-managed worktrees in
+// repoRoot to out. Worktrees with no .agent file (e.g. created manually with
+// git worktree add) are silently skipped.
+func runStatusTable(repoRoot string, verbose bool, out io.Writer) error {
 	wts, err := git.LinkedWorktrees(repoRoot)
 	if err != nil {
 		return err
 	}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	if verbose {
 		fmt.Fprintln(w, "ISSUE\tBRANCH\tAGENT\tPATH\tPORT\tDEV-PID\tAGENT-PID\tSPEC\tPR\tSESSION")
 	} else {
@@ -1588,6 +1637,11 @@ func runStatus(verbose bool) error {
 	}
 
 	for _, wt := range wts {
+		af, _ := state.Read(wt.Path)
+		if af.Agent == "" {
+			continue // skip worktrees not managed by agentctl
+		}
+
 		issue := wt.Issue
 		if issue == "" {
 			issue = "-"
@@ -1596,8 +1650,6 @@ func runStatus(verbose bool) error {
 		if branch == "" {
 			branch = "?"
 		}
-
-		af, _ := state.Read(wt.Path)
 
 		agentName := dash(af.Agent)
 
@@ -3170,6 +3222,9 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 				sendCompletionNotification(issue, wtPath, sddName, agentExitErr)
 			}()
 		}
+		if err := startDetachedDiagnosticsFinaliser(wtPath, pid); err != nil {
+			return err
+		}
 		return nil
 	}
 
@@ -3382,6 +3437,68 @@ func NewStreamLogCmd() *cobra.Command {
 		Args:   cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			return runStreamLog(args[0])
+		},
+	}
+}
+
+func startDetachedDiagnosticsFinaliser(wtPath string, pid int) error {
+	cmd := exec.Command(os.Args[0], "__finalise-diagnostics", wtPath, strconv.Itoa(pid))
+	cmd.Dir = wtPath
+	detachProcess(cmd)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start diagnostics finaliser: %w", err)
+	}
+	return cmd.Process.Release()
+}
+
+// runFinaliseDiagnostics waits for pid to exit, then finalises diagnostics for
+// the worktree.
+func runFinaliseDiagnostics(wtPath, pid string) error {
+	const (
+		processCheckInterval = 200 * time.Millisecond
+		logFlushWait         = 200 * time.Millisecond
+	)
+	for process.IsAlive(pid) {
+		time.Sleep(processCheckInterval)
+	}
+	// Give detached log converters a moment to flush final output.
+	time.Sleep(logFlushWait)
+
+	af, _ := state.Read(wtPath)
+	repoRoot := repoRootFromWorktree(wtPath)
+	if repoRoot == "" {
+		return nil
+	}
+
+	exitReason := "failed"
+	prURL := af.PRURL
+	if prURL == "" {
+		branch, _ := git.CurrentBranch(wtPath)
+		if branch != "" {
+			if p, pErr := resolveProvider(repoRoot); pErr == nil {
+				if _, _, foundURL, pErr := p.PRForBranch(repoRoot, branch); pErr == nil && foundURL != "" {
+					prURL = foundURL
+				}
+			}
+		}
+	}
+	if prURL != "" {
+		exitReason = "pr_opened"
+	}
+	af.PRURL = prURL
+	finaliseDiagnostics(repoRoot, wtPath, af, exitReason)
+	return nil
+}
+
+// NewFinaliseDiagnosticsCmd returns a hidden command used by headless start and
+// resume paths to finalise diagnostics after the parent process exits.
+func NewFinaliseDiagnosticsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "__finalise-diagnostics <wtDir> <pid>",
+		Hidden: true,
+		Args:   cobra.ExactArgs(2),
+		RunE: func(_ *cobra.Command, args []string) error {
+			return runFinaliseDiagnostics(args[0], args[1])
 		},
 	}
 }
@@ -4210,6 +4327,9 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 				<-exitCh
 				sendCompletionNotification(issue, wtPath, "", resumeExitErr)
 			}()
+		}
+		if err := startDetachedDiagnosticsFinaliser(wtPath, pid); err != nil {
+			return err
 		}
 		return nil
 	}
