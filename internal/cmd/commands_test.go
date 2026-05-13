@@ -5718,7 +5718,7 @@ func TestCleanupCmd_rejectsAllWithIssues(t *testing.T) {
 	if err == nil {
 		t.Error("expected error when --all is combined with issue args")
 	}
-	if !strings.Contains(err.Error(), "mutually exclusive") {
+	if !strings.Contains(err.Error(), "--all and issue arguments are mutually exclusive") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -5734,6 +5734,14 @@ func TestParseCleanupIssues(t *testing.T) {
 		{[]string{"240,277", "300"}, []string{"240", "277", "300"}},
 		{[]string{"42"}, []string{"42"}},
 		{[]string{" 42 , 43 "}, []string{"42", "43"}},
+		{
+			[]string{"https://github.com/org/repo/issues/42"},
+			[]string{"42"},
+		},
+		{
+			[]string{"240, https://github.com/org/repo/issues/42", "https://github.com/org/repo/issues/43,277"},
+			[]string{"240", "42", "43", "277"},
+		},
 	}
 	for _, tt := range tests {
 		got := parseCleanupIssues(tt.args)

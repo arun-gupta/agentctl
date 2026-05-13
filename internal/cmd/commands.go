@@ -1230,7 +1230,7 @@ Use --all to sweep every linked worktree whose PR is MERGED in one pass.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if all {
 				if len(args) > 0 {
-					return fmt.Errorf("--all and an issue number are mutually exclusive")
+					return fmt.Errorf("--all and issue arguments are mutually exclusive")
 				}
 				return runCleanupAllMerged()
 			}
@@ -1274,6 +1274,9 @@ func parseCleanupIssues(args []string) []string {
 	for _, arg := range args {
 		for _, tok := range strings.Split(arg, ",") {
 			if s := strings.TrimSpace(tok); s != "" {
+				if _, _, num, ok := parseIssueURL(s); ok {
+					s = num
+				}
 				issues = append(issues, s)
 			}
 		}
