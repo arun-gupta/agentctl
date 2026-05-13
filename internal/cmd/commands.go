@@ -1208,12 +1208,12 @@ func runMerge(issue, strategy, agentSuffix string, noDelete, dryRun bool) error 
 
 // NewCleanupMergedCmd creates the `cleanup-merged` subcommand.
 // NewCleanupCmd creates the `cleanup` subcommand.
-// With --all it sweeps all merged worktrees; otherwise it cleans up a single issue.
+// With --all it sweeps all merged worktrees; otherwise it cleans up one or more issues.
 func NewCleanupCmd() *cobra.Command {
 	var all bool
 	var agentSuffix string
 	c := &cobra.Command{
-		Use:   "cleanup [issue]",
+		Use:   "cleanup [issue[,issue...]]...",
 		Short: "Remove a merged worktree and its branches",
 		Long: `Post-merge cleanup: pull main, remove the worktree, and delete the local
 and remote branches.
@@ -1221,8 +1221,12 @@ and remote branches.
 Run without arguments inside a linked worktree to infer the issue number
 from the current branch.
 
+Multiple issues may be given as a comma-separated list or as separate
+arguments (e.g. "agentctl cleanup 240,277" or "agentctl cleanup 240 277").
+Each issue is cleaned up in sequence; all failures are reported at the end.
+
 Use --all to sweep every linked worktree whose PR is MERGED in one pass.`,
-		Args: cobra.RangeArgs(0, 1),
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if all {
 				if len(args) > 0 {
@@ -1230,16 +1234,51 @@ Use --all to sweep every linked worktree whose PR is MERGED in one pass.`,
 				}
 				return runCleanupAllMerged()
 			}
-			issue, err := resolveIssueArg("cleanup", args)
-			if err != nil {
-				return err
+			if len(args) == 0 {
+				// No args: infer from current worktree branch.
+				issue, err := resolveIssueArg("cleanup", args)
+				if err != nil {
+					return err
+				}
+				return runCleanupMerged(issue, agentSuffix)
 			}
-			return runCleanupMerged(issue, agentSuffix)
+			issues := parseCleanupIssues(args)
+			if len(issues) == 0 {
+				return fmt.Errorf("no valid issue tokens found in %q", strings.Join(args, " "))
+			}
+			if len(issues) == 1 {
+				return runCleanupMerged(issues[0], agentSuffix)
+			}
+			var errs []string
+			for _, iss := range issues {
+				if err := runCleanupMerged(iss, agentSuffix); err != nil {
+					fmt.Fprintf(os.Stderr, "cleanup %s: %v\n", iss, err)
+					errs = append(errs, iss)
+				}
+			}
+			if len(errs) > 0 {
+				return fmt.Errorf("%d cleanup(s) failed: %s", len(errs), strings.Join(errs, ", "))
+			}
+			return nil
 		},
 	}
 	c.Flags().BoolVar(&all, "all", false, "Clean up all worktrees whose PR is MERGED")
 	c.Flags().StringVar(&agentSuffix, "agent", "", "Agent name to target a specific worktree when multiple agents ran on the same issue")
 	return c
+}
+
+// parseCleanupIssues expands a mix of space-separated args and comma-separated
+// tokens into a flat, trimmed list of issue identifiers.
+func parseCleanupIssues(args []string) []string {
+	var issues []string
+	for _, arg := range args {
+		for _, tok := range strings.Split(arg, ",") {
+			if s := strings.TrimSpace(tok); s != "" {
+				issues = append(issues, s)
+			}
+		}
+	}
+	return issues
 }
 
 func runCleanupMerged(issue, agentSuffix string) error {
