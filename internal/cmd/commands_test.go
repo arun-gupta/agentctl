@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arun-gupta/agentctl/internal/diagnostics"
 	"github.com/arun-gupta/agentctl/internal/git"
 	"github.com/arun-gupta/agentctl/internal/notify"
 	"github.com/arun-gupta/agentctl/internal/process"
@@ -23,16 +24,64 @@ import (
 	"github.com/arun-gupta/agentctl/internal/vcs"
 )
 
-// TestMain handles the hidden __stream-log subprocess that launchAgent/agentResume
-// spawn in headless claude mode. Without this, the subprocess would restart the
-// test suite instead of running the converter.
+// TestMain handles hidden subprocess commands that launchAgent/agentResume spawn
+// in headless mode. Without this, the subprocess would restart the test suite.
 func TestMain(m *testing.M) {
+	const (
+		helperIssue      = "42"
+		helperPort       = "3010"
+		helperSessionID  = "sess-abc"
+		helperResumeSess = "sess-123"
+	)
 	if len(os.Args) > 1 && os.Args[1] == "__stream-log" {
 		if len(os.Args) < 3 {
 			fmt.Fprintln(os.Stderr, "usage: __stream-log <wtDir>")
 			os.Exit(1)
 		}
 		if err := runStreamLog(os.Args[2]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+	if len(os.Args) > 1 && os.Args[1] == "__finalise-diagnostics" {
+		if len(os.Args) < 4 {
+			fmt.Fprintln(os.Stderr, "usage: __finalise-diagnostics <wtDir> <pid>")
+			os.Exit(1)
+		}
+		if err := runFinaliseDiagnostics(os.Args[2], os.Args[3]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+	if len(os.Args) > 1 && os.Args[1] == "__test-launch-headless" {
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: __test-launch-headless <wtDir>")
+			os.Exit(1)
+		}
+		wtPath := os.Args[2]
+		if err := os.Chdir(wtPath); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if err := launchAgent("sleepagent", wtPath, helperIssue, helperPort, helperSessionID, "do the thing", "", true, false, false, io.Discard); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+	if len(os.Args) > 1 && os.Args[1] == "__test-resume-headless" {
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: __test-resume-headless <wtDir>")
+			os.Exit(1)
+		}
+		wtPath := os.Args[2]
+		if err := os.Chdir(wtPath); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if err := agentResume("sleepagent", wtPath, helperIssue, helperResumeSess, "my feedback", true, false, false); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -1313,6 +1362,119 @@ func TestLaunchAgent_headless_notify(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for desktop notification")
+	}
+}
+
+// TestLaunchAgent_headless_finalisesDiagnostics verifies diagnostics are
+// finalised even when launchAgent is called from a short-lived parent process.
+func TestLaunchAgent_headless_finalisesDiagnostics(t *testing.T) {
+	const helperMustReturnBefore = 900 * time.Millisecond
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found in PATH")
+	}
+	repo := initGitRepoForStale(t)
+	wtPath := filepath.Join(t.TempDir(), "42-my-feature")
+	addWorktree(t, repo, wtPath, "42-my-feature")
+	writeLocalAdapter(t, wtPath, "sleepagent", "binary: sleep\nlaunch: sleep 1\nresume_cmd: sleep 1\n")
+
+	dr := &diagnostics.RunRecord{
+		Issue:      "42",
+		Branch:     "42-my-feature",
+		Agent:      "sleepagent",
+		StartedAt:  time.Now(),
+		ExitReason: "in_progress",
+	}
+	runFile, err := diagnostics.Write(repo, dr)
+	if err != nil {
+		t.Fatalf("diagnostics.Write: %v", err)
+	}
+	if err := state.AppendKey(wtPath, "run-file", runFile); err != nil {
+		t.Fatalf("state.AppendKey run-file: %v", err)
+	}
+
+	started := time.Now()
+	cmd := exec.Command(os.Args[0], "__test-launch-headless", wtPath)
+	cmd.Env = os.Environ()
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("launch helper failed: %v\n%s", err, out)
+	}
+	if elapsed := time.Since(started); elapsed >= helperMustReturnBefore {
+		t.Fatalf("launch helper should return before agent exits; elapsed=%v", elapsed)
+	}
+
+	// Poll until detached finalisation updates the run record.
+	var rec diagnostics.RunRecord
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		r, readErr := diagnostics.Read(repo, runFile)
+		if readErr == nil && r.ExitReason != "in_progress" {
+			rec = r
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if rec.ExitReason == "" || rec.ExitReason == "in_progress" {
+		t.Errorf("run record ExitReason = %q after headless agent exit; want terminal status (failed or pr_opened)", rec.ExitReason)
+	}
+	if rec.StoppedAt == nil {
+		t.Error("run record StoppedAt should be set after headless agent exit")
+	}
+}
+
+// TestAgentResume_headless_finalisesDiagnostics verifies diagnostics are
+// finalised even when resume is called from a short-lived parent process.
+func TestAgentResume_headless_finalisesDiagnostics(t *testing.T) {
+	const helperMustReturnBefore = 900 * time.Millisecond
+	t.Setenv("GITHUB_TOKEN", "test-token")
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found in PATH")
+	}
+	repo := initGitRepoForStale(t)
+	wtPath := filepath.Join(t.TempDir(), "42-my-feature")
+	addWorktree(t, repo, wtPath, "42-my-feature")
+	writeLocalAdapter(t, wtPath, "sleepagent", "binary: sleep\nlaunch: sleep 1\nresume_cmd: sleep 1\n")
+
+	dr := &diagnostics.RunRecord{
+		Issue:      "42",
+		Branch:     "42-my-feature",
+		Agent:      "sleepagent",
+		StartedAt:  time.Now(),
+		ExitReason: "in_progress",
+	}
+	runFile, err := diagnostics.Write(repo, dr)
+	if err != nil {
+		t.Fatalf("diagnostics.Write: %v", err)
+	}
+	if err := state.AppendKey(wtPath, "run-file", runFile); err != nil {
+		t.Fatalf("state.AppendKey run-file: %v", err)
+	}
+
+	started := time.Now()
+	cmd := exec.Command(os.Args[0], "__test-resume-headless", wtPath)
+	cmd.Env = os.Environ()
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("resume helper failed: %v\n%s", err, out)
+	}
+	if elapsed := time.Since(started); elapsed >= helperMustReturnBefore {
+		t.Fatalf("resume helper should return before agent exits; elapsed=%v", elapsed)
+	}
+
+	// Poll until detached finalisation updates the run record.
+	var rec diagnostics.RunRecord
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		r, readErr := diagnostics.Read(repo, runFile)
+		if readErr == nil && r.ExitReason != "in_progress" {
+			rec = r
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if rec.ExitReason == "" || rec.ExitReason == "in_progress" {
+		t.Errorf("run record ExitReason = %q after headless resume exit; want terminal status", rec.ExitReason)
+	}
+	if rec.StoppedAt == nil {
+		t.Error("run record StoppedAt should be set after headless resume exit")
 	}
 }
 
