@@ -221,6 +221,9 @@ func runSetup(in io.Reader, out io.Writer) error {
 			}
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("reading setup input: %w", err)
+	}
 	fmt.Fprintln(out)
 
 	// Write updated config, preserving fields not touched by setup.
