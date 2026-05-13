@@ -92,14 +92,39 @@ func runSetup(in io.Reader, out io.Writer) error {
 
 	// Step 2: show coding agents.
 	allAdapters := adapters.List()
-	fmt.Fprintln(out, "Coding Agents (choose one):")
 
+	hasCurrentDefault := false
+	hasClaude := false
 	defaultAgentIdx := 0
 	for i, name := range allAdapters {
 		if name == currentDefault {
+			hasCurrentDefault = true
 			defaultAgentIdx = i
 		}
+		if name == "claude" {
+			hasClaude = true
+		}
 	}
+	if !hasCurrentDefault {
+		switch {
+		case hasClaude:
+			currentDefault = "claude"
+			for i, name := range allAdapters {
+				if name == currentDefault {
+					defaultAgentIdx = i
+					break
+				}
+			}
+		case len(allAdapters) > 0:
+			currentDefault = allAdapters[0]
+			defaultAgentIdx = 0
+		default:
+			currentDefault = ""
+			defaultAgentIdx = 0
+		}
+	}
+
+	fmt.Fprintln(out, "Coding Agents (choose one):")
 
 	for i, name := range allAdapters {
 		adapter, err := adapters.Get(name)
