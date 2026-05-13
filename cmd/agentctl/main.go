@@ -15,6 +15,7 @@
 //	agentctl open       [--editor name] [--path] [--agent name] <issue>
 //	agentctl dev start  [--quiet] [issue]
 //	agentctl report     [--json]
+//	agentctl info
 package main
 
 import (
@@ -61,6 +62,7 @@ func newRootCmd() *cobra.Command {
 		cmd.NewStreamLogCmd(),
 		cmd.NewStreamLogOpenHandsCmd(),
 		cmd.NewBuildCmd(),
+		cmd.NewInfoCmd(version),
 	)
 
 	// Pre-register --version without a short alias so that cobra's lazy
