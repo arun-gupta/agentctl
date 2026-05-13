@@ -9,6 +9,7 @@
 //	agentctl cleanup    [issue | --all]
 //	agentctl merge      [--strategy squash|merge|rebase] [--no-delete] [--dry-run] [issue]
 //	agentctl status     [--verbose] [--json]
+//	agentctl info
 //	agentctl logs       [--lines N] [--no-follow] <issue>
 //	agentctl attach     <issue>
 //	agentctl diff       [--stat] [--base branch] [--no-pager] <issue>
@@ -52,6 +53,7 @@ func newRootCmd() *cobra.Command {
 		cmd.NewCleanupCmd(),
 		cmd.NewMergeCmd(),
 		cmd.NewStatusCmd(),
+		cmd.NewInfoCmd(version),
 		cmd.NewLogsCmd(),
 		cmd.NewAttachCmd(),
 		cmd.NewDiffCmd(),
