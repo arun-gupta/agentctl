@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arun-gupta/agentctl/internal/diagnostics"
 	"github.com/arun-gupta/agentctl/internal/git"
 	"github.com/arun-gupta/agentctl/internal/notify"
 	"github.com/arun-gupta/agentctl/internal/process"
@@ -1313,6 +1314,108 @@ func TestLaunchAgent_headless_notify(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for desktop notification")
+	}
+}
+
+// TestLaunchAgent_headless_finalisesDiagnostics verifies that the run record is
+// updated from in_progress to a terminal exit_reason after the headless agent exits.
+func TestLaunchAgent_headless_finalisesDiagnostics(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found in PATH")
+	}
+	repo := initGitRepoForStale(t)
+	wtPath := filepath.Join(t.TempDir(), "42-my-feature")
+	addWorktree(t, repo, wtPath, "42-my-feature")
+	writeLocalAdapter(t, wtPath, "echoagent", "binary: echo\nsession: --session\n")
+	chdirTemp(t, wtPath)
+
+	dr := &diagnostics.RunRecord{
+		Issue:      "42",
+		Branch:     "42-my-feature",
+		Agent:      "echoagent",
+		StartedAt:  time.Now(),
+		ExitReason: "in_progress",
+	}
+	runFile, err := diagnostics.Write(repo, dr)
+	if err != nil {
+		t.Fatalf("diagnostics.Write: %v", err)
+	}
+	if err := state.AppendKey(wtPath, "run-file", runFile); err != nil {
+		t.Fatalf("state.AppendKey run-file: %v", err)
+	}
+
+	var out bytes.Buffer
+	if err := launchAgent("echoagent", wtPath, "42", "3010", "sess-abc", "do the thing", "", true, false, false, &out); err != nil {
+		t.Fatalf("launchAgent headless: %v", err)
+	}
+
+	// Poll until the background goroutine updates the run record.
+	var rec diagnostics.RunRecord
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		r, readErr := diagnostics.Read(repo, runFile)
+		if readErr == nil && r.ExitReason != "in_progress" {
+			rec = r
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if rec.ExitReason == "" || rec.ExitReason == "in_progress" {
+		t.Errorf("run record ExitReason = %q after headless agent exit; want terminal status (failed or pr_opened)", rec.ExitReason)
+	}
+	if rec.StoppedAt == nil {
+		t.Error("run record StoppedAt should be set after headless agent exit")
+	}
+}
+
+// TestAgentResume_headless_finalisesDiagnostics verifies that the run record is
+// updated from in_progress to a terminal exit_reason after the headless resume exits.
+func TestAgentResume_headless_finalisesDiagnostics(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "test-token")
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found in PATH")
+	}
+	repo := initGitRepoForStale(t)
+	wtPath := filepath.Join(t.TempDir(), "42-my-feature")
+	addWorktree(t, repo, wtPath, "42-my-feature")
+	writeLocalAdapter(t, wtPath, "echoagent", "binary: echo\nsession: --session\n")
+	chdirTemp(t, wtPath)
+
+	dr := &diagnostics.RunRecord{
+		Issue:      "42",
+		Branch:     "42-my-feature",
+		Agent:      "echoagent",
+		StartedAt:  time.Now(),
+		ExitReason: "in_progress",
+	}
+	runFile, err := diagnostics.Write(repo, dr)
+	if err != nil {
+		t.Fatalf("diagnostics.Write: %v", err)
+	}
+	if err := state.AppendKey(wtPath, "run-file", runFile); err != nil {
+		t.Fatalf("state.AppendKey run-file: %v", err)
+	}
+
+	if err := agentResume("echoagent", wtPath, "42", "sess-123", "my feedback", true, false, false); err != nil {
+		t.Fatalf("agentResume headless: %v", err)
+	}
+
+	// Poll until the background goroutine updates the run record.
+	var rec diagnostics.RunRecord
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		r, readErr := diagnostics.Read(repo, runFile)
+		if readErr == nil && r.ExitReason != "in_progress" {
+			rec = r
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if rec.ExitReason == "" || rec.ExitReason == "in_progress" {
+		t.Errorf("run record ExitReason = %q after headless resume exit; want terminal status", rec.ExitReason)
+	}
+	if rec.StoppedAt == nil {
+		t.Error("run record StoppedAt should be set after headless resume exit")
 	}
 }
 

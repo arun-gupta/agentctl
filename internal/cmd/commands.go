@@ -3170,6 +3170,31 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 				sendCompletionNotification(issue, wtPath, sddName, agentExitErr)
 			}()
 		}
+		// Finalise diagnostics when the headless agent exits, since finaliseDiagnostics
+		// is otherwise only called from streamLog (not active in headless mode).
+		go func() {
+			<-exitCh
+			af2, _ := state.Read(wtPath)
+			if repoRoot2 := repoRootFromWorktree(wtPath); repoRoot2 != "" {
+				exitReason := "failed"
+				prURL := af2.PRURL
+				if prURL == "" {
+					branch2, _ := git.CurrentBranch(wtPath)
+					if branch2 != "" {
+						if p2, pErr := resolveProvider(repoRoot2); pErr == nil {
+							if _, _, foundURL, pErr := p2.PRForBranch(repoRoot2, branch2); pErr == nil && foundURL != "" {
+								prURL = foundURL
+							}
+						}
+					}
+				}
+				if prURL != "" {
+					exitReason = "pr_opened"
+				}
+				af2.PRURL = prURL
+				finaliseDiagnostics(repoRoot2, wtPath, af2, exitReason)
+			}
+		}()
 		return nil
 	}
 
@@ -4211,6 +4236,30 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 				sendCompletionNotification(issue, wtPath, "", resumeExitErr)
 			}()
 		}
+		// Finalise diagnostics when the headless resume agent exits.
+		go func() {
+			<-exitCh
+			af2, _ := state.Read(wtPath)
+			if repoRoot2 := repoRootFromWorktree(wtPath); repoRoot2 != "" {
+				exitReason := "failed"
+				prURL := af2.PRURL
+				if prURL == "" {
+					branch2, _ := git.CurrentBranch(wtPath)
+					if branch2 != "" {
+						if p2, pErr := resolveProvider(repoRoot2); pErr == nil {
+							if _, _, foundURL, pErr := p2.PRForBranch(repoRoot2, branch2); pErr == nil && foundURL != "" {
+								prURL = foundURL
+							}
+						}
+					}
+				}
+				if prURL != "" {
+					exitReason = "pr_opened"
+				}
+				af2.PRURL = prURL
+				finaliseDiagnostics(repoRoot2, wtPath, af2, exitReason)
+			}
+		}()
 		return nil
 	}
 
