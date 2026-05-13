@@ -29,7 +29,16 @@ Run `agentctl --help` or `agentctl <command> --help` for generated help from the
     - [agentctl worktree open](#agentctl-worktree-open)
   - [Dev server](#dev-server)
     - [agentctl dev start](#agentctl-dev-start)
+  - [Build](#build)
+    - [agentctl build](#agentctl-build)
+  - [Report](#report)
+    - [agentctl report](#agentctl-report)
+  - [Info](#info)
+    - [agentctl info](#agentctl-info)
+  - [Setup](#setup)
+    - [agentctl setup](#agentctl-setup)
   - [Backward-compat alias](#backward-compat-alias)
+    - [agentctl start](#agentctl-start)
 - [Global user config](#global-user-config)
 - [`.agentctl.yml` configuration](#agentctlyml-configuration)
 - [Desktop notifications](#desktop-notifications)
@@ -509,10 +518,6 @@ Error cases:
 | Issue not found | `no worktree found for issue N — has it been started?` |
 | Editor binary not found | `cannot open editor "<name>": ...` |
 
-### Backward-compat alias
-
-`agentctl start` is a hidden top-level alias that maps directly to `agentctl agent start`. All flags and arguments are identical. Existing scripts and muscle memory continue to work unchanged.
-
 ### Dev server
 
 #### `agentctl dev start`
@@ -551,6 +556,91 @@ Error cases:
 | `.agent` has no port recorded | `no port recorded in .agent — run agentctl agent start first` |
 | Dev server already running | `dev server already running (PID N) — stop that process and clear the recorded dev-pid before restarting` |
 | Port already in use | `port N already in use` (with PID if detectable) |
+
+### Build
+
+#### `agentctl build`
+
+```bash
+agentctl build <issue>
+agentctl build <issue> --output <path>
+```
+
+Compile a binary from the worktree associated with an issue. Useful for smoke-testing a build before or instead of running the full test suite.
+
+Source resolution order:
+
+1. Linked worktree exists — build directly from the worktree.
+2. No worktree, but a local branch exists — check out into a temporary worktree, build, then remove it.
+3. Neither — error with a clear message.
+
+Build command resolution:
+
+1. `build_cmd` in `.agentctl.yml` (use `{output}` as the binary path placeholder).
+2. `go.mod` present → `go build -o {output} ./cmd/<first-subdir>` (or `./` if none).
+3. `package.json` with a `build` script → `npm run build`.
+4. `Makefile` with a `build` target → `make build`.
+
+The built binary path is printed to stdout on success.
+
+Flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--output <path>` / `-o` | `/tmp/<repo>-<issue>` | Output path for the compiled binary |
+| `--agent <name>` | — | Disambiguate when multiple worktrees exist for the same issue |
+
+### Report
+
+#### `agentctl report`
+
+```bash
+agentctl report
+agentctl report --json
+```
+
+Prints an aggregate summary of all agent runs recorded in `.agentctl/runs/` in the current repository.
+
+Default output shows period aggregates (last 7 and 30 days) and the slowest individual runs.
+
+Flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--json` | `false` | Emit all run records as a JSON array suitable for piping into dashboards or cost-accounting scripts |
+
+### Info
+
+#### `agentctl info`
+
+```bash
+agentctl info
+agentctl info --no-unicode
+```
+
+Prints a diagnostics report useful for troubleshooting: agentctl version, OS/arch, prerequisite tool availability (`git`, `gh`), available coding agents, current configuration (global and project-local), and active worktrees.
+
+Flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--no-unicode` | `false` | Use ASCII markers (`OK`/`X`) instead of Unicode glyphs (`✓`/`✗`). Also honored via `AGENTCTL_ASCII=1`. |
+
+### Setup
+
+#### `agentctl setup`
+
+```bash
+agentctl setup
+```
+
+Interactive setup wizard for new developers. Checks prerequisites (`git`, GitHub CLI), shows available coding agents, and prompts for preferences (default agent, notifications, SDD methodology). Preferences are saved to the global config file (`~/.config/agentctl/config.yml`).
+
+No flags beyond `--help`.
+
+### Backward-compat alias
+
+`agentctl start` is a hidden top-level alias that maps directly to `agentctl agent start`. All flags and arguments are identical. Existing scripts and muscle memory continue to work unchanged.
 
 ---
 
