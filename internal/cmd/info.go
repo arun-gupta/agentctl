@@ -117,19 +117,26 @@ func runInfo(out io.Writer, version, repoRoot string) error {
 	}
 	fmt.Fprintln(out)
 
-	// Active Worktrees
+	// Active Worktrees — only those managed by agentctl (have a .agent file with an agent name)
 	wts, err := git.LinkedWorktrees(repoRoot)
-	if err != nil || len(wts) == 0 {
+	if err != nil {
+		fmt.Fprintln(out, "Active Worktrees: 0")
+		return nil
+	}
+	var managed []git.Worktree
+	for _, wt := range wts {
+		af, _ := state.Read(wt.Path)
+		if af.Agent != "" {
+			managed = append(managed, wt)
+		}
+	}
+	if len(managed) == 0 {
 		fmt.Fprintln(out, "Active Worktrees: 0")
 	} else {
-		fmt.Fprintf(out, "Active Worktrees: %d\n", len(wts))
-		for _, wt := range wts {
+		fmt.Fprintf(out, "Active Worktrees: %d\n", len(managed))
+		for _, wt := range managed {
 			af, _ := state.Read(wt.Path)
-			agentName := af.Agent
-			if agentName == "" {
-				agentName = "unknown"
-			}
-			fmt.Fprintf(out, "  %-30s (%s)\n", wt.Branch, agentName)
+			fmt.Fprintf(out, "  %-30s (%s)\n", wt.Branch, af.Agent)
 		}
 	}
 

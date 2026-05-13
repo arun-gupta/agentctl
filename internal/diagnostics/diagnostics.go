@@ -119,17 +119,17 @@ func Read(repoRoot, filename string) (RunRecord, error) {
 }
 
 // List reads all run records from <repoRoot>/.agentctl/runs/, returning them
-// sorted by StartedAt ascending. An absent directory returns nil, nil.
+// sorted by StartedAt ascending. Always returns a non-nil slice on success.
 func List(repoRoot string) ([]*RunRecord, error) {
 	dir := filepath.Join(repoRoot, runsSubdir)
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
-		return nil, nil
+		return []*RunRecord{}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	var records []*RunRecord
+	records := []*RunRecord{}
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue

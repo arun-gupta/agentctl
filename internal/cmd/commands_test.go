@@ -6028,3 +6028,37 @@ func TestCountFilesChangedFallbackIncludesStagedAndUnstaged(t *testing.T) {
 		t.Fatalf("countFilesChanged() = %d, want 2", got)
 	}
 }
+
+// ─── runStatusTable filtering ─────────────────────────────────────────────────
+
+func TestRunStatus_skipsWorktreesWithoutAgentFile(t *testing.T) {
+	repo := initGitRepoForStale(t)
+	wtPath := filepath.Join(t.TempDir(), "42-no-agent")
+	addWorktree(t, repo, wtPath, "42-no-agent")
+	// No .agent file written — simulates a manually-created worktree.
+
+	var buf bytes.Buffer
+	if err := runStatusTable(repo, false, &buf); err != nil {
+		t.Fatalf("runStatusTable: %v", err)
+	}
+	if strings.Contains(buf.String(), "42-no-agent") {
+		t.Errorf("worktree without .agent file should be skipped; got:\n%s", buf.String())
+	}
+}
+
+func TestRunStatus_showsWorktreesWithAgentFile(t *testing.T) {
+	repo := initGitRepoForStale(t)
+	wtPath := filepath.Join(t.TempDir(), "99-with-agent")
+	addWorktree(t, repo, wtPath, "99-with-agent")
+	if err := state.Write(wtPath, state.AgentFile{Agent: "claude", SessionID: "abc12345"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := runStatusTable(repo, false, &buf); err != nil {
+		t.Fatalf("runStatusTable: %v", err)
+	}
+	if !strings.Contains(buf.String(), "99-with-agent") {
+		t.Errorf("worktree with .agent file should appear; got:\n%s", buf.String())
+	}
+}

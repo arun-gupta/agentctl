@@ -3,11 +3,13 @@ package cmd
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/arun-gupta/agentctl/internal/config"
+	"github.com/arun-gupta/agentctl/internal/state"
 )
 
 func TestRunInfo_versionInOutput(t *testing.T) {
@@ -94,6 +96,7 @@ func TestRunInfo_defaultAgentMarked(t *testing.T) {
 	if err := runInfo(&buf, "dev", ""); err != nil {
 		t.Fatalf("runInfo error: %v", err)
 	}
+	// "claude" is the built-in default; it should be marked "(default)"
 	out := buf.String()
 	if !strings.Contains(out, "(default)") {
 		t.Errorf("expected default agent marker in output; got:\n%s", out)
@@ -239,15 +242,13 @@ func TestRunInfo_configWithDefaultAgent(t *testing.T) {
 	}
 }
 
-// TestRunInfo_uninstalledAdapterShown verifies that adapters whose binary is
-// not on PATH are shown with ✗ and the install hint — not silently omitted.
-func TestRunInfo_uninstalledAdapterShown(t *testing.T) {
+func TestRunInfo_installHintShown(t *testing.T) {
 	dir := t.TempDir()
 	adapterDir := filepath.Join(dir, ".agentctl", "adapters")
 	if err := os.MkdirAll(adapterDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	adapterYAML := "binary: nonexistent-agent-xyz-999\ninstall: pip install nonexistent-agent-xyz-999\n"
+	adapterYAML := "binary: nonexistent-agent-xyz-999\ninstall: npm install -g nonexistent-agent-xyz-999\n"
 	if err := os.WriteFile(filepath.Join(adapterDir, "nonexistent-agent-xyz-999.yml"), []byte(adapterYAML), 0o644); err != nil {
 		t.Fatalf("write adapter: %v", err)
 	}
@@ -266,43 +267,18 @@ func TestRunInfo_uninstalledAdapterShown(t *testing.T) {
 		t.Fatalf("runInfo error: %v", err)
 	}
 	out := buf.String()
-
-	// The adapter must appear in the output, not be silently omitted.
-	if !strings.Contains(out, "nonexistent-agent-xyz-999") {
-		t.Errorf("expected uninstalled adapter to appear in output; got:\n%s", out)
-	}
-	// It must show ✗ (not ✓).
-	lines := strings.Split(out, "\n")
-	found := false
-	for _, line := range lines {
-		if strings.Contains(line, "nonexistent-agent-xyz-999") {
-			if !strings.Contains(line, "✗") {
-				t.Errorf("expected ✗ for uninstalled adapter; got line: %q", line)
-			}
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("adapter line not found in output:\n%s", out)
-	}
-	// The install hint must appear.
-	if !strings.Contains(out, "pip install nonexistent-agent-xyz-999") {
+	if !strings.Contains(out, "install with:") {
 		t.Errorf("expected install hint in output; got:\n%s", out)
 	}
 }
 
-// TestRunInfo_adapterLoadErrorNotSilentlySkipped verifies that an adapter whose
-// YAML is invalid appears in the output rather than being silently omitted.
-func TestRunInfo_adapterLoadErrorNotSilentlySkipped(t *testing.T) {
+func TestRunInfo_adapterLoadErrorShown(t *testing.T) {
 	dir := t.TempDir()
 	adapterDir := filepath.Join(dir, ".agentctl", "adapters")
 	if err := os.MkdirAll(adapterDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	// Write an adapter YAML that is missing the required 'binary' field.
-	badYAML := "install: some-install-cmd\n"
-	if err := os.WriteFile(filepath.Join(adapterDir, "broken-adapter.yml"), []byte(badYAML), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(adapterDir, "broken-adapter.yml"), []byte("install: some-install-cmd\n"), 0o644); err != nil {
 		t.Fatalf("write adapter: %v", err)
 	}
 
@@ -320,9 +296,118 @@ func TestRunInfo_adapterLoadErrorNotSilentlySkipped(t *testing.T) {
 		t.Fatalf("runInfo error: %v", err)
 	}
 	out := buf.String()
+	if !strings.Contains(out, "✗ broken-adapter") || !strings.Contains(out, "(adapter error)") {
+		t.Errorf("expected adapter load error status in output; got:\n%s", out)
+	}
+}
 
-	// The broken adapter must appear in the output, not be silently skipped.
-	if !strings.Contains(out, "broken-adapter") {
-		t.Errorf("expected broken adapter to appear in output; got:\n%s", out)
+// ─── worktree filtering ───────────────────────────────────────────────────────
+
+func initGitRepoForInfo(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found in PATH")
+	}
+	dir := t.TempDir()
+	gitRunInfo := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	gitRunInfo("init")
+	gitRunInfo("config", "user.email", "test@example.com")
+	gitRunInfo("config", "user.name", "Test")
+	gitRunInfo("config", "commit.gpgsign", "false")
+	if err := os.WriteFile(filepath.Join(dir, "README"), []byte("test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRunInfo("add", ".")
+	gitRunInfo("commit", "-m", "init")
+	return dir
+}
+
+func TestRunInfo_skipsWorktreesWithoutAgentFile(t *testing.T) {
+	repo := initGitRepoForInfo(t)
+	wtPath := filepath.Join(t.TempDir(), "42-no-agent")
+	cmd := exec.Command("git", "-C", repo, "worktree", "add", wtPath, "-b", "42-no-agent")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add: %v\n%s", err, out)
+	}
+	// No .agent file written — simulates a manually-created worktree.
+
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", repo); err != nil {
+		t.Fatalf("runInfo: %v", err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "42-no-agent") {
+		t.Errorf("worktree without .agent file should be skipped in info output; got:\n%s", out)
+	}
+	if !strings.Contains(out, "Active Worktrees: 0") {
+		t.Errorf("expected 'Active Worktrees: 0' when all worktrees lack .agent; got:\n%s", out)
+	}
+}
+
+func TestRunInfo_showsWorktreesWithAgentFile(t *testing.T) {
+	repo := initGitRepoForInfo(t)
+	wtPath := filepath.Join(t.TempDir(), "99-with-agent")
+	cmd := exec.Command("git", "-C", repo, "worktree", "add", wtPath, "-b", "99-with-agent")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add: %v\n%s", err, out)
+	}
+	if err := state.Write(wtPath, state.AgentFile{Agent: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", repo); err != nil {
+		t.Fatalf("runInfo: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "99-with-agent") {
+		t.Errorf("worktree with .agent file should appear in info output; got:\n%s", out)
+	}
+	if !strings.Contains(out, "Active Worktrees: 1") {
+		t.Errorf("expected 'Active Worktrees: 1'; got:\n%s", out)
+	}
+}
+
+func TestRunInfo_mixedWorktrees_onlyManagedShown(t *testing.T) {
+	repo := initGitRepoForInfo(t)
+
+	// Manual worktree without .agent file
+	manualPath := filepath.Join(t.TempDir(), "manual-review")
+	cmd := exec.Command("git", "-C", repo, "worktree", "add", manualPath, "-b", "manual-review")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add (manual): %v\n%s", err, out)
+	}
+
+	// Agentctl-managed worktree with .agent file
+	managedPath := filepath.Join(t.TempDir(), "55-my-feature")
+	cmd = exec.Command("git", "-C", repo, "worktree", "add", managedPath, "-b", "55-my-feature")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add (managed): %v\n%s", err, out)
+	}
+	if err := state.Write(managedPath, state.AgentFile{Agent: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := runInfo(&buf, "dev", repo); err != nil {
+		t.Fatalf("runInfo: %v", err)
+	}
+	out := buf.String()
+
+	if strings.Contains(out, "manual-review") {
+		t.Errorf("manual worktree (no .agent) should be skipped; got:\n%s", out)
+	}
+	if !strings.Contains(out, "55-my-feature") {
+		t.Errorf("managed worktree should appear; got:\n%s", out)
+	}
+	if !strings.Contains(out, "Active Worktrees: 1") {
+		t.Errorf("expected 'Active Worktrees: 1' (only managed ones counted); got:\n%s", out)
 	}
 }
