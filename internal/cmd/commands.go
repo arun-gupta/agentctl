@@ -3170,31 +3170,9 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 				sendCompletionNotification(issue, wtPath, sddName, agentExitErr)
 			}()
 		}
-		// Finalise diagnostics when the headless agent exits, since finaliseDiagnostics
-		// is otherwise only called from streamLog (not active in headless mode).
-		go func() {
-			<-exitCh
-			af2, _ := state.Read(wtPath)
-			if repoRoot2 := repoRootFromWorktree(wtPath); repoRoot2 != "" {
-				exitReason := "failed"
-				prURL := af2.PRURL
-				if prURL == "" {
-					branch2, _ := git.CurrentBranch(wtPath)
-					if branch2 != "" {
-						if p2, pErr := resolveProvider(repoRoot2); pErr == nil {
-							if _, _, foundURL, pErr := p2.PRForBranch(repoRoot2, branch2); pErr == nil && foundURL != "" {
-								prURL = foundURL
-							}
-						}
-					}
-				}
-				if prURL != "" {
-					exitReason = "pr_opened"
-				}
-				af2.PRURL = prURL
-				finaliseDiagnostics(repoRoot2, wtPath, af2, exitReason)
-			}
-		}()
+		if err := startDetachedDiagnosticsFinaliser(wtPath, pid); err != nil {
+			return err
+		}
 		return nil
 	}
 
@@ -3407,6 +3385,64 @@ func NewStreamLogCmd() *cobra.Command {
 		Args:   cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			return runStreamLog(args[0])
+		},
+	}
+}
+
+func startDetachedDiagnosticsFinaliser(wtPath string, pid int) error {
+	cmd := exec.Command(os.Args[0], "__finalise-diagnostics", wtPath, strconv.Itoa(pid))
+	cmd.Dir = wtPath
+	detachProcess(cmd)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start diagnostics finaliser: %w", err)
+	}
+	return cmd.Process.Release()
+}
+
+// runFinaliseDiagnostics waits for pid to exit, then finalises diagnostics for
+// the worktree.
+func runFinaliseDiagnostics(wtPath, pid string) error {
+	for process.IsAlive(pid) {
+		time.Sleep(200 * time.Millisecond)
+	}
+	// Give detached log converters a moment to flush final output.
+	time.Sleep(200 * time.Millisecond)
+
+	af, _ := state.Read(wtPath)
+	repoRoot := repoRootFromWorktree(wtPath)
+	if repoRoot == "" {
+		return nil
+	}
+
+	exitReason := "failed"
+	prURL := af.PRURL
+	if prURL == "" {
+		branch, _ := git.CurrentBranch(wtPath)
+		if branch != "" {
+			if p, pErr := resolveProvider(repoRoot); pErr == nil {
+				if _, _, foundURL, pErr := p.PRForBranch(repoRoot, branch); pErr == nil && foundURL != "" {
+					prURL = foundURL
+				}
+			}
+		}
+	}
+	if prURL != "" {
+		exitReason = "pr_opened"
+	}
+	af.PRURL = prURL
+	finaliseDiagnostics(repoRoot, wtPath, af, exitReason)
+	return nil
+}
+
+// NewFinaliseDiagnosticsCmd returns a hidden command used by headless start and
+// resume paths to finalise diagnostics after the parent process exits.
+func NewFinaliseDiagnosticsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "__finalise-diagnostics <wtDir> <pid>",
+		Hidden: true,
+		Args:   cobra.ExactArgs(2),
+		RunE: func(_ *cobra.Command, args []string) error {
+			return runFinaliseDiagnostics(args[0], args[1])
 		},
 	}
 }
@@ -4236,30 +4272,9 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 				sendCompletionNotification(issue, wtPath, "", resumeExitErr)
 			}()
 		}
-		// Finalise diagnostics when the headless resume agent exits.
-		go func() {
-			<-exitCh
-			af2, _ := state.Read(wtPath)
-			if repoRoot2 := repoRootFromWorktree(wtPath); repoRoot2 != "" {
-				exitReason := "failed"
-				prURL := af2.PRURL
-				if prURL == "" {
-					branch2, _ := git.CurrentBranch(wtPath)
-					if branch2 != "" {
-						if p2, pErr := resolveProvider(repoRoot2); pErr == nil {
-							if _, _, foundURL, pErr := p2.PRForBranch(repoRoot2, branch2); pErr == nil && foundURL != "" {
-								prURL = foundURL
-							}
-						}
-					}
-				}
-				if prURL != "" {
-					exitReason = "pr_opened"
-				}
-				af2.PRURL = prURL
-				finaliseDiagnostics(repoRoot2, wtPath, af2, exitReason)
-			}
-		}()
+		if err := startDetachedDiagnosticsFinaliser(wtPath, pid); err != nil {
+			return err
+		}
 		return nil
 	}
 

@@ -60,6 +60,7 @@ func newRootCmd() *cobra.Command {
 		cmd.NewReportCmd(),
 		cmd.NewStreamLogCmd(),
 		cmd.NewStreamLogOpenHandsCmd(),
+		cmd.NewFinaliseDiagnosticsCmd(),
 		cmd.NewBuildCmd(),
 	)
 
