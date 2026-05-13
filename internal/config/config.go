@@ -38,6 +38,11 @@ type AgentctlConfig struct {
 	// Override per-invocation with the --strategy flag.
 	MergeStrategy string `yaml:"merge_strategy,omitempty"`
 
+	// TestCmd is the command to run the project's automated test suite.
+	// When set, agents use this instead of inferring the command from AGENTS.md
+	// or README.md. Example: "go test ./...", "npm test", "pytest"
+	TestCmd string `yaml:"test_cmd,omitempty"`
+
 	// Editor is the program used by agentctl open to open a worktree.
 	// Overridden per-invocation by the --editor flag.
 	// Example: "cursor", "code", "idea"

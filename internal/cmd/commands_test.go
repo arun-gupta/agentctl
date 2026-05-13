@@ -5779,6 +5779,40 @@ func TestStartCmd_agentFlag_filtersEmptyAndRejectsDuplicates(t *testing.T) {
 	})
 }
 
+// ─── test plan instructions in kickoff prompts ────────────────────────────────
+
+func TestBuildKickoff_containsTestPlanInstruction(t *testing.T) {
+	kickoff := buildKickoff("42", "3010", "github", "PR")
+	if !strings.Contains(kickoff, "## Test plan") {
+		t.Errorf("buildKickoff must instruct agent to include a '## Test plan' section; got:\n%s", kickoff)
+	}
+	if !strings.Contains(kickoff, "test suite") {
+		t.Errorf("buildKickoff must instruct agent to run the test suite; got:\n%s", kickoff)
+	}
+	if !strings.Contains(kickoff, "Automated") {
+		t.Errorf("buildKickoff must mention 'Automated' subsection in the test plan; got:\n%s", kickoff)
+	}
+	if !strings.Contains(kickoff, "Manual") {
+		t.Errorf("buildKickoff must mention 'Manual' subsection in the test plan; got:\n%s", kickoff)
+	}
+}
+
+func TestBuildKickoffFromTask_containsTestPlanInstruction(t *testing.T) {
+	kickoff := buildKickoffFromTask("Refactor the auth middleware", "", "PR")
+	if !strings.Contains(kickoff, "## Test plan") {
+		t.Errorf("buildKickoffFromTask must instruct agent to include a '## Test plan' section; got:\n%s", kickoff)
+	}
+	if !strings.Contains(kickoff, "test suite") {
+		t.Errorf("buildKickoffFromTask must instruct agent to run the test suite; got:\n%s", kickoff)
+	}
+	if !strings.Contains(kickoff, "Automated") {
+		t.Errorf("buildKickoffFromTask must mention 'Automated' subsection in the test plan; got:\n%s", kickoff)
+	}
+	if !strings.Contains(kickoff, "Manual") {
+		t.Errorf("buildKickoffFromTask must mention 'Manual' subsection in the test plan; got:\n%s", kickoff)
+	}
+}
+
 // ─── default_agent resolution ─────────────────────────────────────────────────
 
 // TestStartCmd_defaultAgentFlagDefault verifies the --agent flag default value
