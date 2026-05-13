@@ -3402,11 +3402,15 @@ func startDetachedDiagnosticsFinaliser(wtPath string, pid int) error {
 // runFinaliseDiagnostics waits for pid to exit, then finalises diagnostics for
 // the worktree.
 func runFinaliseDiagnostics(wtPath, pid string) error {
+	const (
+		processCheckInterval = 200 * time.Millisecond
+		logFlushWait         = 200 * time.Millisecond
+	)
 	for process.IsAlive(pid) {
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(processCheckInterval)
 	}
 	// Give detached log converters a moment to flush final output.
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(logFlushWait)
 
 	af, _ := state.Read(wtPath)
 	repoRoot := repoRootFromWorktree(wtPath)

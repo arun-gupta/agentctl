@@ -27,6 +27,12 @@ import (
 // TestMain handles hidden subprocess commands that launchAgent/agentResume spawn
 // in headless mode. Without this, the subprocess would restart the test suite.
 func TestMain(m *testing.M) {
+	const (
+		helperIssue      = "42"
+		helperPort       = "3010"
+		helperSessionID  = "sess-abc"
+		helperResumeSess = "sess-123"
+	)
 	if len(os.Args) > 1 && os.Args[1] == "__stream-log" {
 		if len(os.Args) < 3 {
 			fmt.Fprintln(os.Stderr, "usage: __stream-log <wtDir>")
@@ -59,7 +65,7 @@ func TestMain(m *testing.M) {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-		if err := launchAgent("sleepagent", wtPath, "42", "3010", "sess-abc", "do the thing", "", true, false, false, io.Discard); err != nil {
+		if err := launchAgent("sleepagent", wtPath, helperIssue, helperPort, helperSessionID, "do the thing", "", true, false, false, io.Discard); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -75,7 +81,7 @@ func TestMain(m *testing.M) {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-		if err := agentResume("sleepagent", wtPath, "42", "sess-123", "my feedback", true, false, false); err != nil {
+		if err := agentResume("sleepagent", wtPath, helperIssue, helperResumeSess, "my feedback", true, false, false); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -1362,6 +1368,7 @@ func TestLaunchAgent_headless_notify(t *testing.T) {
 // TestLaunchAgent_headless_finalisesDiagnostics verifies diagnostics are
 // finalised even when launchAgent is called from a short-lived parent process.
 func TestLaunchAgent_headless_finalisesDiagnostics(t *testing.T) {
+	const helperMustReturnBefore = 900 * time.Millisecond
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not found in PATH")
 	}
@@ -1391,7 +1398,7 @@ func TestLaunchAgent_headless_finalisesDiagnostics(t *testing.T) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("launch helper failed: %v\n%s", err, out)
 	}
-	if elapsed := time.Since(started); elapsed >= 900*time.Millisecond {
+	if elapsed := time.Since(started); elapsed >= helperMustReturnBefore {
 		t.Fatalf("launch helper should return before agent exits; elapsed=%v", elapsed)
 	}
 
@@ -1417,6 +1424,7 @@ func TestLaunchAgent_headless_finalisesDiagnostics(t *testing.T) {
 // TestAgentResume_headless_finalisesDiagnostics verifies diagnostics are
 // finalised even when resume is called from a short-lived parent process.
 func TestAgentResume_headless_finalisesDiagnostics(t *testing.T) {
+	const helperMustReturnBefore = 900 * time.Millisecond
 	t.Setenv("GITHUB_TOKEN", "test-token")
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not found in PATH")
@@ -1447,7 +1455,7 @@ func TestAgentResume_headless_finalisesDiagnostics(t *testing.T) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("resume helper failed: %v\n%s", err, out)
 	}
-	if elapsed := time.Since(started); elapsed >= 900*time.Millisecond {
+	if elapsed := time.Since(started); elapsed >= helperMustReturnBefore {
 		t.Fatalf("resume helper should return before agent exits; elapsed=%v", elapsed)
 	}
 
