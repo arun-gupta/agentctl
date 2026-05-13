@@ -221,9 +221,22 @@ func AddWorktree(repoRoot, path, branch string) error {
 	return err
 }
 
+// CheckoutWorktree creates a new linked worktree at path from an existing branch.
+// Unlike AddWorktree, it does not create a new branch (-b flag is omitted).
+func CheckoutWorktree(repoRoot, path, branch string) error {
+	_, err := run(repoRoot, "-C", repoRoot, "worktree", "add", path, branch)
+	return err
+}
+
 // RemoveWorktree removes a registered linked worktree (force).
 func RemoveWorktree(repoRoot, path string) error {
 	_, err := run(repoRoot, "-C", repoRoot, "worktree", "remove", "--force", path)
+	return err
+}
+
+// FetchBranch fetches a single branch from origin into a local tracking branch.
+func FetchBranch(repoRoot, branch string) error {
+	_, err := run(repoRoot, "-C", repoRoot, "fetch", "origin", branch+":"+branch)
 	return err
 }
 
