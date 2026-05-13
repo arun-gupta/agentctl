@@ -30,6 +30,34 @@ func TestRootCmd_registersInfoCommandOnce(t *testing.T) {
 	}
 }
 
+// TestRootCmdRegistration verifies that the root command has both the new
+// parent commands and the hidden backward-compat `start` alias registered.
+func TestRootCmdRegistration(t *testing.T) {
+	root := newRootCmd()
+
+	found := map[string]bool{}
+	hidden := map[string]bool{}
+	for _, c := range root.Commands() {
+		found[c.Name()] = true
+		hidden[c.Name()] = c.Hidden
+	}
+
+	// Two-level parent commands must be present.
+	for _, name := range []string{"agent", "worktree"} {
+		if !found[name] {
+			t.Errorf("expected top-level command %q to be registered", name)
+		}
+	}
+
+	// Hidden backward-compat alias must be present at root level.
+	if !found["start"] {
+		t.Fatal("expected hidden `start` alias to be registered at root level")
+	}
+	if !hidden["start"] {
+		t.Error("`start` alias at root level must be hidden")
+	}
+}
+
 // TestSetupCmd_e2e verifies that "agentctl setup" is wired correctly end-to-end:
 // the command is reachable via the root, accepts stdin, writes the global config
 // file to the real path under XDG_CONFIG_HOME, and exits without error.

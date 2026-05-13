@@ -39,19 +39,21 @@ brew update && brew upgrade agentctl
 ```bash
 # From your application repo's primary worktree
 cd /path/to/your/app-repo
-agentctl start 42
+agentctl agent start 42
 
 # Or from anywhere, using a full issue URL (GitHub or GitLab)
-agentctl start https://github.com/owner/repo/issues/42
-agentctl start https://gitlab.com/owner/repo/-/issues/42
+agentctl agent start https://github.com/owner/repo/issues/42
+agentctl agent start https://gitlab.com/owner/repo/-/issues/42
 
 # Or from your repo, using a free-form task
-agentctl start --task "Refactor the auth middleware to use JWT"
+agentctl agent start --task "Refactor the auth middleware to use JWT"
 
 # Back in your application repo's primary worktree
 cd /path/to/your/app-repo
-agentctl cleanup 42
+agentctl worktree cleanup 42
 ```
+
+> **Backward-compat alias:** `agentctl start` still works and maps to `agentctl agent start`.
 
 `agentctl --help` and `agentctl <command> --help` list all flags.
 
@@ -59,7 +61,7 @@ agentctl cleanup 42
 
 ```mermaid
 flowchart TD
-    issue["GitHub / GitLab issue"] --> start["agentctl start &lt;issue&gt;\n--headless: agent runs in background"]
+    issue["GitHub / GitLab issue"] --> start["agentctl agent start &lt;issue&gt;\n--headless: agent runs in background"]
     start --> wt["Isolated git worktree"]
     wt -.->|"if dev_server set\nin .agentctl.yml"| port["Reserved port\n+ dev server"]
     wt --> agent["Coding agent\n(Claude, Codex, Copilot…)"]
@@ -67,16 +69,16 @@ flowchart TD
 
     agent -->|"--sdd=plain / --sdd=speckit"| spec["Agent writes spec\nspecs/spec.md"]
     spec --> specreview{"Spec review\n(checkpoint 1)"}
-    specreview -->|"agentctl resume 'feedback'"| spec
-    specreview -->|"agentctl resume"| code
+    specreview -->|"agentctl agent resume 'feedback'"| spec
+    specreview -->|"agentctl agent resume"| code
 
     agent -->|no SDD| code["Code written\ntests run"]
 
     code --> pr["Pull request opened"]
     pr --> prereview{"PR review\n(checkpoint 2)"}
-    prereview -->|"agentctl resume 'feedback'"| agent
-    prereview -->|"merge on GitHub / GitLab"| cleanup["agentctl cleanup"]
-    prereview -->|"agentctl merge\nmerge + cleanup in one step"| done["Done ✓"]
+    prereview -->|"agentctl agent resume 'feedback'"| agent
+    prereview -->|"merge on GitHub / GitLab"| cleanup["agentctl worktree cleanup"]
+    prereview -->|"agentctl worktree merge\nmerge + cleanup in one step"| done["Done ✓"]
     cleanup --> done
 ```
 
