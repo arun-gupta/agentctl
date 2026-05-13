@@ -223,6 +223,7 @@ const kickoffTemplate = `Work on {platform} issue #{issue}. Read AGENTS.md or RE
 Make the changes directly, push the branch, and open a {prTerm}. Do not merge.
 You are the coding agent — implement changes using your own file-editing and bash tools.
 Do not run agentctl, claude, codex, or any other agent-launcher CLI.
+When showing agentctl commands to the user, use {issue} as the identifier — not a full URL.
 Before opening the PR, run the project's test suite (use test_cmd from
 .agentctl.yml if present, otherwise infer from AGENTS.md or README.md).
 In the PR description include a ## Test plan section with two subsections:
@@ -260,6 +261,7 @@ func buildKickoffFromTask(task, port, prTerm string) string {
 		"Make the changes directly, push the branch, and open a " + prTerm + ". Do not merge.\n" +
 		"You are the coding agent — implement changes using your own file-editing and bash tools.\n" +
 		"Do not run agentctl, claude, codex, or any other agent-launcher CLI.\n" +
+		"When showing agentctl commands to the user, use the branch name as the identifier — not a full URL.\n" +
 		"Before opening the PR, run the project's test suite (use test_cmd from\n" +
 		".agentctl.yml if present, otherwise infer from AGENTS.md or README.md).\n" +
 		"In the PR description include a '## Test plan' section with two subsections:\n" +
@@ -498,7 +500,7 @@ func startTask(task, branch, agentName, sddName string, headless, quiet, sendNot
 		if sddErr != nil {
 			return sddErr
 		}
-		kickoff = m.KickoffPrompt("task", portStr) + "\n\nTask description: " + task
+		kickoff = m.KickoffPrompt(branch, portStr) + "\n\nTask description: " + task
 	}
 
 	if err := launchAgent(agentName, wtPath, branch, portStr, sessionID, kickoff, sddName, headless, quiet, sendNotify, out); err != nil {
@@ -2248,7 +2250,7 @@ func specLookupKey(issue string) string {
 // effectiveSpecKey returns the spec lookup key for a worktree, using the
 // task-mode flag from the .agent file when available. If the worktree was
 // started with `agentctl start --task`, the key is always "task" regardless
-// of the branch name, matching the KickoffPrompt("task", ...) used at start.
+// of the branch name (specs are stored under the "task" key in task mode).
 func effectiveSpecKey(issue string, af state.AgentFile) string {
 	if af.TaskMode {
 		return "task"
