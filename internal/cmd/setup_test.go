@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -249,6 +250,28 @@ func TestRunSetup_selectSddByNumber(t *testing.T) {
 	}
 }
 
+func TestRunSetup_emptyInputKeepsDefaultSddUnset(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+
+	var captured *config.GlobalConfig
+	stubWriteGlobal(t, func(cfg *config.GlobalConfig) error {
+		captured = cfg
+		return nil
+	})
+
+	var buf bytes.Buffer
+	if err := runSetup(strings.NewReader(""), &buf); err != nil {
+		t.Fatalf("runSetup error: %v", err)
+	}
+	if captured == nil {
+		t.Fatal("expected WriteGlobal to be called")
+	}
+	if captured.DefaultSDD != "" {
+		t.Errorf("expected empty DefaultSDD to remain unset on empty input; got %q", captured.DefaultSDD)
+	}
+}
+
 func TestRunSetup_invalidAgentInputFallsToDefault(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", tmp)
@@ -423,5 +446,58 @@ func TestRunSetup_agentctlStartInNextSteps(t *testing.T) {
 	nextSteps := out[nextStepsIdx:]
 	if !strings.Contains(nextSteps, "agentctl start") {
 		t.Errorf("expected 'agentctl start' in next steps; got:\n%s", nextSteps)
+	}
+}
+
+func TestRunSetup_projectLocalAdapterFoundFromSubdir(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	stubWriteGlobal(t, func(*config.GlobalConfig) error { return nil })
+	stubToolRunner(t, func(name string, args ...string) (string, error) {
+		if name == "git" {
+			return "git version 2.39.2", nil
+		}
+		return "", os.ErrNotExist
+	})
+	stubLookPath(t, func(name string) (string, error) {
+		return "", os.ErrNotExist
+	})
+
+	repoRoot := filepath.Join(tmp, "repo")
+	if err := os.MkdirAll(repoRoot, 0o755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	initCmd := exec.Command("git", "init", repoRoot)
+	if out, err := initCmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init failed: %v\n%s", err, out)
+	}
+
+	adapterDir := filepath.Join(repoRoot, ".agentctl", "adapters")
+	if err := os.MkdirAll(adapterDir, 0o755); err != nil {
+		t.Fatalf("mkdir adapters: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(adapterDir, "local-only-adapter.yml"), []byte("binary: nonexistent-local-only-adapter\n"), 0o644); err != nil {
+		t.Fatalf("write adapter: %v", err)
+	}
+
+	subdir := filepath.Join(repoRoot, "nested", "dir")
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatalf("mkdir subdir: %v", err)
+	}
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(subdir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+
+	var buf bytes.Buffer
+	if err := runSetup(strings.NewReader(""), &buf); err != nil {
+		t.Fatalf("runSetup error: %v", err)
+	}
+	if !strings.Contains(buf.String(), "local-only-adapter") {
+		t.Errorf("expected project-local adapter to appear from subdir; got:\n%s", buf.String())
 	}
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/arun-gupta/agentctl/internal/adapters"
 	"github.com/arun-gupta/agentctl/internal/config"
+	"github.com/arun-gupta/agentctl/internal/git"
 	"github.com/arun-gupta/agentctl/internal/sdd"
 )
 
@@ -91,6 +92,11 @@ func runSetup(in io.Reader, out io.Writer) error {
 	}
 
 	// Step 2: show coding agents.
+	repoRoot, _ := git.RepoRoot()
+	restoreCWD, _ := switchToRepoRoot(repoRoot)
+	if restoreCWD != nil {
+		defer restoreCWD()
+	}
 	allAdapters := adapters.List()
 
 	hasCurrentDefault := false
@@ -191,11 +197,14 @@ func runSetup(in io.Reader, out io.Writer) error {
 	sddOptions = append(sddOptions, allSDDs...)
 	sddOptions = append(sddOptions, config.SDDNone)
 
-	currentSDDIdx := 0
-	for i, name := range sddOptions {
-		if name == existingCfg.DefaultSDD {
-			currentSDDIdx = i
-			break
+	currentSDDIdx := len(sddOptions) - 1
+	selectedSDD := existingCfg.DefaultSDD
+	if selectedSDD != "" {
+		for i, name := range sddOptions {
+			if name == selectedSDD {
+				currentSDDIdx = i
+				break
+			}
 		}
 	}
 
@@ -209,10 +218,6 @@ func runSetup(in io.Reader, out io.Writer) error {
 	}
 	fmt.Fprintf(out, "Choice [%d]: ", currentSDDIdx+1)
 
-	selectedSDD := ""
-	if len(sddOptions) > 0 {
-		selectedSDD = sddOptions[currentSDDIdx]
-	}
 	if scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line != "" {
