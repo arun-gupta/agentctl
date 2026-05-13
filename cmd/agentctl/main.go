@@ -16,7 +16,6 @@
 //	agentctl open       [--editor name] [--path] [--agent name] <issue>
 //	agentctl dev start  [--quiet] [issue]
 //	agentctl report     [--json]
-//	agentctl info
 package main
 
 import (
