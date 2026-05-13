@@ -6,6 +6,7 @@ package diagnostics
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -40,7 +41,30 @@ type RunRecord struct {
 // RecordFilename returns the base filename for a run record: "<issue>-<ts>.json".
 func RecordFilename(issue string, startedAt time.Time) string {
 	ts := startedAt.UTC().Format("20060102T150405Z")
-	return issue + "-" + ts + ".json"
+	return safeIdentifier(issue) + "-" + ts + ".json"
+}
+
+func safeIdentifier(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "run"
+	}
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9'):
+			b.WriteRune(r)
+		case r == '-' || r == '_' || r == '.':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	out := strings.Trim(b.String(), "._-")
+	if out == "" {
+		return "run"
+	}
+	return out
 }
 
 // Write creates (or overwrites) a run record in <repoRoot>/.agentctl/runs/.
@@ -65,15 +89,11 @@ func Write(repoRoot string, r *RunRecord) (string, error) {
 // the record, and writes it back. It is a no-op when the file does not exist.
 func Update(repoRoot, filename string, fn func(*RunRecord)) error {
 	path := filepath.Join(repoRoot, runsSubdir, filename)
-	data, err := os.ReadFile(path)
+	r, err := Read(repoRoot, filename)
 	if os.IsNotExist(err) {
 		return nil
 	}
 	if err != nil {
-		return err
-	}
-	var r RunRecord
-	if err := json.Unmarshal(data, &r); err != nil {
 		return err
 	}
 	fn(&r)
@@ -82,6 +102,20 @@ func Update(repoRoot, filename string, fn func(*RunRecord)) error {
 		return err
 	}
 	return os.WriteFile(path, out, 0o644)
+}
+
+// Read reads and unmarshals a named run record from <repoRoot>/.agentctl/runs/.
+func Read(repoRoot, filename string) (RunRecord, error) {
+	path := filepath.Join(repoRoot, runsSubdir, filename)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return RunRecord{}, err
+	}
+	var r RunRecord
+	if err := json.Unmarshal(data, &r); err != nil {
+		return RunRecord{}, err
+	}
+	return r, nil
 }
 
 // List reads all run records from <repoRoot>/.agentctl/runs/, returning them
@@ -102,11 +136,11 @@ func List(repoRoot string) ([]*RunRecord, error) {
 		}
 		data, readErr := os.ReadFile(filepath.Join(dir, e.Name()))
 		if readErr != nil {
-			continue
+			return nil, fmt.Errorf("read run record %q: %w", e.Name(), readErr)
 		}
 		var r RunRecord
 		if jsonErr := json.Unmarshal(data, &r); jsonErr != nil {
-			continue
+			return nil, fmt.Errorf("parse run record %q: %w", e.Name(), jsonErr)
 		}
 		records = append(records, &r)
 	}
@@ -124,15 +158,21 @@ func AppendGlobal(r *RunRecord) error {
 		return nil // silently skip when config dir is unavailable
 	}
 	dir := filepath.Join(cfgDir, "agentctl")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
 		return err
 	}
 	path := filepath.Join(dir, globalHistoryFile)
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
+	if err := os.Chmod(path, 0o600); err != nil {
+		return err
+	}
 	data, err := json.Marshal(r)
 	if err != nil {
 		return err

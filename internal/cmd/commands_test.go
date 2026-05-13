@@ -5959,3 +5959,72 @@ func TestStartCmd_defaultAgent_invalidConfigReturnsError(t *testing.T) {
 		t.Errorf("error %q does not describe YAML parsing failure", err.Error())
 	}
 }
+
+func TestRunReportJSONEmptyArray(t *testing.T) {
+	dir := initGitRepoForStale(t)
+	chdirTemp(t, dir)
+
+	var out bytes.Buffer
+	if err := runReport(true, &out); err != nil {
+		t.Fatalf("runReport(--json): %v", err)
+	}
+	if got := strings.TrimSpace(out.String()); got != "[]" {
+		t.Fatalf("runReport(--json) = %q, want []", got)
+	}
+}
+
+func TestRepoRootFromWorktreePicksPrimaryWorktree(t *testing.T) {
+	stubDir := t.TempDir()
+	repoRoot := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(repoRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll repoRoot: %v", err)
+	}
+	wtPath := filepath.Join(t.TempDir(), "wt")
+	if err := os.MkdirAll(wtPath, 0o755); err != nil {
+		t.Fatalf("MkdirAll wtPath: %v", err)
+	}
+
+	secondary := filepath.Join(repoRoot, "feature-wt")
+	script := fmt.Sprintf("#!/bin/sh\ncat <<'EOF'\nworktree %s\nHEAD deadbeef\nbranch refs/heads/feature\ngitdir %s\n\nworktree %s\nHEAD cafebabe\nbranch refs/heads/main\ngitdir %s\nEOF\n",
+		secondary,
+		filepath.Join(repoRoot, ".git", "worktrees", "feature"),
+		repoRoot,
+		filepath.Join(repoRoot, ".git"),
+	)
+	gitPath := filepath.Join(stubDir, "git")
+	if err := os.WriteFile(gitPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("WriteFile git stub: %v", err)
+	}
+	prependPath(t, stubDir)
+
+	if got := repoRootFromWorktree(wtPath); got != repoRoot {
+		t.Fatalf("repoRootFromWorktree() = %q, want %q", got, repoRoot)
+	}
+}
+
+func TestCountFilesChangedFallbackIncludesStagedAndUnstaged(t *testing.T) {
+	dir := initGitRepoForStale(t)
+	gitRun := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	// Force the helper into fallback mode by ensuring main/master refs do not exist.
+	gitRun("branch", "-m", "topic")
+
+	if err := os.WriteFile(filepath.Join(dir, "staged.txt"), []byte("a\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile staged.txt: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "unstaged.txt"), []byte("b\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile unstaged.txt: %v", err)
+	}
+	gitRun("add", "staged.txt")
+
+	if got := countFilesChanged(dir); got != 2 {
+		t.Fatalf("countFilesChanged() = %d, want 2", got)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,10 +16,10 @@ func TestWriteAndList(t *testing.T) {
 	now := time.Date(2026, 5, 1, 10, 4, 11, 0, time.UTC)
 
 	r := &diagnostics.RunRecord{
-		Issue:     "42",
-		Branch:    "feat/42-dark-mode",
-		Agent:     "claude",
-		StartedAt: now,
+		Issue:      "42",
+		Branch:     "feat/42-dark-mode",
+		Agent:      "claude",
+		StartedAt:  now,
 		ExitReason: "in_progress",
 	}
 
@@ -161,6 +162,14 @@ func TestRecordFilenameFormat(t *testing.T) {
 	}
 }
 
+func TestRecordFilenameSanitizesIssue(t *testing.T) {
+	ts := time.Date(2026, 5, 1, 10, 4, 11, 0, time.UTC)
+	got := diagnostics.RecordFilename("feat/42\\dark mode", ts)
+	if strings.Contains(got, "/") || strings.Contains(got, "\\") {
+		t.Fatalf("RecordFilename contains path separator: %q", got)
+	}
+}
+
 func TestWriteCreatesDirectory(t *testing.T) {
 	repoRoot := t.TempDir()
 	r := &diagnostics.RunRecord{
@@ -228,13 +237,58 @@ func TestAppendGlobal(t *testing.T) {
 		t.Fatalf("ReadFile: %v", err)
 	}
 	lines := 0
-	for _, line := range filepath.SplitList(string(data)) {
+	for _, line := range strings.Split(string(data), "\n") {
 		if line != "" {
 			lines++
 		}
 	}
 	// Should have 2 newline-delimited JSON lines.
-	if lines < 2 {
-		t.Logf("raw content:\n%s", data)
+	if lines != 2 {
+		t.Fatalf("expected 2 JSONL lines, got %d (raw: %q)", lines, string(data))
+	}
+}
+
+func TestListReturnsErrorForInvalidJSON(t *testing.T) {
+	repoRoot := t.TempDir()
+	runsDir := filepath.Join(repoRoot, ".agentctl", "runs")
+	if err := os.MkdirAll(runsDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(runsDir, "bad.json"), []byte("{invalid"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if _, err := diagnostics.List(repoRoot); err == nil {
+		t.Fatal("expected List to return error for invalid JSON")
+	}
+}
+
+func TestAppendGlobalUsesPrivatePermissions(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	r := &diagnostics.RunRecord{
+		Issue:     "42",
+		Branch:    "feat/42",
+		Agent:     "claude",
+		StartedAt: time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC),
+	}
+
+	if err := diagnostics.AppendGlobal(r); err != nil {
+		t.Fatalf("AppendGlobal: %v", err)
+	}
+
+	dirInfo, err := os.Stat(filepath.Join(tmp, "agentctl"))
+	if err != nil {
+		t.Fatalf("Stat config dir: %v", err)
+	}
+	if got := dirInfo.Mode().Perm(); got != 0o700 {
+		t.Fatalf("config dir perms = %o, want 700", got)
+	}
+
+	fileInfo, err := os.Stat(filepath.Join(tmp, "agentctl", "run-history.jsonl"))
+	if err != nil {
+		t.Fatalf("Stat history file: %v", err)
+	}
+	if got := fileInfo.Mode().Perm(); got != 0o600 {
+		t.Fatalf("history file perms = %o, want 600", got)
 	}
 }

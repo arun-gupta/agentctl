@@ -1204,7 +1204,6 @@ func runMerge(issue, strategy, agentSuffix string, noDelete, dryRun bool) error 
 	return cleanupMerged(repoRoot, issue, agentSuffix)
 }
 
-
 // ─── cleanup-merged ───────────────────────────────────────────────────────────
 
 // NewCleanupMergedCmd creates the `cleanup-merged` subcommand.
@@ -1551,8 +1550,8 @@ func NewStatusCmd() *cobra.Command {
 Compact (default):  ISSUE  BRANCH  AGENT  PORT  SPEC  PR
 Verbose:            ISSUE  BRANCH  AGENT  PATH  PORT  DEV-PID  AGENT-PID  SPEC  PR  SESSION
 
-Use --json to emit a JSON array of run records from .agentctl/runs/ merged
-with live worktree data. Each entry includes issue, branch, agent, status,
+Use --json to emit a JSON array of run records from .agentctl/runs/.
+Each entry includes issue, branch, agent, status,
 started_at, elapsed_seconds, pr_url, files_changed, and tokens_used.
 
 Spec states:  no-spec | paused | in-progress | done
@@ -1727,8 +1726,8 @@ func runStatusJSON() error {
 // NewLogsCmd creates the `logs` subcommand.
 func NewLogsCmd() *cobra.Command {
 	var (
-		lines      int
-		noFollow   bool
+		lines       int
+		noFollow    bool
 		agentSuffix string
 	)
 	c := &cobra.Command{
@@ -2391,7 +2390,6 @@ func findLinkedWorktree(repoRoot, ref string) (git.Worktree, bool, error) {
 	return git.FindWorktreeByBranch(repoRoot, ref)
 }
 
-
 type prInfo struct {
 	Number int    `json:"number"`
 	Body   string `json:"body"`
@@ -2635,7 +2633,6 @@ func cleanupFailedStart(repoRoot, wtPath, branch, devPID string) error {
 	}
 	return nil
 }
-
 
 // slugFromTask derives a task branch name from the first six words of the
 // task description using the same slugging rules as GitHub issue titles.
@@ -4383,6 +4380,9 @@ func runReport(asJSON bool, out io.Writer) error {
 	}
 
 	if asJSON {
+		if records == nil {
+			records = []*diagnostics.RunRecord{}
+		}
 		data, err := json.MarshalIndent(records, "", "  ")
 		if err != nil {
 			return err
@@ -4422,7 +4422,7 @@ func runReport(asJSON bool, out io.Writer) error {
 		}
 		avgTime := "-"
 		if total > 0 {
-			avg := time.Duration(totalSec/float64(total)) * time.Second
+			avg := time.Duration((totalSec / float64(total)) * float64(time.Second))
 			avgTime = formatDuration(avg)
 		}
 		totalTokStr := "-"
@@ -4527,12 +4527,30 @@ func repoRootFromWorktree(wtPath string) string {
 	if err != nil {
 		return ""
 	}
-	for _, line := range strings.Split(string(out), "\n") {
+	var first, currWT, currGitDir string
+	lines := append(strings.Split(string(out), "\n"), "")
+	for _, line := range lines {
+		if line == "" {
+			if currWT != "" {
+				if first == "" {
+					first = currWT
+				}
+				if currGitDir == filepath.Join(currWT, ".git") {
+					return currWT
+				}
+			}
+			currWT, currGitDir = "", ""
+			continue
+		}
 		if strings.HasPrefix(line, "worktree ") {
-			return strings.TrimPrefix(line, "worktree ")
+			currWT = strings.TrimPrefix(line, "worktree ")
+			continue
+		}
+		if strings.HasPrefix(line, "gitdir ") {
+			currGitDir = strings.TrimPrefix(line, "gitdir ")
 		}
 	}
-	return ""
+	return first
 }
 
 // countFilesChanged counts unique files modified on the current branch relative
@@ -4547,13 +4565,25 @@ func countFilesChanged(wtPath string) int {
 			return countNonEmptyLines(string(out))
 		}
 	}
-	cmd := exec.Command("git", "diff", "--name-only", "HEAD")
-	cmd.Dir = wtPath
-	out, err := cmd.Output()
-	if err != nil {
-		return 0
+	seen := map[string]struct{}{}
+	for _, args := range [][]string{
+		{"diff", "--name-only"},
+		{"diff", "--cached", "--name-only", "HEAD"},
+		{"ls-files", "--others", "--exclude-standard"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = wtPath
+		out, err := cmd.Output()
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			if line != "" {
+				seen[line] = struct{}{}
+			}
+		}
 	}
-	return countNonEmptyLines(string(out))
+	return len(seen)
 }
 
 // countNonEmptyLines returns the number of non-empty lines in s.
@@ -4587,12 +4617,7 @@ func finaliseDiagnostics(repoRoot, wtPath string, af state.AgentFile, exitReason
 		r.FilesChanged = filesChanged
 	})
 	// Append a snapshot to the global cross-repo history.
-	if recs, err := diagnostics.List(repoRoot); err == nil {
-		for _, rec := range recs {
-			if diagnostics.RecordFilename(rec.Issue, rec.StartedAt) == runFile {
-				_ = diagnostics.AppendGlobal(rec)
-				break
-			}
-		}
+	if rec, err := diagnostics.Read(repoRoot, runFile); err == nil {
+		_ = diagnostics.AppendGlobal(&rec)
 	}
 }
