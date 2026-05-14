@@ -1341,9 +1341,13 @@ func TestLaunchAgent_headless_withSDD_showsResumeHint(t *testing.T) {
 }
 
 // TestLaunchAgent_headless_notify verifies that a desktop notification is
-// fired after the headless agent exits when notify=true. The notification is
-// sent from the detached __finalise-diagnostics subprocess, so we intercept it
-// via a temp file rather than stubbing notify.SendFn in-process.
+// fired after the headless agent exits when notify=true. Two notification paths
+// are exercised: (1) the parent-process first-run test notification fired by
+// maybeFireTestNotification — suppressed here by stubbing notify.SendFn so no
+// real OS notification appears; (2) the detached completion notification sent
+// from the __finalise-diagnostics subprocess — captured via
+// AGENTCTL_TEST_NOTIFY_FILE rather than the stub, since the subprocess runs in
+// a separate process where the in-process stub has no effect.
 func TestLaunchAgent_headless_notify(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // isolate sentinel so real ~/.config is not written
 	origFn := notify.SendFn
@@ -2441,9 +2445,13 @@ func TestAgentResume_headless_hints(t *testing.T) {
 }
 
 // TestAgentResume_headless_notify verifies that a desktop notification is
-// fired after the headless resume agent exits when sendNotify=true. The
-// notification is sent from the detached __finalise-diagnostics subprocess,
-// so we intercept it via a temp file rather than stubbing notify.SendFn.
+// fired after the headless resume agent exits when sendNotify=true. Two
+// notification paths are exercised: (1) the parent-process first-run test
+// notification fired by maybeFireTestNotification — suppressed here by stubbing
+// notify.SendFn so no real OS notification appears; (2) the detached completion
+// notification sent from the __finalise-diagnostics subprocess — captured via
+// AGENTCTL_TEST_NOTIFY_FILE rather than the stub, since the subprocess runs in
+// a separate process where the in-process stub has no effect.
 func TestAgentResume_headless_notify(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // isolate sentinel so real ~/.config is not written
 	origFn := notify.SendFn
