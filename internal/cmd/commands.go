@@ -1679,11 +1679,18 @@ Use --json to emit a JSON array of run records from .agentctl/runs/.
 Each entry includes issue, branch, agent, status,
 started_at, elapsed_seconds, pr_url, files_changed, and tokens_used.
 
+Use --global --json together to emit a JSON array of registry entries from the
+cross-repo registry. Each entry includes repo, worktree_path, issue, branch,
+agent, state (running/done/stale), and added_at.
+
 Spec states:  no-spec | paused | in-progress | done
 PR states:    none | OPEN | MERGED | CLOSED`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if global {
+				if asJSON {
+					return runGlobalStatusJSON(os.Stdout)
+				}
 				return runGlobalStatus(os.Stdout)
 			}
 			if asJSON {
@@ -1874,7 +1881,7 @@ func runGlobalStatus(out io.Writer) error {
 	home, _ := os.UserHomeDir()
 	for _, e := range entries {
 		repoDisplay := e.RepoPath
-		if home != "" && strings.HasPrefix(repoDisplay, home) {
+		if home != "" && (repoDisplay == home || strings.HasPrefix(repoDisplay, home+"/")) {
 			repoDisplay = "~" + repoDisplay[len(home):]
 		}
 
@@ -1914,6 +1921,46 @@ func globalWorktreeState(e registry.Entry) string {
 		return "running"
 	}
 	return "done"
+}
+
+// runGlobalStatusJSON emits a JSON array of registry entries, each annotated
+// with a "state" field (running/done/stale), when both --global and --json are
+// given.
+func runGlobalStatusJSON(out io.Writer) error {
+	entries, err := registry.List()
+	if err != nil {
+		return fmt.Errorf("reading global registry: %w", err)
+	}
+
+	type globalStatusJSON struct {
+		Repo         string    `json:"repo"`
+		WorktreePath string    `json:"worktree_path,omitempty"`
+		Issue        string    `json:"issue,omitempty"`
+		Branch       string    `json:"branch"`
+		Agent        string    `json:"agent,omitempty"`
+		State        string    `json:"state"`
+		AddedAt      time.Time `json:"added_at"`
+	}
+
+	result := make([]globalStatusJSON, 0, len(entries))
+	for _, e := range entries {
+		result = append(result, globalStatusJSON{
+			Repo:         e.RepoPath,
+			WorktreePath: e.WorktreePath,
+			Issue:        e.Issue,
+			Branch:       e.Branch,
+			Agent:        e.Agent,
+			State:        globalWorktreeState(e),
+			AddedAt:      e.AddedAt,
+		})
+	}
+	data, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return err
+	}
+	out.Write(data) //nolint:errcheck
+	out.Write([]byte("\n"))
+	return nil
 }
 
 // ─── logs ─────────────────────────────────────────────────────────────────────

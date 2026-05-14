@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/arun-gupta/agentctl/internal/xdg"
@@ -56,20 +57,68 @@ func load() ([]Entry, error) {
 	return entries, nil
 }
 
-// save writes entries to disk, creating parent directories as needed.
+// save writes entries to disk atomically: data is marshalled to a temporary
+// file in the same directory, then renamed over the target path.
+// Callers are expected to hold the registry file lock (see withFileLock).
 func save(entries []Entry) error {
 	path := filePath()
 	if path == "" {
 		return nil // no config dir available; silently skip
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(entries, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o600)
+	// Write to a temp file in the same directory, then rename for atomicity.
+	tmp, err := os.CreateTemp(dir, "worktrees-*.json.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	cleanupTmp := func() { tmp.Close(); os.Remove(tmpPath) }
+	if _, err := tmp.Write(data); err != nil {
+		cleanupTmp()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Chmod(tmpPath, 0o600); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	return os.Rename(tmpPath, path)
+}
+
+// withFileLock acquires an exclusive advisory lock on a companion lock file
+// alongside the registry JSON, runs fn, then releases the lock.  This
+// serialises concurrent agentctl invocations (e.g. two simultaneous `start`
+// commands) so that load-modify-save sequences are never interleaved.
+func withFileLock(fn func() error) error {
+	path := filePath()
+	if path == "" {
+		return fn() // no config dir; skip locking
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	lockPath := path + ".lock"
+	lf, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	defer lf.Close()
+	if err := syscall.Flock(int(lf.Fd()), syscall.LOCK_EX); err != nil {
+		return err
+	}
+	defer syscall.Flock(int(lf.Fd()), syscall.LOCK_UN) //nolint:errcheck
+	return fn()
 }
 
 // Add appends an entry for the given worktree if one with the same
@@ -82,42 +131,46 @@ func Add(repoPath, issue, branch, agent string) error {
 // AddWithWorktree is like Add but also records the worktree filesystem path
 // so that state can be re-verified at display time without re-deriving it.
 func AddWithWorktree(repoPath, worktreePath, issue, branch, agent string) error {
-	entries, err := load()
-	if err != nil {
-		return err
-	}
-	for _, e := range entries {
-		if e.RepoPath == repoPath && e.Branch == branch {
-			return nil // already registered
+	return withFileLock(func() error {
+		entries, err := load()
+		if err != nil {
+			return err
 		}
-	}
-	entries = append(entries, Entry{
-		RepoPath:     repoPath,
-		WorktreePath: worktreePath,
-		Issue:        issue,
-		Branch:       branch,
-		Agent:        agent,
-		AddedAt:      time.Now().UTC(),
+		for _, e := range entries {
+			if e.RepoPath == repoPath && e.Branch == branch {
+				return nil // already registered
+			}
+		}
+		entries = append(entries, Entry{
+			RepoPath:     repoPath,
+			WorktreePath: worktreePath,
+			Issue:        issue,
+			Branch:       branch,
+			Agent:        agent,
+			AddedAt:      time.Now().UTC(),
+		})
+		return save(entries)
 	})
-	return save(entries)
 }
 
 // Remove deletes the registry entry for the given repoPath+branch combination.
 // It is a no-op when no matching entry exists.
 func Remove(repoPath, branch string) error {
-	entries, err := load()
-	if err != nil {
-		return err
-	}
-	n := 0
-	for _, e := range entries {
-		if e.RepoPath == repoPath && e.Branch == branch {
-			continue
+	return withFileLock(func() error {
+		entries, err := load()
+		if err != nil {
+			return err
 		}
-		entries[n] = e
-		n++
-	}
-	return save(entries[:n])
+		n := 0
+		for _, e := range entries {
+			if e.RepoPath == repoPath && e.Branch == branch {
+				continue
+			}
+			entries[n] = e
+			n++
+		}
+		return save(entries[:n])
+	})
 }
 
 // List returns all registered entries in the order they were added.
@@ -126,25 +179,30 @@ func List() ([]Entry, error) {
 }
 
 // RemoveStale removes entries whose WorktreePath no longer exists on disk.
+// Entries with an empty WorktreePath are left untouched (they were not created
+// via AddWithWorktree and cannot be verified by filesystem stat).
 // It returns the list of removed entries so callers can report them.
 func RemoveStale() ([]Entry, error) {
-	entries, err := load()
-	if err != nil {
-		return nil, err
-	}
-	var keep, removed []Entry
-	for _, e := range entries {
-		worktreePath := e.WorktreePath
-		if worktreePath == "" {
-			// Legacy entry without worktree_path — treat as stale.
-			removed = append(removed, e)
-			continue
+	var removed []Entry
+	err := withFileLock(func() error {
+		entries, err := load()
+		if err != nil {
+			return err
 		}
-		if _, statErr := os.Stat(worktreePath); os.IsNotExist(statErr) {
-			removed = append(removed, e)
-		} else {
-			keep = append(keep, e)
+		var keep []Entry
+		for _, e := range entries {
+			if e.WorktreePath == "" {
+				// No path recorded — cannot verify; preserve the entry.
+				keep = append(keep, e)
+				continue
+			}
+			if _, statErr := os.Stat(e.WorktreePath); os.IsNotExist(statErr) {
+				removed = append(removed, e)
+			} else {
+				keep = append(keep, e)
+			}
 		}
-	}
-	return removed, save(keep)
+		return save(keep)
+	})
+	return removed, err
 }
