@@ -31,6 +31,7 @@ import (
 	"github.com/arun-gupta/agentctl/internal/git"
 	"github.com/arun-gupta/agentctl/internal/notify"
 	"github.com/arun-gupta/agentctl/internal/process"
+	"github.com/arun-gupta/agentctl/internal/registry"
 	"github.com/arun-gupta/agentctl/internal/sdd"
 	"github.com/arun-gupta/agentctl/internal/state"
 	"github.com/arun-gupta/agentctl/internal/vcs"
@@ -432,6 +433,11 @@ func startOne(issue, slug, agentName, sddName, agentSuffix string, headless, qui
 		return err
 	}
 
+	// Register in the cross-repo registry so `agentctl status --global` can find it.
+	if regErr := registry.AddWithWorktree(repoRoot, wtPath, issueNum, branch, agentName); regErr != nil {
+		fmt.Fprintf(out, "warning: could not register worktree in global registry: %v\n", regErr)
+	}
+
 	cleanupOnError = false
 	return nil
 }
@@ -561,6 +567,11 @@ func startTask(task, branch, agentName, sddName string, headless, quiet, sendNot
 			return fmt.Errorf("%w\ncleanup warning: %v", err, cleanupErr)
 		}
 		return err
+	}
+
+	// Register in the cross-repo registry so `agentctl status --global` can find it.
+	if regErr := registry.AddWithWorktree(repoRoot, wtPath, "", branch, agentName); regErr != nil {
+		fmt.Fprintf(out, "warning: could not register worktree in global registry: %v\n", regErr)
 	}
 
 	cleanupOnError = false
@@ -974,6 +985,12 @@ func runDiscardStale() error {
 			}
 		}
 
+		if branch != "" {
+			if regErr := registry.Remove(repoRoot, branch); regErr != nil {
+				fmt.Fprintf(os.Stderr, "warning: could not remove worktree from global registry: %v\n", regErr)
+			}
+		}
+
 		return nil
 	}
 
@@ -1064,6 +1081,12 @@ func runRemoveWorktree(issue, agentSuffix string) error {
 		if err := removeBranchRefs(repoRoot, branch); err != nil {
 			fmt.Fprintf(os.Stderr, "WARNING: could not delete remote branch %s\n", branch)
 			fmt.Fprintf(os.Stderr, "Delete the remote manually with:\n  git push origin --delete %s\n", branch)
+		}
+	}
+
+	if branch != "" {
+		if regErr := registry.Remove(repoRoot, branch); regErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not remove worktree from global registry: %v\n", regErr)
 		}
 	}
 
@@ -1229,6 +1252,8 @@ func runMerge(issue, strategy, agentSuffix string, noDelete, dryRun bool) error 
 // With --all it sweeps all merged worktrees; otherwise it cleans up one or more issues.
 func NewCleanupCmd() *cobra.Command {
 	var all bool
+	var global bool
+	var stale bool
 	var agentSuffix string
 	c := &cobra.Command{
 		Use:   "cleanup [issue[,issue...]]...",
@@ -1243,9 +1268,21 @@ Multiple issues may be given as a comma-separated list or as separate
 arguments (e.g. "agentctl cleanup 240,277" or "agentctl cleanup 240 277").
 Each issue is cleaned up in sequence; all failures are reported at the end.
 
-Use --all to sweep every linked worktree whose PR is MERGED in one pass.`,
+Use --all to sweep every linked worktree whose PR is MERGED in one pass.
+
+Use --global --stale to prune entries from the cross-repo registry whose
+worktree directories no longer exist on disk.`,
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if global {
+				if !stale {
+					return fmt.Errorf("--global requires --stale; use: agentctl cleanup --global --stale")
+				}
+				if len(args) > 0 {
+					return fmt.Errorf("--global and issue arguments are mutually exclusive")
+				}
+				return runCleanupGlobalStale()
+			}
 			if all {
 				if len(args) > 0 {
 					return fmt.Errorf("--all and issue arguments are mutually exclusive")
@@ -1281,8 +1318,28 @@ Use --all to sweep every linked worktree whose PR is MERGED in one pass.`,
 		},
 	}
 	c.Flags().BoolVar(&all, "all", false, "Clean up all worktrees whose PR is MERGED")
+	c.Flags().BoolVar(&global, "global", false, "Operate on the cross-repo registry (requires --stale)")
+	c.Flags().BoolVar(&stale, "stale", false, "With --global: prune registry entries whose worktree no longer exists")
 	c.Flags().StringVar(&agentSuffix, "agent", "", "Agent name to target a specific worktree when multiple agents ran on the same issue")
 	return c
+}
+
+// runCleanupGlobalStale removes registry entries whose worktree path no longer
+// exists on disk and reports what was pruned.
+func runCleanupGlobalStale() error {
+	removed, err := registry.RemoveStale()
+	if err != nil {
+		return fmt.Errorf("pruning global registry: %w", err)
+	}
+	if len(removed) == 0 {
+		fmt.Println("No stale entries found in the global registry.")
+		return nil
+	}
+	fmt.Printf("Pruned %d stale entry(ies) from the global registry:\n", len(removed))
+	for _, e := range removed {
+		fmt.Printf("  %s  %s  %s\n", e.RepoPath, e.Branch, e.Agent)
+	}
+	return nil
 }
 
 // parseCleanupIssues expands a mix of space-separated args and comma-separated
@@ -1413,6 +1470,10 @@ func cleanupMerged(repoRoot, issue, agentSuffix string) error {
 	if err := removeBranchRefs(repoRoot, branch); err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: could not delete remote branch %s\n", branch)
 		fmt.Fprintf(os.Stderr, "Delete the remote manually with:\n  git push origin --delete %s\n", branch)
+	}
+
+	if regErr := registry.Remove(repoRoot, branch); regErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not remove worktree from global registry: %v\n", regErr)
 	}
 
 	return nil
@@ -1601,6 +1662,7 @@ func runCleanupAllMerged() error {
 func NewStatusCmd() *cobra.Command {
 	var verbose bool
 	var asJSON bool
+	var global bool
 	c := &cobra.Command{
 		Use:     "status",
 		Aliases: []string{"list"},
@@ -1610,6 +1672,9 @@ func NewStatusCmd() *cobra.Command {
 Compact (default):  ISSUE  BRANCH  AGENT  PORT  SPEC  PR
 Verbose:            ISSUE  BRANCH  AGENT  PATH  PORT  DEV-PID  AGENT-PID  SPEC  PR  SESSION
 
+Use --global (-g) to show worktrees across all repositories tracked in the
+cross-repo registry (~/.config/agentctl/worktrees.json).
+
 Use --json to emit a JSON array of run records from .agentctl/runs/.
 Each entry includes issue, branch, agent, status,
 started_at, elapsed_seconds, pr_url, files_changed, and tokens_used.
@@ -1618,6 +1683,9 @@ Spec states:  no-spec | paused | in-progress | done
 PR states:    none | OPEN | MERGED | CLOSED`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if global {
+				return runGlobalStatus(os.Stdout)
+			}
 			if asJSON {
 				return runStatusJSON()
 			}
@@ -1626,6 +1694,7 @@ PR states:    none | OPEN | MERGED | CLOSED`,
 	}
 	c.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show full table including PATH, PIDs, and SESSION")
 	c.Flags().BoolVar(&asJSON, "json", false, "Emit JSON array of run records from .agentctl/runs/")
+	c.Flags().BoolVarP(&global, "global", "g", false, "Show worktrees across all repos from the cross-repo registry")
 	return c
 }
 
@@ -1789,6 +1858,62 @@ func runStatusJSON() error {
 	}
 	fmt.Println(string(data))
 	return nil
+}
+
+// runGlobalStatus prints a table of all worktrees tracked in the cross-repo
+// registry, re-verifying each entry's state at display time.
+func runGlobalStatus(out io.Writer) error {
+	entries, err := registry.List()
+	if err != nil {
+		return fmt.Errorf("reading global registry: %w", err)
+	}
+
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "REPO\tISSUE\tBRANCH\tAGENT\tSTATE")
+
+	home, _ := os.UserHomeDir()
+	for _, e := range entries {
+		repoDisplay := e.RepoPath
+		if home != "" && strings.HasPrefix(repoDisplay, home) {
+			repoDisplay = "~" + repoDisplay[len(home):]
+		}
+
+		issue := e.Issue
+		if issue == "" {
+			issue = "—"
+		}
+
+		agentName := e.Agent
+		if agentName == "" {
+			agentName = "-"
+		}
+
+		wtState := globalWorktreeState(e)
+
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+			repoDisplay, issue, e.Branch, agentName, wtState)
+	}
+	return w.Flush()
+}
+
+// globalWorktreeState returns the display state for a registry entry by
+// re-verifying its on-disk condition at call time.
+//
+//   - "stale"   — worktree path no longer exists on disk
+//   - "running" — agent process is still alive
+//   - "done"    — worktree exists but no live agent process
+func globalWorktreeState(e registry.Entry) string {
+	if e.WorktreePath == "" {
+		return "stale"
+	}
+	if _, err := os.Stat(e.WorktreePath); os.IsNotExist(err) {
+		return "stale"
+	}
+	af, _ := state.Read(e.WorktreePath)
+	if process.IsAlive(af.AgentPID) || process.IsAlive(af.DevPID) {
+		return "running"
+	}
+	return "done"
 }
 
 // ─── logs ─────────────────────────────────────────────────────────────────────
@@ -2696,6 +2821,11 @@ func cleanupFailedStart(repoRoot, wtPath, branch, devPID string) error {
 		if err := git.DeleteLocalBranch(repoRoot, branch); err != nil {
 			errs = append(errs, err.Error())
 		}
+	}
+
+	// Best-effort: remove from global registry even on failed start.
+	if branch != "" {
+		_ = registry.Remove(repoRoot, branch)
 	}
 
 	if len(errs) > 0 {
