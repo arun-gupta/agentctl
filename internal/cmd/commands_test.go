@@ -1345,6 +1345,11 @@ func TestLaunchAgent_headless_withSDD_showsResumeHint(t *testing.T) {
 // sent from the detached __finalise-diagnostics subprocess, so we intercept it
 // via a temp file rather than stubbing notify.SendFn in-process.
 func TestLaunchAgent_headless_notify(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // isolate sentinel so real ~/.config is not written
+	origFn := notify.SendFn
+	t.Cleanup(func() { notify.SendFn = origFn })
+	notify.SendFn = func(_, _ string) {} // suppress real OS notification from maybeFireTestNotification
+
 	dir := t.TempDir()
 	writeLocalAdapter(t, dir, "echoagent",
 		"binary: echo\nsession: --session\n")
@@ -2440,6 +2445,11 @@ func TestAgentResume_headless_hints(t *testing.T) {
 // notification is sent from the detached __finalise-diagnostics subprocess,
 // so we intercept it via a temp file rather than stubbing notify.SendFn.
 func TestAgentResume_headless_notify(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // isolate sentinel so real ~/.config is not written
+	origFn := notify.SendFn
+	t.Cleanup(func() { notify.SendFn = origFn })
+	notify.SendFn = func(_, _ string) {} // suppress real OS notification from maybeFireTestNotification
+
 	t.Setenv("GITHUB_TOKEN", "test-token")
 	dir := t.TempDir()
 	writeLocalAdapter(t, dir, "echoagent",
