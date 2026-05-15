@@ -90,6 +90,29 @@ agentctl **best-effort** injects `GITHUB_TOKEN` from `gh auth token` into the ag
 
 These adapters have not been verified end-to-end. See the warning in [Available adapters → Untested](#untested) above.
 
+## Running the validator
+
+Use the validation harness to exercise an untested adapter against the pre-existing issues in `arun-gupta/agentctl-test`.
+
+```bash
+./scripts/validate-adapter.sh <adapter-name> [--issue <number>] [--repo-path <path>]
+```
+
+Examples:
+
+```bash
+./scripts/validate-adapter.sh gemini
+./scripts/validate-adapter.sh cursor --issue 42
+./scripts/validate-adapter.sh opencode --repo-path ~/src/agentctl-test
+```
+
+Notes:
+
+- The script defaults to `../agentctl-test` relative to this repository.
+- If `--issue` is omitted, it reuses the first open issue returned by `gh issue list --repo arun-gupta/agentctl-test --limit 1`.
+- Exit code `0` means every automated check passed. Any non-zero exit code means at least one automated check failed.
+- Resume, notification, and PR/merge lifecycle checks are still reported as manual follow-ups.
+
 ### gemini
 
 [Gemini CLI](https://github.com/google-gemini/gemini-cli) — Google's coding agent. Uses directory-based session continuity.
