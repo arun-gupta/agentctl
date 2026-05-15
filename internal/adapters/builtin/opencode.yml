@@ -2,4 +2,4 @@ binary: opencode run
 launch: opencode run {kickoff}
 resume_cmd: opencode run {prompt} --continue
 session_type: directory
-install: npm install -g opencode@latest
+install: npm install -g opencode-ai

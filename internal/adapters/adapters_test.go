@@ -499,7 +499,7 @@ func TestBuiltins_installHints(t *testing.T) {
 	}{
 		{"claude", "claude", "npm install -g @anthropic-ai/claude-code"},
 		{"gemini", "gemini", "brew install gemini-cli"},
-		{"opencode", "opencode", "npm install -g opencode@latest"},
+		{"opencode", "opencode", "npm install -g opencode-ai"},
 		{"codex", "codex", "npm install -g @openai/codex"},
 		{"copilot", "copilot", "npm install -g @github/copilot"},
 	}

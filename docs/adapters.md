@@ -20,7 +20,7 @@ The following adapters have not been verified end-to-end. The YAML is provided a
 | Adapter | Type | Install |
 |---------|------|---------|
 | [gemini](#gemini) | Built-in | `brew install gemini-cli` |
-| [opencode](#opencode) | Built-in | `npm install -g opencode@latest` |
+| [opencode](#opencode) | Built-in | `npm install -g opencode-ai` |
 | [kilocode](#kilocode) | Pluggable | `npm install -g @kilocode/cli` |
 | [cursor](#cursor) | Pluggable | `brew install --cask cursor-cli` |
 
@@ -134,7 +134,7 @@ binary: opencode run
 launch: opencode run {kickoff}
 resume_cmd: opencode run {prompt} --continue
 session_type: directory
-install: npm install -g opencode@latest
+install: npm install -g opencode-ai
 ```
 
 ### kilocode
