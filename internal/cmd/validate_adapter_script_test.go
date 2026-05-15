@@ -10,7 +10,19 @@ import (
 	"testing"
 )
 
+func requireBash(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not available on this system")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("validate-adapter.sh requires bash; skipping on Windows")
+	}
+}
+
 func TestValidateAdapterScriptUsage(t *testing.T) {
+	requireBash(t)
+
 	script := validateAdapterScriptPath(t)
 	info, err := os.Stat(script)
 	if err != nil {
@@ -45,6 +57,8 @@ func TestValidateAdapterScriptUsage(t *testing.T) {
 }
 
 func TestValidateAdapterScriptDefaultIssueAndOverrides(t *testing.T) {
+	requireBash(t)
+
 	script := validateAdapterScriptPath(t)
 	stubBin := t.TempDir()
 	repoPath := initValidateAdapterRepo(t)
@@ -95,6 +109,8 @@ func TestValidateAdapterScriptDefaultIssueAndOverrides(t *testing.T) {
 }
 
 func TestValidateAdapterScriptCleanupOnFailure(t *testing.T) {
+	requireBash(t)
+
 	script := validateAdapterScriptPath(t)
 	stubBin := t.TempDir()
 	repoPath := initValidateAdapterRepo(t)
@@ -163,7 +179,7 @@ func makeValidateAdapterStubs(t *testing.T, dir string) {
 
 	writeValidateAdapterStub(t, filepath.Join(dir, "gh"), `#!/usr/bin/env bash
 set -euo pipefail
-printf '%s\n' "$*" >>"`+filepath.Join(dir, "gh.log")+`"
+printf '%s\n' "$*" >>`+`"`+filepath.Join(dir, "gh.log")+`"`+`
 if [[ "${1:-}" == "issue" && "${2:-}" == "list" ]]; then
   echo 77
   exit 0
@@ -172,22 +188,21 @@ echo "unexpected gh invocation: $*" >&2
 exit 1
 `)
 
-	writeValidateAdapterStub(t, filepath.Join(dir, "fake-adapter-bin"), `#!/usr/bin/env bash
-exit 0
-`)
-
+	// agentctl stub mirrors real output formats:
+	//   info     — "Coding Agents:" block with ✗/✓ markers and install hints
+	//   status   — tab-separated table with ISSUE as first column (NR>1)
+	//   start    — creates a real git worktree so resolve_worktree and cleanup work
+	//   logs     — emits a log line
+	//   attach   — exits 0 immediately
 	writeValidateAdapterStub(t, filepath.Join(dir, "agentctl"), `#!/usr/bin/env bash
 set -euo pipefail
 
 if [[ "${1:-}" == "info" ]]; then
   cat <<'EOF'
-Available adapters:
-  gemini
-    binary: fake-adapter-bin
-  cursor
-    binary: fake-adapter-bin
-  opencode
-    binary: fake-adapter-bin
+Coding Agents:
+  ✗ gemini       (not installed) — install with: npm install -g @google/gemini-cli
+  ✗ cursor       (not installed) — install with: brew install --cask cursor-cli
+  ✗ opencode     (not installed) — install with: npm install -g opencode@latest
 EOF
   exit 0
 fi
@@ -197,27 +212,12 @@ if [[ "${1:-}" == "agent" && "${2:-}" == "start" ]]; then
   issue=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --agent)
-        adapter="$2"
-        shift 2
-        ;;
-      --headless)
-        shift
-        ;;
-      agent|start)
-        shift
-        ;;
-      *)
-        issue="$1"
-        shift
-        ;;
+      --agent)   adapter="$2"; shift 2 ;;
+      --headless) shift ;;
+      agent|start) shift ;;
+      *) issue="$1"; shift ;;
     esac
   done
-
-  if ! command -v fake-adapter-bin >/dev/null 2>&1; then
-    echo "install: npm install -g fake-adapter-bin"
-    exit 1
-  fi
 
   repo_path="$(pwd)"
   worktree_path="${repo_path}/${issue}-${adapter}"
@@ -233,8 +233,9 @@ if [[ "${1:-}" == "agent" && "${2:-}" == "start" ]]; then
 fi
 
 if [[ "${1:-}" == "agent" && "${2:-}" == "status" ]]; then
-  echo "issue #77 running"
-  echo "issue #42 running"
+  printf 'ISSUE\tBRANCH\tAGENT\tPORT\tSPEC\tPR\n'
+  printf '77\t77-gemini\tgemini\t3010\tno-spec\tnone\n'
+  printf '42\t42-cursor\tcursor\t3011\tno-spec\tnone\n'
   exit 0
 fi
 

@@ -15,6 +15,7 @@ REPO_PATH="../agentctl-test"
 ISSUE=""
 WORKTREE=""
 BRANCH=""
+WORKTREES_BEFORE=""
 PASS=0
 FAIL=0
 MANUAL=3
@@ -40,19 +41,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-pass() {
-  echo "[PASS] $*"
-  PASS=$((PASS + 1))
-}
-
-fail() {
-  echo "[FAIL] $*"
-  FAIL=$((FAIL + 1))
-}
-
-skip() {
-  echo "[SKIP] $* - manual check required"
-}
+pass() { echo "[PASS] $*"; PASS=$((PASS + 1)); }
+fail() { echo "[FAIL] $*"; FAIL=$((FAIL + 1)); }
+skip() { echo "[SKIP] $* — manual check required"; }
 
 cleanup() {
   if [[ -n "$WORKTREE" && -d "$WORKTREE" ]]; then
@@ -76,18 +67,17 @@ resolve_issue() {
   fi
 }
 
-adapter_binary() {
-  agentctl info 2>&1 | awk -v adapter="$ADAPTER" '
-    $0 == "  " adapter { found=1; next }
-    found && $0 ~ /^  [^ ]/ { found=0 }
-    found && $0 ~ /^[[:space:]]+binary:/ {
-      sub(/^[[:space:]]+binary:[[:space:]]*/, "", $0)
-      print $0
-      exit
-    }
-  '
+# Extract only the "Coding Agents:" block from agentctl info output.
+# Stops at the first non-indented line after the block starts, preventing
+# false positives from config lines like "default_agent: gemini".
+coding_agents_section() {
+  agentctl info 2>&1 | awk '/^Coding Agents:/{found=1;next} found && /^[^[:space:]]/{exit} found{print}'
 }
 
+# Resolve the worktree created by agent start for ISSUE by diffing
+# git worktree list before and after the start call. This prevents
+# accidentally selecting a pre-existing worktree whose branch already
+# matches ${ISSUE}-*.
 resolve_worktree() {
   local record path branch
   while IFS= read -r record; do
@@ -97,7 +87,7 @@ resolve_worktree() {
         ;;
       branch\ refs/heads/*)
         branch="${record#branch refs/heads/}"
-        if [[ "$branch" == "${ISSUE}-"* ]]; then
+        if [[ "$branch" == "${ISSUE}-"* ]] && ! grep -qxF "worktree $path" <<<"$WORKTREES_BEFORE"; then
           WORKTREE="$path"
           BRANCH="$branch"
           return 0
@@ -121,29 +111,36 @@ resolve_issue
 
 echo "[validate-adapter] adapter: $ADAPTER  repo: arun-gupta/agentctl-test  issue: #$ISSUE"
 
-if agentctl info 2>&1 | grep -q "$ADAPTER"; then
+# ── Level 1: Binary & wiring ─────────────────────────────────────────────
+
+AGENTS_SECTION="$(coding_agents_section)"
+
+# 1a: adapter appears in Coding Agents section — anchored to the adapter name
+# token to avoid matching config lines elsewhere in agentctl info output.
+if echo "$AGENTS_SECTION" | grep -qE "[[:space:]]${ADAPTER}([[:space:]]|$)"; then
   pass "agentctl info lists adapter \"$ADAPTER\""
 else
   fail "agentctl info does not list adapter \"$ADAPTER\""
 fi
 
-BINARY="$(adapter_binary || true)"
-BINARY_CMD="${BINARY%% *}"
-if [[ -n "$BINARY_CMD" ]] && BINARY_PATH="$(command -v "$BINARY_CMD" 2>/dev/null)"; then
-  BINARY_BAK="${BINARY_PATH}.validate-bak"
-  mv "$BINARY_PATH" "$BINARY_BAK"
-  OUTPUT="$(cd "$REPO_PATH" && agentctl agent start --agent "$ADAPTER" "$ISSUE" 2>&1 || true)"
-  mv "$BINARY_BAK" "$BINARY_PATH"
-  if grep -qi "install" <<<"$OUTPUT"; then
-    pass "install hint shown when binary is missing"
-  else
-    fail "no install hint shown when binary is missing"
-  fi
+# 1b: install hint present when adapter binary is not installed.
+# Reads directly from agentctl info output — no binary rename or PATH mutation needed.
+ADAPTER_LINE="$(echo "$AGENTS_SECTION" | grep -E "[[:space:]]${ADAPTER}([[:space:]]|$)" | head -1)"
+if echo "$ADAPTER_LINE" | grep -q "not installed" && echo "$ADAPTER_LINE" | grep -q "install with:"; then
+  pass "install hint shown when binary is missing"
+elif echo "$ADAPTER_LINE" | grep -q "not installed"; then
+  fail "adapter binary not installed but no install hint provided in agentctl info"
 else
-  skip "install hint check - binary not on PATH, skipping hide-and-restore"
+  skip "install hint check — binary is installed; test manually by temporarily removing it from PATH"
 fi
 
+# ── Level 2: Launch smoke test ───────────────────────────────────────────
+
 START="$(date +%s)"
+
+# Snapshot existing worktrees before agent start so resolve_worktree can
+# identify the newly-created one without clobbering a pre-existing worktree.
+WORKTREES_BEFORE="$(git -C "$REPO_PATH" worktree list --porcelain)"
 
 if (cd "$REPO_PATH" && agentctl agent start --agent "$ADAPTER" --headless "$ISSUE"); then
   pass "agentctl agent start launched agent"
@@ -158,7 +155,9 @@ else
   fail "could not resolve worktree path for issue #$ISSUE"
 fi
 
-if (cd "$REPO_PATH" && agentctl agent status 2>&1 | grep -q "$ISSUE"); then
+# Match exact first column in agent status table to avoid false positives
+# where issue number "42" would match row "142".
+if (cd "$REPO_PATH" && agentctl agent status 2>&1 | awk -v issue="$ISSUE" 'NR>1 && $1==issue{found=1} END{exit !found}'); then
   pass "agentctl agent status shows issue #$ISSUE"
 else
   fail "agentctl agent status does not show issue #$ISSUE"
