@@ -1,3 +1,5 @@
 binary: gemini
+launch: gemini --skip-trust -p {kickoff}
+resume_cmd: gemini --skip-trust -p {prompt}
 session_type: directory
-install: npm install -g @google/gemini-cli
+install: brew install gemini-cli
