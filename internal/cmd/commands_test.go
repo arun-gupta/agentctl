@@ -19,6 +19,7 @@ import (
 	"github.com/arun-gupta/agentctl/internal/git"
 	"github.com/arun-gupta/agentctl/internal/notify"
 	"github.com/arun-gupta/agentctl/internal/process"
+	"github.com/arun-gupta/agentctl/internal/registry"
 	"github.com/arun-gupta/agentctl/internal/sdd"
 	"github.com/arun-gupta/agentctl/internal/state"
 	"github.com/arun-gupta/agentctl/internal/vcs"
@@ -6372,5 +6373,126 @@ func TestStartOne_defaultSDD_speckit_fromConfig(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "SpecKit skills not found") {
 		t.Fatalf("expected speckit-not-found error, got: %v", err)
+	}
+}
+
+// ─── runGlobalStatus ──────────────────────────────────────────────────────────
+
+func setRegistryDirForCmd(t *testing.T) {
+	t.Helper()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+}
+
+func TestRunGlobalStatus_emptyRegistry(t *testing.T) {
+	setRegistryDirForCmd(t)
+
+	var buf bytes.Buffer
+	if err := runGlobalStatus(&buf); err != nil {
+		t.Fatalf("runGlobalStatus: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "REPO") {
+		t.Errorf("expected header row; got:\n%s", out)
+	}
+	// No entries — only the header line should be present.
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) != 1 {
+		t.Errorf("expected 1 line (header only) for empty registry; got %d:\n%s", len(lines), out)
+	}
+}
+
+func TestRunGlobalStatus_showsEntries(t *testing.T) {
+	setRegistryDirForCmd(t)
+
+	// Create a real worktree directory with a .agent file.
+	wtDir := t.TempDir()
+	if err := state.Write(wtDir, state.AgentFile{Agent: "claude", SessionID: "abc123"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := registry.AddWithWorktree("/repos/api", wtDir, "42", "42-feat-auth", "claude"); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := runGlobalStatus(&buf); err != nil {
+		t.Fatalf("runGlobalStatus: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "42-feat-auth") {
+		t.Errorf("expected branch in output; got:\n%s", out)
+	}
+	if !strings.Contains(out, "claude") {
+		t.Errorf("expected agent name in output; got:\n%s", out)
+	}
+	if !strings.Contains(out, "42") {
+		t.Errorf("expected issue number in output; got:\n%s", out)
+	}
+}
+
+func TestRunGlobalStatus_staleEntry(t *testing.T) {
+	setRegistryDirForCmd(t)
+
+	if err := registry.AddWithWorktree("/repos/api", "/no/such/worktree", "42", "42-feat-auth", "claude"); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := runGlobalStatus(&buf); err != nil {
+		t.Fatalf("runGlobalStatus: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "stale") {
+		t.Errorf("expected 'stale' state for missing worktree; got:\n%s", out)
+	}
+}
+
+func TestRunGlobalStatus_doneEntry(t *testing.T) {
+	setRegistryDirForCmd(t)
+
+	// Worktree exists but agent PID is empty (not running).
+	wtDir := t.TempDir()
+	if err := state.Write(wtDir, state.AgentFile{Agent: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := registry.AddWithWorktree("/repos/api", wtDir, "17", "17-fix-login", "claude"); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := runGlobalStatus(&buf); err != nil {
+		t.Fatalf("runGlobalStatus: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "done") {
+		t.Errorf("expected 'done' state; got:\n%s", out)
+	}
+}
+
+func TestRunCleanupGlobalStale_prunesStaleEntries(t *testing.T) {
+	setRegistryDirForCmd(t)
+
+	liveDir := t.TempDir()
+	if err := registry.AddWithWorktree("/repos/api", liveDir, "1", "1-live", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.AddWithWorktree("/repos/frontend", "/no/such/dir", "2", "2-gone", "codex"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runCleanupGlobalStale(); err != nil {
+		t.Fatalf("runCleanupGlobalStale: %v", err)
+	}
+
+	remaining, err := registry.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remaining) != 1 {
+		t.Fatalf("expected 1 remaining entry, got %d", len(remaining))
+	}
+	if remaining[0].Branch != "1-live" {
+		t.Errorf("expected live branch to remain, got %q", remaining[0].Branch)
 	}
 }

@@ -255,6 +255,7 @@ Side effects:
 ```bash
 agentctl agent status
 agentctl agent status --verbose
+agentctl agent status --global
 agentctl agent list
 ```
 
@@ -272,7 +273,21 @@ Verbose columns:
 ISSUE  BRANCH  AGENT  PATH  PORT  DEV-PID  AGENT-PID  SPEC  PR  SESSION
 ```
 
-Spec states:
+**Global mode** (`--global` / `-g`): shows worktrees across all repositories from the cross-repo registry at `~/.config/agentctl/worktrees.json`. Each entry's state is re-verified at display time.
+
+Global columns:
+
+```text
+REPO  ISSUE  BRANCH  AGENT  STATE
+```
+
+Global states:
+
+- `running`: agent process is still alive.
+- `done`: worktree exists but no live agent process.
+- `stale`: worktree directory no longer exists on disk.
+
+Spec states (default/verbose mode):
 
 - `no-spec`: no spec found for the issue.
 - `paused`: `spec.md` exists, but no `plan.md` or `tasks.md`.
@@ -433,6 +448,7 @@ Error cases:
 ```bash
 agentctl worktree cleanup [issue-number-or-url]
 agentctl worktree cleanup --all
+agentctl worktree cleanup --global --stale
 ```
 
 Cleans up a worktree after its PR is merged.
@@ -448,6 +464,8 @@ Behavior:
 - Deletes local and remote branches.
 
 Use `--all` to scan all linked worktrees and run the cleanup flow for every branch whose PR state is `MERGED`. Also prunes orphaned remote branches (branches with no local worktree whose PR is MERGED or CLOSED). Branches without PRs, unmerged PRs, detached worktrees, or branches without a numeric issue prefix are skipped.
+
+Use `--global --stale` to prune entries from the cross-repo registry (`~/.config/agentctl/worktrees.json`) whose worktree directories no longer exist on disk. This does not affect local branches or PRs — it only tidies the registry used by `agentctl status --global`.
 
 If the PR is not merged, use `agentctl worktree discard` for abandoned work.
 
