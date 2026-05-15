@@ -71,7 +71,7 @@ resolve_issue() {
 # Stops at the first non-indented line after the block starts, preventing
 # false positives from config lines like "default_agent: gemini".
 coding_agents_section() {
-  agentctl info 2>&1 | awk '/^Coding Agents:/{found=1;next} found && /^[^[:space:]]/{exit} found{print}'
+  agentctl info 2>&1 | awk '/^Coding Agents:/{found=1;next} found && /^[^[:space:]]/{found=0} found{print}'
 }
 
 # Resolve the worktree created by agent start for ISSUE by diffing
