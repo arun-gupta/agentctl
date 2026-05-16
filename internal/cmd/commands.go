@@ -216,7 +216,7 @@ func isSupportedIssueURL(arg string) bool {
 
 // resumeHintFmt is printed after a foreground agent exits so users know how
 // to send follow-up feedback. %s is replaced with the issue number.
-const resumeHintFmt = "agentctl resume %s [feedback]   # no feedback approves; add feedback to request changes\n"
+const resumeHintFmt = "agentctl agent resume %s [feedback]   # no feedback approves; add feedback to request changes\n"
 
 // kickoffTemplate is the default prompt sent to the agent when no --sdd
 // methodology is specified. {platform}, {issue}, {prTerm}, and {port} are
@@ -820,8 +820,8 @@ you are inside a linked worktree.
 Multiple issues may be given as a comma-separated list. Each list item may
 be a bare issue number or a full GitHub issue URL, e.g.:
 
-  agentctl discard 55,56,57
-  agentctl discard 55,https://github.com/org/repo/issues/56,57
+  agentctl worktree discard 55,56,57
+  agentctl worktree discard 55,https://github.com/org/repo/issues/56,57
 
 Each worktree is discarded in sequence; you will be prompted to confirm
 each one.
@@ -1198,7 +1198,7 @@ func runMerge(issue, strategy, agentSuffix string, noDelete, dryRun bool) error 
 	}
 	switch prState {
 	case "MERGED":
-		return fmt.Errorf("%s for %s is already MERGED — use: agentctl cleanup %s", p.PRTerm(), branch, issue)
+		return fmt.Errorf("%s for %s is already MERGED — use: agentctl worktree cleanup %s", p.PRTerm(), branch, issue)
 	case "CLOSED":
 		return fmt.Errorf("%s for %s is CLOSED and cannot be merged", p.PRTerm(), branch)
 	case "":
@@ -1265,7 +1265,7 @@ Run without arguments inside a linked worktree to infer the issue number
 from the current branch.
 
 Multiple issues may be given as a comma-separated list or as separate
-arguments (e.g. "agentctl cleanup 240,277" or "agentctl cleanup 240 277").
+arguments (e.g. "agentctl worktree cleanup 240,277" or "agentctl worktree cleanup 240 277").
 Each issue is cleaned up in sequence; all failures are reported at the end.
 
 Use --all to sweep every linked worktree whose PR is MERGED in one pass.
@@ -1424,10 +1424,10 @@ func cleanupMerged(repoRoot, issue, agentSuffix string) error {
 	}
 	prState, _, _, prErr := p.PRForBranch(repoRoot, branch)
 	if prErr != nil {
-		return fmt.Errorf("could not determine %s state for %s.\nIs %s installed and authenticated? If this branch has no %s, use:\n  agentctl discard %s", p.PRTerm(), branch, p.CLI(), p.PRTerm(), issue)
+		return fmt.Errorf("could not determine %s state for %s.\nIs %s installed and authenticated? If this branch has no %s, use:\n  agentctl worktree discard %s", p.PRTerm(), branch, p.CLI(), p.PRTerm(), issue)
 	}
 	if prState != "MERGED" {
-		return fmt.Errorf("%s for %s is %s, not MERGED.\nUse: agentctl discard %s", p.PRTerm(), branch, prState, issue)
+		return fmt.Errorf("%s for %s is %s, not MERGED.\nUse: agentctl worktree discard %s", p.PRTerm(), branch, prState, issue)
 	}
 
 	fmt.Printf("Pulling main in %s ...\n", repoRoot)
@@ -1647,7 +1647,7 @@ func runCleanupAllMerged() error {
 
 	fmt.Printf("\n%d merged worktrees cleaned, %d orphaned remote branches pruned, %d skipped\n", cleaned, orphanedPruned, skipped)
 	if staleCount > 0 {
-		fmt.Printf("Note: %d stale worktree(s) found with no agent and no PR — run `agentctl discard --stale` to remove them.\n", staleCount)
+		fmt.Printf("Note: %d stale worktree(s) found with no agent and no PR — run `agentctl worktree discard --stale` to remove them.\n", staleCount)
 	}
 	if failed > 0 {
 		fmt.Fprintf(os.Stderr, "%d cleanup(s) failed\n", failed)
@@ -2073,10 +2073,10 @@ func streamLog(wtPath, issue string, lines int, noFollow bool, w io.Writer, logW
 				specPath := findSpecPath(wtPath, issue)
 				switch {
 				case af2.SDD != "" && af2.SDDStage < 2 && specPath != "":
-					fmt.Fprintf(w, "Spec: %s\nSpec ready for review — agentctl resume %s\n", specPath, id)
+					fmt.Fprintf(w, "Spec: %s\nSpec ready for review — agentctl agent resume %s\n", specPath, id)
 				case af2.SDD != "" && af2.SDDStage >= 2:
 					if reportPRStatus(w, wtPath, branch2, issue, false) {
-						fmt.Fprintf(w, "agentctl cleanup %s   # after PR is merged\n", id)
+						fmt.Fprintf(w, "agentctl worktree cleanup %s   # after PR is merged\n", id)
 					} else {
 						fmt.Fprintf(w, "agent process has exited\n")
 					}
@@ -2806,12 +2806,12 @@ func worktreeExistsError(wtPath, issueNum string) error {
 		id = af.IssueArg
 	}
 	if readErr == nil && af.AgentPID != "" && process.IsAlive(af.AgentPID) {
-		return fmt.Errorf("Worktree already exists for issue %s — agent is still running.\nWorktree: %s\n\n  agentctl attach %s   to follow its output\n  agentctl discard %s   to delete the worktree and start over", issueNum, wtPath, id, id)
+		return fmt.Errorf("Worktree already exists for issue %s — agent is still running.\nWorktree: %s\n\n  agentctl agent attach %s   to follow its output\n  agentctl worktree discard %s   to delete the worktree and start over", issueNum, wtPath, id, id)
 	}
 	if readErr == nil && af.AgentPID != "" {
-		return fmt.Errorf("Worktree already exists for issue %s — agent has finished.\nWorktree: %s\n\n  agentctl cleanup %s   if the PR is merged\n  agentctl discard %s   to delete the worktree and start over", issueNum, wtPath, id, id)
+		return fmt.Errorf("Worktree already exists for issue %s — agent has finished.\nWorktree: %s\n\n  agentctl worktree cleanup %s   if the PR is merged\n  agentctl worktree discard %s   to delete the worktree and start over", issueNum, wtPath, id, id)
 	}
-	return fmt.Errorf("Worktree already exists for issue %s.\nWorktree: %s\n\n  agentctl discard %s   to delete the worktree and start over", issueNum, wtPath, id)
+	return fmt.Errorf("Worktree already exists for issue %s.\nWorktree: %s\n\n  agentctl worktree discard %s   to delete the worktree and start over", issueNum, wtPath, id)
 }
 
 // taskWorktreeExistsError is like worktreeExistsError but uses "task"/"branch"
@@ -2819,12 +2819,12 @@ func worktreeExistsError(wtPath, issueNum string) error {
 func taskWorktreeExistsError(wtPath, branch string) error {
 	af, readErr := state.Read(wtPath)
 	if readErr == nil && af.AgentPID != "" && process.IsAlive(af.AgentPID) {
-		return fmt.Errorf("Worktree already exists for task branch %s — agent is still running.\nWorktree: %s\n\n  agentctl attach %s   to follow its output\n  agentctl discard %s   to delete the worktree and start over", branch, wtPath, branch, branch)
+		return fmt.Errorf("Worktree already exists for task branch %s — agent is still running.\nWorktree: %s\n\n  agentctl agent attach %s   to follow its output\n  agentctl worktree discard %s   to delete the worktree and start over", branch, wtPath, branch, branch)
 	}
 	if readErr == nil && af.AgentPID != "" {
-		return fmt.Errorf("Worktree already exists for task branch %s — agent has finished.\nWorktree: %s\n\n  agentctl cleanup %s   if the PR is merged\n  agentctl discard %s   to delete the worktree and start over", branch, wtPath, branch, branch)
+		return fmt.Errorf("Worktree already exists for task branch %s — agent has finished.\nWorktree: %s\n\n  agentctl worktree cleanup %s   if the PR is merged\n  agentctl worktree discard %s   to delete the worktree and start over", branch, wtPath, branch, branch)
 	}
-	return fmt.Errorf("Worktree already exists for task branch %s.\nWorktree: %s\n\n  agentctl discard %s   to delete the worktree and start over", branch, wtPath, branch)
+	return fmt.Errorf("Worktree already exists for task branch %s.\nWorktree: %s\n\n  agentctl worktree discard %s   to delete the worktree and start over", branch, wtPath, branch)
 }
 
 // issueDisplayFor reads the issue-arg stored in the .agent state file and
@@ -3404,11 +3404,11 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 
 		id := issueDisplayFor(wtPath, issue)
 		fmt.Fprintf(out, "Agent PID %d — log: %s\n", pid, logPath)
-		fmt.Fprintf(out, "agentctl logs %s      # follow log\n", id)
-		fmt.Fprintf(out, "agentctl attach %s    # stream live and wait\n", id)
-		fmt.Fprintf(out, "agentctl discard %s   # abandon\n", id)
+		fmt.Fprintf(out, "agentctl agent logs %s      # follow log\n", id)
+		fmt.Fprintf(out, "agentctl agent attach %s    # stream live and wait\n", id)
+		fmt.Fprintf(out, "agentctl worktree discard %s   # abandon\n", id)
 		if sddName != "" {
-			fmt.Fprintf(out, "agentctl resume %s [feedback]   # approve spec or send revisions\n", id)
+			fmt.Fprintf(out, "agentctl agent resume %s [feedback]   # approve spec or send revisions\n", id)
 		}
 		if sendNotify {
 			maybeFireTestNotification(issue, out)
@@ -3442,7 +3442,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			wg.Wait()
 			if agentExitErr != nil {
 				id2 := issueDisplayFor(wtPath, issue)
-				fmt.Fprintf(out, "agent exited with error — check the log: agentctl logs %s\n", id2)
+				fmt.Fprintf(out, "agent exited with error — check the log: agentctl agent logs %s\n", id2)
 				return nil
 			}
 			branch, branchErr := git.CurrentBranch(wtPath)
@@ -3465,7 +3465,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 				fmt.Fprintf(out, resumeHintFmt, id3)
 			}
 			if hasPR {
-				fmt.Fprintf(out, "agentctl cleanup %s   # delete worktree + branch after PR is merged\n", id3)
+				fmt.Fprintf(out, "agentctl worktree cleanup %s   # delete worktree + branch after PR is merged\n", id3)
 			}
 			return nil
 		case <-sigCh:
@@ -3474,9 +3474,9 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			wg.Wait()
 			id4 := issueDisplayFor(wtPath, issue)
 			fmt.Fprintf(out, "agent still running in background\n")
-			fmt.Fprintf(out, "  agentctl logs %s     # follow log\n", id4)
-			fmt.Fprintf(out, "  agentctl attach %s   # stream live output\n", id4)
-			fmt.Fprintf(out, "  agentctl discard %s  # permanently delete worktree and branches\n", id4)
+			fmt.Fprintf(out, "  agentctl agent logs %s     # follow log\n", id4)
+			fmt.Fprintf(out, "  agentctl agent attach %s   # stream live output\n", id4)
+			fmt.Fprintf(out, "  agentctl worktree discard %s  # permanently delete worktree and branches\n", id4)
 			return nil
 		}
 	}
@@ -3557,9 +3557,9 @@ func sendCompletionNotification(issue, wtPath, sddName string, exitErr error) {
 	var message string
 	switch {
 	case exitErr != nil:
-		message = fmt.Sprintf("Agent failed — issue #%s%s: check agentctl logs %s", issue, branchPart, issue)
+		message = fmt.Sprintf("Agent failed — issue #%s%s: check agentctl agent logs %s", issue, branchPart, issue)
 	case sddName != "" && af.SDDStage < 2 && specPath != "":
-		message = fmt.Sprintf("Spec ready for review — issue #%s%s: %s — agentctl resume %s", issue, branchPart, specPath, issue)
+		message = fmt.Sprintf("Spec ready for review — issue #%s%s: %s — agentctl agent resume %s", issue, branchPart, specPath, issue)
 	default:
 		message = fmt.Sprintf("Agent finished — issue #%s%s: succeeded", issue, branchPart)
 	}
@@ -4548,9 +4548,9 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 	if headless {
 		id := issueDisplayFor(wtPath, issue)
 		fmt.Printf("Released pause for issue %s; Stage 2 running in background.\n", issue)
-		fmt.Printf("agentctl logs %s      # follow log\n", id)
-		fmt.Printf("agentctl attach %s    # stream live and wait\n", id)
-		fmt.Printf("agentctl discard %s   # abandon\n", id)
+		fmt.Printf("agentctl agent logs %s      # follow log\n", id)
+		fmt.Printf("agentctl agent attach %s    # stream live and wait\n", id)
+		fmt.Printf("agentctl worktree discard %s   # abandon\n", id)
 		if sendNotify {
 			maybeFireTestNotification(issue, os.Stdout)
 		}
@@ -4685,9 +4685,9 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 			wg.Wait()
 			id2 := issueDisplayFor(wtPath, issue)
 			fmt.Fprintf(os.Stdout, "agent still running in background\n")
-			fmt.Fprintf(os.Stdout, "  agentctl logs %s     # follow log\n", id2)
-			fmt.Fprintf(os.Stdout, "  agentctl attach %s   # stream live output\n", id2)
-			fmt.Fprintf(os.Stdout, "  agentctl discard %s  # permanently delete worktree and branches\n", id2)
+			fmt.Fprintf(os.Stdout, "  agentctl agent logs %s     # follow log\n", id2)
+			fmt.Fprintf(os.Stdout, "  agentctl agent attach %s   # stream live output\n", id2)
+			fmt.Fprintf(os.Stdout, "  agentctl worktree discard %s  # permanently delete worktree and branches\n", id2)
 			return nil
 		}
 	}
