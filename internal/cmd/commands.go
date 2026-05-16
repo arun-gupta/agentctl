@@ -4249,11 +4249,9 @@ func agentEnv(wtPath string) ([]string, error) {
 			}
 		}
 
-		// Expose ~/.config/gh and ~/.config/glab-cli (the CLI credential stores)
-		// rather than the entire ~/.config tree, to limit the host config surface
-		// accessible from the agent's isolated HOME.
+		// Expose selected ~/.config subdirs rather than the entire tree.
 		agentConfigDir := filepath.Join(agentHome, ".config")
-		for _, cfgDir := range []string{"gh", "glab-cli"} {
+		for _, cfgDir := range []string{"gh", "glab-cli", "opencode"} {
 			cfgSrc := filepath.Join(realHome, ".config", cfgDir)
 			if _, srcErr := os.Lstat(cfgSrc); srcErr != nil {
 				if !os.IsNotExist(srcErr) {
@@ -4269,6 +4267,21 @@ func agentEnv(wtPath string) ([]string, error) {
 			if _, statErr := os.Lstat(cfgDst); os.IsNotExist(statErr) {
 				if symlinkErr := os.Symlink(cfgSrc, cfgDst); symlinkErr != nil {
 					fmt.Fprintf(os.Stderr, "agentctl: warning: symlink .config/%s: %v (%s credentials may not work)\n", cfgDir, symlinkErr, cfgDir)
+				}
+			}
+		}
+
+		// Expose ~/.local/share/opencode (auth.json, session DB) so opencode can
+		// authenticate when HOME is redirected to .agent-home.
+		agentLocalShareDir := filepath.Join(agentHome, ".local", "share")
+		opencodeDataSrc := filepath.Join(realHome, ".local", "share", "opencode")
+		if _, srcErr := os.Lstat(opencodeDataSrc); srcErr == nil {
+			if mkdirErr := os.MkdirAll(agentLocalShareDir, 0o755); mkdirErr == nil {
+				opencodeDataDst := filepath.Join(agentLocalShareDir, "opencode")
+				if _, statErr := os.Lstat(opencodeDataDst); os.IsNotExist(statErr) {
+					if symlinkErr := os.Symlink(opencodeDataSrc, opencodeDataDst); symlinkErr != nil {
+						fmt.Fprintf(os.Stderr, "agentctl: warning: symlink .local/share/opencode: %v (opencode auth may not work)\n", symlinkErr)
+					}
 				}
 			}
 		}
