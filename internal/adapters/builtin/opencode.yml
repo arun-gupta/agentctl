@@ -1,5 +1,5 @@
 binary: opencode run
-launch: opencode run --model anthropic/claude-sonnet-4-5 --dangerously-skip-permissions {kickoff}
-resume_cmd: opencode run --model anthropic/claude-sonnet-4-5 --dangerously-skip-permissions --continue {prompt}
+launch: opencode run --model claude-sonnet-4-5 --dangerously-skip-permissions {kickoff}
+resume_cmd: opencode run --model claude-sonnet-4-5 --dangerously-skip-permissions --continue {prompt}
 session_type: directory
 install: npm install -g opencode-ai
