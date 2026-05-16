@@ -206,7 +206,7 @@ fi
 
 # PR check — any open PR whose branch starts with the issue number covers both
 # agentctl-named branches and agent self-named branches (e.g. opencode).
-PR_URL="$(cd "$REPO_PATH" && gh pr list --json headRefName,url -q ".[] | select(.headRefName | startswith(\"${ISSUE}-\")) | .url" 2>/dev/null | head -1 || true)"
+PR_URL="$(cd "$REPO_PATH" && gh pr list --json headRefName,url -q ".[] | select(.headRefName | test(\"(^|[^0-9])${ISSUE}([^0-9]|\$)\")) | .url" 2>/dev/null | head -1 || true)"
 if [[ -n "$PR_URL" ]]; then
   pass "PR opened: $PR_URL"
 else
