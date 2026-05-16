@@ -3138,9 +3138,9 @@ func resolveWorktree(repoRoot, issue, agentSuffix string) (git.Worktree, error) 
 	}
 
 	if agentSuffix != "" {
-		suffix := "-" + agentSuffix
 		for _, wt := range wts {
-			if strings.HasSuffix(wt.Path, suffix) {
+			af, _ := state.Read(wt.Path)
+			if af.Agent == agentSuffix {
 				return wt, nil
 			}
 		}

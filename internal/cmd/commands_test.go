@@ -5801,14 +5801,21 @@ func TestResolveWorktree_multiWorktree_withAgent(t *testing.T) {
 
 	parent := filepath.Dir(repo)
 	repoName := filepath.Base(repo)
-	wt1 := filepath.Join(parent, repoName+"-42-auth-fix-claude")
-	wt2 := filepath.Join(parent, repoName+"-42-auth-fix-codex")
-	gitRun(t, repo, "worktree", "add", "-b", "42-auth-fix-claude", wt1)
-	gitRun(t, repo, "worktree", "add", "-b", "42-auth-fix-codex", wt2)
+	// Use issue-title slugs (not agent names) to match real worktree naming.
+	wt1 := filepath.Join(parent, repoName+"-42-fix-the-login-bug")
+	wt2 := filepath.Join(parent, repoName+"-42-fix-the-login-bug-2")
+	gitRun(t, repo, "worktree", "add", "-b", "42-fix-the-login-bug", wt1)
+	gitRun(t, repo, "worktree", "add", "-b", "42-fix-the-login-bug-2", wt2)
 	t.Cleanup(func() {
 		_ = os.RemoveAll(wt1)
 		_ = os.RemoveAll(wt2)
 	})
+	if err := state.Write(wt1, state.AgentFile{Agent: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Write(wt2, state.AgentFile{Agent: "codex"}); err != nil {
+		t.Fatal(err)
+	}
 	chdirTemp(t, repo)
 
 	wt, err := resolveWorktree(repo, "42", "claude")
