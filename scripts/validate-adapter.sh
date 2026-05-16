@@ -134,7 +134,7 @@ if echo "$ADAPTER_LINE" | grep -q "not installed" && echo "$ADAPTER_LINE" | grep
 elif echo "$ADAPTER_LINE" | grep -q "not installed"; then
   fail "adapter binary not installed but no install hint provided in agentctl info"
 else
-  skip "install hint check — binary is installed; test manually by temporarily removing it from PATH"
+  echo "[INFO] install hint not checked — binary is installed; test manually by temporarily removing it from PATH"
 fi
 
 # ── Level 2: Launch smoke test ───────────────────────────────────────────
