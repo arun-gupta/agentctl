@@ -40,7 +40,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --agentctl-bin)
       [[ $# -ge 2 ]] || { echo "missing value for --agentctl-bin" >&2; exit 1; }
-      AGENTCTL="$2"
+      AGENTCTL="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"
       shift 2
       ;;
     *)
