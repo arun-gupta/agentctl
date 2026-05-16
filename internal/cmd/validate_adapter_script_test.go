@@ -51,7 +51,7 @@ func TestValidateAdapterScriptUsage(t *testing.T) {
 	}
 
 	output := stdout.String() + stderr.String()
-	if !strings.Contains(output, "Usage: validate-adapter.sh <adapter-name> [--issue N] [--repo-path PATH]") {
+	if !strings.Contains(output, "Usage: validate-adapter.sh <adapter-name> [--issue N] [--repo-path PATH] [--headless]") {
 		t.Fatalf("usage output missing, got:\n%s", output)
 	}
 }
@@ -80,7 +80,7 @@ func TestValidateAdapterScriptDefaultIssueAndOverrides(t *testing.T) {
 	if !strings.Contains(output, "[PASS] install hint shown when binary is missing") {
 		t.Fatalf("install-hint check did not pass, got:\n%s", output)
 	}
-	if !strings.Contains(output, "Result: 7 automated checks passed, 0 failed, 3 manual checks pending") {
+	if !strings.Contains(output, "Result: 5 automated checks passed, 0 failed") {
 		t.Fatalf("result summary mismatch, got:\n%s", output)
 	}
 

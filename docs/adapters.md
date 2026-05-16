@@ -131,8 +131,8 @@ install: brew install gemini-cli
 
 ```yaml
 binary: opencode run
-launch: opencode run {kickoff}
-resume_cmd: opencode run {prompt} --continue
+launch: opencode run --dangerously-skip-permissions {kickoff}
+resume_cmd: opencode run --dangerously-skip-permissions --continue {prompt}
 session_type: directory
 install: npm install -g opencode-ai
 ```
