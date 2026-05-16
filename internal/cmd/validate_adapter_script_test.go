@@ -80,7 +80,7 @@ func TestValidateAdapterScriptDefaultIssueAndOverrides(t *testing.T) {
 	if !strings.Contains(output, "[PASS] install hint shown when binary is missing") {
 		t.Fatalf("install-hint check did not pass, got:\n%s", output)
 	}
-	if !strings.Contains(output, "Result: 5 automated checks passed, 0 failed") {
+	if !strings.Contains(output, "Result: 6 automated checks passed, 0 failed") {
 		t.Fatalf("result summary mismatch, got:\n%s", output)
 	}
 
@@ -182,6 +182,10 @@ set -euo pipefail
 printf '%s\n' "$*" >>`+`"`+filepath.Join(dir, "gh.log")+`"`+`
 if [[ "${1:-}" == "issue" && "${2:-}" == "list" ]]; then
   echo 77
+  exit 0
+fi
+if [[ "${1:-}" == "pr" && "${2:-}" == "list" ]]; then
+  printf '[{"headRefName":"77-gemini","url":"https://github.com/arun-gupta/agentctl-test/pull/99"}]\n'
   exit 0
 fi
 echo "unexpected gh invocation: $*" >&2

@@ -198,6 +198,15 @@ else
   fail "no file changes detected in worktree at $WORKTREE"
 fi
 
+# PR check — any open PR whose branch starts with the issue number covers both
+# agentctl-named branches and agent self-named branches (e.g. opencode).
+PR_URL="$(cd "$REPO_PATH" && gh pr list --json headRefName,url -q ".[] | select(.headRefName | startswith(\"${ISSUE}-\")) | .url" 2>/dev/null | head -1 || true)"
+if [[ -n "$PR_URL" ]]; then
+  pass "PR opened: $PR_URL"
+else
+  fail "no PR opened for issue #$ISSUE"
+fi
+
 echo
 echo "Result: $PASS automated checks passed, $FAIL failed"
 echo "Manual checks: resume, notify, and full lifecycle (PR open → merge → report) require a separate run."
