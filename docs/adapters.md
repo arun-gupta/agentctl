@@ -12,6 +12,7 @@ agentctl uses a **YAML adapter system** to launch and resume coding agents. Any 
 | [codex](#codex) | Built-in | `npm install -g @openai/codex` |
 | [copilot](#copilot) | Built-in | `npm install -g @github/copilot` |
 | [openhands](#openhands) | Pluggable | `uv tool install openhands --python 3.12` |
+| [gemini](#gemini) | Built-in | `brew install gemini-cli` |
 
 ### Untested
 
@@ -19,7 +20,6 @@ The following adapters have not been verified end-to-end. The YAML is provided a
 
 | Adapter | Type | Install |
 |---------|------|---------|
-| [gemini](#gemini) | Built-in | `brew install gemini-cli` |
 | [opencode](#opencode) | Built-in | `npm install -g opencode@latest` |
 | [kilocode](#kilocode) | Pluggable | `npm install -g @kilocode/cli` |
 | [cursor](#cursor) | Pluggable | `brew install --cask cursor-cli` |
@@ -30,6 +30,18 @@ The following adapters have not been verified end-to-end. The YAML is provided a
 ---
 
 ## Tested adapters
+
+### gemini
+
+[Gemini CLI](https://github.com/google-gemini/gemini-cli) — Google's coding agent. Uses directory-based session continuity. The `--skip-trust` flag is required when running inside git worktrees (untrusted directories).
+
+```yaml
+binary: gemini
+launch: gemini --skip-trust -p {kickoff}
+resume_cmd: gemini --skip-trust -p {prompt}
+session_type: directory
+install: brew install gemini-cli
+```
 
 ### claude
 
@@ -112,18 +124,6 @@ Notes:
 - If `--issue` is omitted, it reuses the first open issue returned by `gh issue list --repo arun-gupta/agentctl-test --limit 1`.
 - Exit code `0` means every automated check passed. Any non-zero exit code means at least one automated check failed.
 - Resume, notification, and PR/merge lifecycle checks are still reported as manual follow-ups.
-
-### gemini
-
-[Gemini CLI](https://github.com/google-gemini/gemini-cli) — Google's coding agent. Uses directory-based session continuity.
-
-```yaml
-binary: gemini
-launch: gemini --skip-trust -p {kickoff}
-resume_cmd: gemini --skip-trust -p {prompt}
-session_type: directory
-install: brew install gemini-cli
-```
 
 ### opencode
 
