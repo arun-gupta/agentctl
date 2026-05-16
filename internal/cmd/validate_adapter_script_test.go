@@ -51,7 +51,7 @@ func TestValidateAdapterScriptUsage(t *testing.T) {
 	}
 
 	output := stdout.String() + stderr.String()
-	if !strings.Contains(output, "Usage: validate-adapter.sh <adapter-name> [--issue N] [--repo-path PATH] [--headless]") {
+	if !strings.Contains(output, "Usage: validate-adapter.sh <adapter-name> [--issue N] [--repo-path PATH] [--headless] [--agentctl-bin PATH]") {
 		t.Fatalf("usage output missing, got:\n%s", output)
 	}
 }

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: validate-adapter.sh <adapter-name> [--issue N] [--repo-path PATH] [--headless]" >&2
+  echo "Usage: validate-adapter.sh <adapter-name> [--issue N] [--repo-path PATH] [--headless] [--agentctl-bin PATH]" >&2
 }
 
 if [[ $# -lt 1 || "${1:-}" == --* ]]; then
@@ -14,6 +14,7 @@ ADAPTER="$1"
 REPO_PATH="../agentctl-test"
 ISSUE=""
 HEADLESS=false
+AGENTCTL="agentctl"
 WORKTREE=""
 BRANCH=""
 WORKTREES_BEFORE=""
@@ -36,6 +37,11 @@ while [[ $# -gt 0 ]]; do
     --headless)
       HEADLESS=true
       shift
+      ;;
+    --agentctl-bin)
+      [[ $# -ge 2 ]] || { echo "missing value for --agentctl-bin" >&2; exit 1; }
+      AGENTCTL="$2"
+      shift 2
       ;;
     *)
       echo "Unknown flag: $1" >&2
@@ -74,7 +80,7 @@ resolve_issue() {
 # Stops at the first non-indented line after the block starts, preventing
 # false positives from config lines like "default_agent: gemini".
 coding_agents_section() {
-  agentctl info 2>&1 | awk '/^Coding Agents:/{found=1;next} found && /^[^[:space:]]/{found=0} found{print}'
+  "$AGENTCTL" info 2>&1 | awk '/^Coding Agents:/{found=1;next} found && /^[^[:space:]]/{found=0} found{print}'
 }
 
 # Resolve the worktree created by agent start for ISSUE by diffing
@@ -148,7 +154,7 @@ WORKTREES_BEFORE="$(git -C "$REPO_PATH" worktree list --porcelain)"
 START_ARGS=(--agent "$ADAPTER")
 $HEADLESS && START_ARGS+=(--headless)
 
-if (cd "$REPO_PATH" && agentctl agent start "${START_ARGS[@]}" "$ISSUE"); then
+if (cd "$REPO_PATH" && "$AGENTCTL" agent start "${START_ARGS[@]}" "$ISSUE"); then
   if $HEADLESS; then
     pass "agentctl agent start launched agent (headless)"
   else
@@ -168,7 +174,7 @@ fi
 
 # Match exact first column in agent status table to avoid false positives
 # where issue number "42" would match row "142".
-if (cd "$REPO_PATH" && agentctl agent status 2>&1 | awk -v issue="$ISSUE" 'NR>1 && $1==issue{found=1} END{exit !found}'); then
+if (cd "$REPO_PATH" && "$AGENTCTL" agent status 2>&1 | awk -v issue="$ISSUE" 'NR>1 && $1==issue{found=1} END{exit !found}'); then
   pass "agentctl agent status shows issue #$ISSUE"
 else
   fail "agentctl agent status does not show issue #$ISSUE"
@@ -177,12 +183,12 @@ fi
 # agentctl agent logs reads from agent.log, which only exists in headless mode.
 if $HEADLESS; then
   sleep 2
-  if (cd "$REPO_PATH" && agentctl agent logs "$ISSUE" --no-follow --lines 5 2>&1 | grep -q .); then
+  if (cd "$REPO_PATH" && "$AGENTCTL" agent logs "$ISSUE" --no-follow --lines 5 2>&1 | grep -q .); then
     pass "agentctl agent logs produces output"
   else
     fail "agentctl agent logs produced no output"
   fi
-  if (cd "$REPO_PATH" && agentctl agent attach "$ISSUE"); then
+  if (cd "$REPO_PATH" && "$AGENTCTL" agent attach "$ISSUE"); then
     ELAPSED="$(( $(date +%s) - START ))"
     pass "agent exited cleanly in ${ELAPSED}s"
   else
