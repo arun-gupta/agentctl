@@ -3292,7 +3292,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			if adapterName == "openhands" {
 				streamLogCmd = "__stream-log-openhands"
 			}
-			convCmd := exec.Command(os.Args[0], streamLogCmd, wtPath)
+			convCmd := exec.Command(selfBinary(),streamLogCmd, wtPath)
 			convCmd.Stdin = pr
 			convCmd.Stdout = logFile
 			convCmd.Stderr = logFile
@@ -3637,7 +3637,7 @@ func startDetachedDiagnosticsFinaliser(wtPath string, pid int, issue string, sen
 	if sendNotify {
 		args = append(args, "--notify")
 	}
-	cmd := exec.Command(os.Args[0], args...)
+	cmd := exec.Command(selfBinary(),args...)
 	cmd.Dir = wtPath
 	detachProcess(cmd)
 	if err := cmd.Start(); err != nil {
@@ -4304,6 +4304,19 @@ func agentEnv(wtPath string) ([]string, error) {
 
 // copyFile copies the file at src to dst using regular file I/O.
 // It is used as a Windows fallback when os.Symlink is unavailable.
+// selfBinary returns the absolute path of the running agentctl executable.
+// os.Executable is preferred over os.Args[0] because the latter may be a
+// relative path that breaks when subprocesses are started with a different Dir.
+func selfBinary() string {
+	if exe, err := os.Executable(); err == nil {
+		return exe
+	}
+	if abs, err := filepath.Abs(os.Args[0]); err == nil {
+		return abs
+	}
+	return os.Args[0]
+}
+
 func copyFile(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
@@ -4459,7 +4472,7 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 			if adapterName == "openhands" {
 				streamLogCmd = "__stream-log-openhands"
 			}
-			convCmd := exec.Command(os.Args[0], streamLogCmd, wtPath)
+			convCmd := exec.Command(selfBinary(),streamLogCmd, wtPath)
 			convCmd.Stdin = pr
 			convCmd.Stdout = logFile
 			convCmd.Stderr = logFile
