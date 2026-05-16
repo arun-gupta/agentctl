@@ -93,6 +93,7 @@ func TestLaunchCmd_gemini_noSessionFlag(t *testing.T) {
 	cmd := a.LaunchCmd("do gemini stuff", "sess-abc", "/tmp/wt")
 	args := cmd.Args
 	assertContains(t, args, "gemini")
+	assertContains(t, args, "--skip-trust")
 	assertContains(t, args, "do gemini stuff")
 	// session_type: directory — no session ID flag expected
 	for _, arg := range args {
@@ -110,6 +111,7 @@ func TestResumeCmd_gemini_noSessionFlag(t *testing.T) {
 	cmd := a.ResumeCmd("revise this", "sess-abc", "/tmp/wt")
 	args := cmd.Args
 	assertContains(t, args, "gemini")
+	assertContains(t, args, "--skip-trust")
 	for _, arg := range args {
 		if arg == "sess-abc" {
 			t.Errorf("gemini ResumeCmd should not pass session ID, got args: %v", args)
@@ -496,7 +498,7 @@ func TestBuiltins_installHints(t *testing.T) {
 		install string
 	}{
 		{"claude", "claude", "npm install -g @anthropic-ai/claude-code"},
-		{"gemini", "gemini", "npm install -g @google/gemini-cli"},
+		{"gemini", "gemini", "brew install gemini-cli"},
 		{"opencode", "opencode", "npm install -g opencode@latest"},
 		{"codex", "codex", "npm install -g @openai/codex"},
 		{"copilot", "copilot", "npm install -g @github/copilot"},
