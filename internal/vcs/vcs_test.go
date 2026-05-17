@@ -2,8 +2,8 @@ package vcs
 
 import (
 	"os"
-	"path/filepath"
 	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/arun-gupta/agentctl/internal/config"

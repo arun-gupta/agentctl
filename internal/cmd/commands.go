@@ -3292,7 +3292,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			if adapterName == "openhands" {
 				streamLogCmd = "__stream-log-openhands"
 			}
-			convCmd := exec.Command(selfBinary(),streamLogCmd, wtPath)
+			convCmd := exec.Command(selfBinary(), streamLogCmd, wtPath)
 			convCmd.Stdin = pr
 			convCmd.Stdout = logFile
 			convCmd.Stderr = logFile
@@ -3637,7 +3637,7 @@ func startDetachedDiagnosticsFinaliser(wtPath string, pid int, issue string, sen
 	if sendNotify {
 		args = append(args, "--notify")
 	}
-	cmd := exec.Command(selfBinary(),args...)
+	cmd := exec.Command(selfBinary(), args...)
 	cmd.Dir = wtPath
 	detachProcess(cmd)
 	if err := cmd.Start(); err != nil {
@@ -4472,7 +4472,7 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 			if adapterName == "openhands" {
 				streamLogCmd = "__stream-log-openhands"
 			}
-			convCmd := exec.Command(selfBinary(),streamLogCmd, wtPath)
+			convCmd := exec.Command(selfBinary(), streamLogCmd, wtPath)
 			convCmd.Stdin = pr
 			convCmd.Stdout = logFile
 			convCmd.Stderr = logFile

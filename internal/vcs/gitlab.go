@@ -110,8 +110,8 @@ func (g gitlabProvider) IssueURL(repoRoot, issueNum string) string {
 
 // glabMRJSON is the subset of fields returned by `glab mr view --output json`.
 type glabMRJSON struct {
-	State  string `json:"state"`  // "opened", "closed", "merged"
-	IID    int    `json:"iid"`    // MR number within project
+	State  string `json:"state"` // "opened", "closed", "merged"
+	IID    int    `json:"iid"`   // MR number within project
 	WebURL string `json:"web_url"`
 	// merge_status: "can_be_merged", "cannot_be_merged", "unchecked", etc.
 	MergeStatus string `json:"merge_status"`
@@ -247,7 +247,7 @@ func (g gitlabProvider) MergePR(repoRoot, branch, strategy string) error {
 		args = append(args, "--squash")
 	case "rebase":
 		args = append(args, "--rebase")
-	// GitLab's default merge is equivalent to GitHub's --merge; no extra flag needed.
+		// GitLab's default merge is equivalent to GitHub's --merge; no extra flag needed.
 	}
 	cmd := exec.Command("glab", args...)
 	cmd.Dir = repoRoot
