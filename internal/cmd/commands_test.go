@@ -1832,7 +1832,7 @@ func TestLaunchAgent_claudeNonHeadlessInjectsStreamJsonAndVerbose(t *testing.T) 
 	}
 
 	// Shadow the built-in "claude" adapter with our stub binary.
-	writeLocalAdapter(t, dir, "claude", "binary: "+scriptPath+"\nsession: --session\n")
+	writeLocalAdapter(t, dir, "claude", "binary: "+scriptPath+"\nsession: --session\nlog_mode: stream-json\n")
 	chdirTemp(t, dir)
 
 	done := make(chan error, 1)
@@ -1885,7 +1885,7 @@ func TestLaunchAgent_claudeHeadlessUsesStreamJson(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	writeLocalAdapter(t, dir, "claude", "binary: "+scriptPath+"\nsession: --session\n")
+	writeLocalAdapter(t, dir, "claude", "binary: "+scriptPath+"\nsession: --session\nlog_mode: stream-json\n")
 	chdirTemp(t, dir)
 
 	if err := launchAgent("claude", dir, "42", "3010", "sess-abc", "kickoff text", "", true, false, false, &bytes.Buffer{}); err != nil {
@@ -4408,7 +4408,7 @@ func TestLaunchAgent_claudeHeadlessWritesSettingsJson(t *testing.T) {
 	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeLocalAdapter(t, dir, "claude", "binary: "+scriptPath+"\nsession: --session\n")
+	writeLocalAdapter(t, dir, "claude", "binary: "+scriptPath+"\nsession: --session\nlog_mode: stream-json\n")
 	chdirTemp(t, dir)
 
 	if err := launchAgent("claude", dir, "42", "3010", "sess-abc", "kickoff text", "", true, false, false, &bytes.Buffer{}); err != nil {

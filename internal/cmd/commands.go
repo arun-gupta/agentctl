@@ -3201,7 +3201,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 		return err
 	}
 
-	if headless && adapterName == "claude" {
+	if headless && ad.LogMode == "stream-json" {
 		if err := writeClaudeSettings(wtPath); err != nil {
 			return err
 		}
@@ -3227,70 +3227,88 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 	// the file; Claude headless uses a pipe fed to a detached __stream-log
 	// subprocess so intermediate tool steps are captured progressively.
 	var pr, pw *os.File
+	ptyMode := ad.LogMode == "pty"
 	if !detachedRouter {
-		pr, pw, err = os.Pipe()
-		if err != nil {
-			logFile.Close()
-			return fmt.Errorf("os.Pipe: %w", err)
-		}
-		// --output-format stream-json requires --verbose; both are Claude-specific.
-		if adapterName == "claude" {
-			agentCmd.Args = append(agentCmd.Args, "--output-format", "stream-json", "--verbose")
-		}
-		agentCmd.Stdout = pw
-		agentCmd.Stderr = pw
-		// Redirect stdin to /dev/null so the agent sees no TTY and does not
-		// render an interactive UI that would overlap agentctl's log output.
-		agentCmd.Stdin = nil
-	} else {
-		if adapterName == "claude" {
-			// Use stream-json so intermediate tool steps are captured progressively.
-			// A detached __stream-log subprocess converts the pipe to human-readable
-			// text in agent.log and survives the parent exiting.
-			agentCmd.Args = append(agentCmd.Args, "--output-format", "stream-json", "--verbose")
-			pr, pw, err = os.Pipe()
+		if ptyMode {
+			pr, err = startWithPTY(agentCmd)
 			if err != nil {
 				logFile.Close()
-				return fmt.Errorf("os.Pipe: %w", err)
+				return fmt.Errorf("agent failed to start (pty): %w", err)
 			}
-			agentCmd.Stdout = pw
-			agentCmd.Stderr = pw
-		} else if adapterName == "openhands" {
-			pr, pw, err = os.Pipe()
-			if err != nil {
-				logFile.Close()
-				return fmt.Errorf("os.Pipe: %w", err)
-			}
-			agentCmd.Stdout = pw
-			agentCmd.Stderr = pw
 		} else {
+			pr, pw, err = os.Pipe()
+			if err != nil {
+				logFile.Close()
+				return fmt.Errorf("os.Pipe: %w", err)
+			}
+			if ad.LogMode == "stream-json" {
+				agentCmd.Args = append(agentCmd.Args, "--output-format", "stream-json", "--verbose")
+			}
+			agentCmd.Stdout = pw
+			agentCmd.Stderr = pw
+			// Redirect stdin to /dev/null so the agent sees no TTY and does not
+			// render an interactive UI that would overlap agentctl's log output.
+			agentCmd.Stdin = nil
+		}
+	} else {
+		switch ad.LogMode {
+		case "pty":
+			pr, err = startWithPTY(agentCmd)
+			if err != nil {
+				logFile.Close()
+				return fmt.Errorf("agent failed to start (pty): %w", err)
+			}
+		case "stream-json":
+			agentCmd.Args = append(agentCmd.Args, "--output-format", "stream-json", "--verbose")
+			pr, pw, err = os.Pipe()
+			if err != nil {
+				logFile.Close()
+				return fmt.Errorf("os.Pipe: %w", err)
+			}
+			agentCmd.Stdout = pw
+			agentCmd.Stderr = pw
+		case "openhands":
+			pr, pw, err = os.Pipe()
+			if err != nil {
+				logFile.Close()
+				return fmt.Errorf("os.Pipe: %w", err)
+			}
+			agentCmd.Stdout = pw
+			agentCmd.Stderr = pw
+		default:
 			agentCmd.Stdout = logFile
 			agentCmd.Stderr = logFile
 		}
 	}
 
-	detachProcess(agentCmd)
-
-	if err := agentCmd.Start(); err != nil {
-		if pw != nil {
-			pw.Close()
-			pr.Close()
+	// startWithPTY already calls cmd.Start() internally; only call detachProcess
+	// and Start() for non-PTY modes.
+	if !ptyMode {
+		detachProcess(agentCmd)
+		if err := agentCmd.Start(); err != nil {
+			if pw != nil {
+				pw.Close()
+				pr.Close()
+			}
+			logFile.Close()
+			return fmt.Errorf("agent failed to start: %w", err)
 		}
-		logFile.Close()
-		return fmt.Errorf("agent failed to start: %w", err)
 	}
 
 	// convWg tracks the converter goroutine so we can drain all remaining pipe
 	// content into the log file before signalling followLog to do its final read.
 	var convWg sync.WaitGroup
 	if detachedRouter {
-		if pw != nil {
+		if pr != nil {
 			// Spawn a detached converter process. Its stdout is the already-open
 			// logFile fd so it never opens files by path (avoids race with test
 			// cleanup removing the temp dir).
 			streamLogCmd := "__stream-log"
-			if adapterName == "openhands" {
+			switch ad.LogMode {
+			case "openhands":
 				streamLogCmd = "__stream-log-openhands"
+			case "pty":
+				streamLogCmd = "__stream-log-pty"
 			}
 			convCmd := exec.Command(selfBinary(), streamLogCmd, wtPath)
 			convCmd.Stdin = pr
@@ -3302,19 +3320,25 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			convCmd.Dir = wtPath
 			detachProcess(convCmd)
 			if convErr := convCmd.Start(); convErr != nil {
-				pw.Close()
+				if pw != nil {
+					pw.Close()
+				}
 				pr.Close()
 				logFile.Close()
 				return fmt.Errorf("start log converter: %w", convErr)
 			}
 			_ = convCmd.Process.Release()
-			pw.Close()
+			if pw != nil {
+				pw.Close()
+			}
 			pr.Close()
 		}
 		logFile.Close()
 	} else {
 		// Close the write end in the parent; the child has its own copy.
-		pw.Close()
+		if pw != nil {
+			pw.Close()
+		}
 		// Convert output events to readable text written to logFile.
 		convWg.Add(1)
 		go func() {
@@ -3322,30 +3346,28 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			defer pr.Close()
 			defer logFile.Close()
 
-			if adapterName == "openhands" {
+			switch ad.LogMode {
+			case "openhands":
 				convertOpenHandsStream(pr, logFile)
-				return
-			}
-			if adapterName != "claude" {
-				// Non-Claude adapters emit plain text; copy it directly to the log.
+			case "stream-json":
+				r := bufio.NewReader(pr)
+				for {
+					line, err := r.ReadString('\n')
+					if line != "" {
+						if text := extractStreamText(strings.TrimSuffix(line, "\n"), wtPath); text != "" {
+							fmt.Fprintln(logFile, text)
+						}
+					}
+					if err != nil {
+						if !errors.Is(err, io.EOF) {
+							fmt.Fprintf(logFile, "converter read error: %v\n", err)
+						}
+						break
+					}
+				}
+			default: // "plain" and "pty" — raw copy
 				if _, err := io.Copy(logFile, pr); err != nil && !errors.Is(err, io.ErrClosedPipe) {
 					fmt.Fprintf(logFile, "converter read error: %v\n", err)
-				}
-				return
-			}
-			r := bufio.NewReader(pr)
-			for {
-				line, err := r.ReadString('\n')
-				if line != "" {
-					if text := extractStreamText(strings.TrimSuffix(line, "\n"), wtPath); text != "" {
-						fmt.Fprintln(logFile, text)
-					}
-				}
-				if err != nil {
-					if !errors.Is(err, io.EOF) {
-						fmt.Fprintf(logFile, "converter read error: %v\n", err)
-					}
-					break
 				}
 			}
 		}()
@@ -3863,6 +3885,24 @@ func NewStreamLogOpenHandsCmd() *cobra.Command {
 		Args:   cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			return runStreamLogOpenHands(args[0])
+		},
+	}
+}
+
+// NewStreamLogPtyCmd returns a hidden cobra command that agentctl spawns as a
+// detached background process in headless PTY mode. It copies its stdin (the
+// PTY master fd) directly to stdout (agent.log), preserving raw output.
+func NewStreamLogPtyCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "__stream-log-pty <wtDir>",
+		Hidden: true,
+		Args:   cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, _ []string) error {
+			_, err := io.Copy(os.Stdout, os.Stdin)
+			if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrClosedPipe) {
+				return err
+			}
+			return nil
 		},
 	}
 }
@@ -4395,7 +4435,7 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 		return err
 	}
 
-	if headless && adapterName == "claude" {
+	if headless && ad.LogMode == "stream-json" {
 		if err := writeClaudeSettings(wtPath); err != nil {
 			return err
 		}
@@ -4416,61 +4456,79 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 	}
 
 	var pr, pw *os.File
+	ptyMode := ad.LogMode == "pty"
 	if !headless {
-		pr, pw, err = os.Pipe()
-		if err != nil {
-			logFile.Close()
-			return fmt.Errorf("os.Pipe: %w", err)
-		}
-		if adapterName == "claude" {
-			resumeCmd.Args = append(resumeCmd.Args, "--output-format", "stream-json", "--verbose")
-		}
-		resumeCmd.Stdout = pw
-		resumeCmd.Stderr = pw
-		resumeCmd.Stdin = nil
-	} else {
-		if adapterName == "claude" {
-			// Use stream-json so intermediate tool steps are captured progressively
-			// (same fix as launchAgent headless path).
-			resumeCmd.Args = append(resumeCmd.Args, "--output-format", "stream-json", "--verbose")
-			pr, pw, err = os.Pipe()
+		if ptyMode {
+			pr, err = startWithPTY(resumeCmd)
 			if err != nil {
 				logFile.Close()
-				return fmt.Errorf("os.Pipe: %w", err)
+				return fmt.Errorf("agent resume failed to start (pty): %w", err)
 			}
-			resumeCmd.Stdout = pw
-			resumeCmd.Stderr = pw
-		} else if adapterName == "openhands" {
-			pr, pw, err = os.Pipe()
-			if err != nil {
-				logFile.Close()
-				return fmt.Errorf("os.Pipe: %w", err)
-			}
-			resumeCmd.Stdout = pw
-			resumeCmd.Stderr = pw
 		} else {
+			pr, pw, err = os.Pipe()
+			if err != nil {
+				logFile.Close()
+				return fmt.Errorf("os.Pipe: %w", err)
+			}
+			if ad.LogMode == "stream-json" {
+				resumeCmd.Args = append(resumeCmd.Args, "--output-format", "stream-json", "--verbose")
+			}
+			resumeCmd.Stdout = pw
+			resumeCmd.Stderr = pw
+			resumeCmd.Stdin = nil
+		}
+	} else {
+		switch ad.LogMode {
+		case "pty":
+			pr, err = startWithPTY(resumeCmd)
+			if err != nil {
+				logFile.Close()
+				return fmt.Errorf("agent resume failed to start (pty): %w", err)
+			}
+		case "stream-json":
+			resumeCmd.Args = append(resumeCmd.Args, "--output-format", "stream-json", "--verbose")
+			pr, pw, err = os.Pipe()
+			if err != nil {
+				logFile.Close()
+				return fmt.Errorf("os.Pipe: %w", err)
+			}
+			resumeCmd.Stdout = pw
+			resumeCmd.Stderr = pw
+		case "openhands":
+			pr, pw, err = os.Pipe()
+			if err != nil {
+				logFile.Close()
+				return fmt.Errorf("os.Pipe: %w", err)
+			}
+			resumeCmd.Stdout = pw
+			resumeCmd.Stderr = pw
+		default:
 			resumeCmd.Stdout = logFile
 			resumeCmd.Stderr = logFile
 		}
 	}
 
-	detachProcess(resumeCmd)
-
-	if err := resumeCmd.Start(); err != nil {
-		if pw != nil {
-			pw.Close()
-			pr.Close()
+	if !ptyMode {
+		detachProcess(resumeCmd)
+		if err := resumeCmd.Start(); err != nil {
+			if pw != nil {
+				pw.Close()
+				pr.Close()
+			}
+			logFile.Close()
+			return fmt.Errorf("agent resume failed to start: %w", err)
 		}
-		logFile.Close()
-		return fmt.Errorf("agent resume failed to start: %w", err)
 	}
 
 	var convWg sync.WaitGroup
 	if headless {
-		if pw != nil {
+		if pr != nil {
 			streamLogCmd := "__stream-log"
-			if adapterName == "openhands" {
+			switch ad.LogMode {
+			case "openhands":
 				streamLogCmd = "__stream-log-openhands"
+			case "pty":
+				streamLogCmd = "__stream-log-pty"
 			}
 			convCmd := exec.Command(selfBinary(), streamLogCmd, wtPath)
 			convCmd.Stdin = pr
@@ -4479,48 +4537,52 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 			convCmd.Dir = wtPath
 			detachProcess(convCmd)
 			if convErr := convCmd.Start(); convErr != nil {
-				pw.Close()
+				if pw != nil {
+					pw.Close()
+				}
 				pr.Close()
 				logFile.Close()
 				return fmt.Errorf("start log converter: %w", convErr)
 			}
 			_ = convCmd.Process.Release()
-			pw.Close()
+			if pw != nil {
+				pw.Close()
+			}
 			pr.Close()
 		}
 		logFile.Close()
 	} else {
-		pw.Close()
+		if pw != nil {
+			pw.Close()
+		}
 		convWg.Add(1)
 		go func() {
 			defer convWg.Done()
 			defer pr.Close()
 			defer logFile.Close()
 
-			if adapterName == "openhands" {
+			switch ad.LogMode {
+			case "openhands":
 				convertOpenHandsStream(pr, logFile)
-				return
-			}
-			if adapterName != "claude" {
-				// Non-Claude adapters emit plain text; copy it directly to the log.
+			case "stream-json":
+				r := bufio.NewReader(pr)
+				for {
+					line, err := r.ReadString('\n')
+					if line != "" {
+						if text := extractStreamText(strings.TrimSuffix(line, "\n"), wtPath); text != "" {
+							fmt.Fprintln(logFile, text)
+						}
+					}
+					if err != nil {
+						if !errors.Is(err, io.EOF) {
+							fmt.Fprintf(logFile, "converter read error: %v\n", err)
+						}
+						break
+					}
+				}
+			default: // "plain" and "pty" — raw copy
 				if _, err := io.Copy(logFile, pr); err != nil && !errors.Is(err, io.ErrClosedPipe) {
 					fmt.Fprintf(logFile, "converter read error: %v\n", err)
-				}
-				return
-			}
-			r := bufio.NewReader(pr)
-			for {
-				line, err := r.ReadString('\n')
-				if line != "" {
-					if text := extractStreamText(strings.TrimSuffix(line, "\n"), wtPath); text != "" {
-						fmt.Fprintln(logFile, text)
-					}
-				}
-				if err != nil {
-					if !errors.Is(err, io.EOF) {
-						fmt.Fprintf(logFile, "converter read error: %v\n", err)
-					}
-					break
 				}
 			}
 		}()

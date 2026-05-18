@@ -72,6 +72,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(
 		cmd.NewStreamLogCmd(),
 		cmd.NewStreamLogOpenHandsCmd(),
+		cmd.NewStreamLogPtyCmd(),
 		cmd.NewFinaliseDiagnosticsCmd(),
 	)
 
