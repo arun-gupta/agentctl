@@ -4,7 +4,7 @@
 
 | Coding agents | SDD methodologies |
 |---|---|
-| [![Claude Code](https://img.shields.io/badge/Claude%20Code-1F1F1F?logo=anthropic&logoColor=white)](https://www.anthropic.com/claude-code) (default)<br>[![OpenAI Codex](https://img.shields.io/badge/OpenAI%20Codex-412991?logo=openai&logoColor=white)](https://github.com/openai/codex)<br>[![GitHub Copilot](https://img.shields.io/badge/GitHub%20Copilot-1F222E?logo=githubcopilot&logoColor=white)](https://github.com/features/copilot)<br>[![OpenHands](https://img.shields.io/badge/OpenHands-0D1117?logoColor=white)](https://openhands.dev/)<br>…and [any agent](docs/adapters.md) via a one-line YAML file | [**Spec Kit**](https://github.com/github/spec-kit) (`--sdd speckit`)<br>[**Plain**](docs/sdd.md) (`--sdd plain`)<br>…and [any methodology](docs/sdd.md) via a one-line YAML file |
+| [![Claude Code](https://img.shields.io/badge/Claude_Code-1F1F1F?logo=anthropic&logoColor=white)](https://www.anthropic.com/claude-code) (default)<br>[![OpenAI Codex](https://img.shields.io/badge/OpenAI_Codex-412991?logo=openai&logoColor=white)](https://github.com/openai/codex)<br>[![GitHub Copilot](https://img.shields.io/badge/GitHub_Copilot-1F222E?logo=githubcopilot&logoColor=white)](https://github.com/features/copilot)<br>[![OpenHands](https://img.shields.io/badge/OpenHands-0D1117?logoColor=white)](https://openhands.dev/)<br>…and [any agent](docs/adapters.md) via a one-line YAML file | [**Spec Kit**](https://github.com/github/spec-kit) (`--sdd speckit`)<br>[**Plain**](docs/sdd.md) (`--sdd plain`)<br>…and [any methodology](docs/sdd.md) via a one-line YAML file |
 
 ## Install
 
