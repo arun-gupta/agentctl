@@ -328,36 +328,36 @@ func TestLinkedWorktreesParserSmoke(t *testing.T) {
 // TestFindWorktreeByIssue_noFalsePositive verifies that issue "42" does not
 // match a worktree for issue "142" (which would contain "-142-" in its path).
 func TestFindWorktreeByIssue_noFalsePositive(t *testing.T) {
-repo := initRepo(t)
-wt142Path := filepath.Join(t.TempDir(), "repo-142-some-feature")
-if err := AddWorktree(repo, wt142Path, "142-some-feature"); err != nil {
-t.Fatalf("AddWorktree: %v", err)
-}
+	repo := initRepo(t)
+	wt142Path := filepath.Join(t.TempDir(), "repo-142-some-feature")
+	if err := AddWorktree(repo, wt142Path, "142-some-feature"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
 
-// issue "42" must NOT match the "-142-" worktree.
-_, found, err := FindWorktreeByIssue(repo, "42")
-if err != nil {
-t.Fatalf("FindWorktreeByIssue: %v", err)
-}
-if found {
-t.Error("issue 42 should not match a worktree for issue 142")
-}
+	// issue "42" must NOT match the "-142-" worktree.
+	_, found, err := FindWorktreeByIssue(repo, "42")
+	if err != nil {
+		t.Fatalf("FindWorktreeByIssue: %v", err)
+	}
+	if found {
+		t.Error("issue 42 should not match a worktree for issue 142")
+	}
 }
 
 // TestFindWorktreesByIssue_noFalsePositive verifies the same guard for the
 // multi-result variant.
 func TestFindWorktreesByIssue_noFalsePositive(t *testing.T) {
-repo := initRepo(t)
-wt142Path := filepath.Join(t.TempDir(), "repo-142-some-feature")
-if err := AddWorktree(repo, wt142Path, "142-some-feature"); err != nil {
-t.Fatalf("AddWorktree: %v", err)
-}
+	repo := initRepo(t)
+	wt142Path := filepath.Join(t.TempDir(), "repo-142-some-feature")
+	if err := AddWorktree(repo, wt142Path, "142-some-feature"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
 
-wts, err := FindWorktreesByIssue(repo, "42")
-if err != nil {
-t.Fatalf("FindWorktreesByIssue: %v", err)
-}
-if len(wts) != 0 {
-t.Errorf("issue 42 should not match worktrees for issue 142, got %v", wts)
-}
+	wts, err := FindWorktreesByIssue(repo, "42")
+	if err != nil {
+		t.Fatalf("FindWorktreesByIssue: %v", err)
+	}
+	if len(wts) != 0 {
+		t.Errorf("issue 42 should not match worktrees for issue 142, got %v", wts)
+	}
 }

@@ -216,7 +216,7 @@ func isSupportedIssueURL(arg string) bool {
 
 // resumeHintFmt is printed after a foreground agent exits so users know how
 // to send follow-up feedback. %s is replaced with the issue number.
-const resumeHintFmt = "agentctl resume %s [feedback]   # no feedback approves; add feedback to request changes\n"
+const resumeHintFmt = "agentctl agent resume %s [feedback]   # no feedback approves; add feedback to request changes\n"
 
 // kickoffTemplate is the default prompt sent to the agent when no --sdd
 // methodology is specified. {platform}, {issue}, {prTerm}, and {port} are
@@ -820,8 +820,8 @@ you are inside a linked worktree.
 Multiple issues may be given as a comma-separated list. Each list item may
 be a bare issue number or a full GitHub issue URL, e.g.:
 
-  agentctl discard 55,56,57
-  agentctl discard 55,https://github.com/org/repo/issues/56,57
+  agentctl worktree discard 55,56,57
+  agentctl worktree discard 55,https://github.com/org/repo/issues/56,57
 
 Each worktree is discarded in sequence; you will be prompted to confirm
 each one.
@@ -1198,7 +1198,7 @@ func runMerge(issue, strategy, agentSuffix string, noDelete, dryRun bool) error 
 	}
 	switch prState {
 	case "MERGED":
-		return fmt.Errorf("%s for %s is already MERGED — use: agentctl cleanup %s", p.PRTerm(), branch, issue)
+		return fmt.Errorf("%s for %s is already MERGED — use: agentctl worktree cleanup %s", p.PRTerm(), branch, issue)
 	case "CLOSED":
 		return fmt.Errorf("%s for %s is CLOSED and cannot be merged", p.PRTerm(), branch)
 	case "":
@@ -1265,7 +1265,7 @@ Run without arguments inside a linked worktree to infer the issue number
 from the current branch.
 
 Multiple issues may be given as a comma-separated list or as separate
-arguments (e.g. "agentctl cleanup 240,277" or "agentctl cleanup 240 277").
+arguments (e.g. "agentctl worktree cleanup 240,277" or "agentctl worktree cleanup 240 277").
 Each issue is cleaned up in sequence; all failures are reported at the end.
 
 Use --all to sweep every linked worktree whose PR is MERGED in one pass.
@@ -1424,10 +1424,10 @@ func cleanupMerged(repoRoot, issue, agentSuffix string) error {
 	}
 	prState, _, _, prErr := p.PRForBranch(repoRoot, branch)
 	if prErr != nil {
-		return fmt.Errorf("could not determine %s state for %s.\nIs %s installed and authenticated? If this branch has no %s, use:\n  agentctl discard %s", p.PRTerm(), branch, p.CLI(), p.PRTerm(), issue)
+		return fmt.Errorf("could not determine %s state for %s.\nIs %s installed and authenticated? If this branch has no %s, use:\n  agentctl worktree discard %s", p.PRTerm(), branch, p.CLI(), p.PRTerm(), issue)
 	}
 	if prState != "MERGED" {
-		return fmt.Errorf("%s for %s is %s, not MERGED.\nUse: agentctl discard %s", p.PRTerm(), branch, prState, issue)
+		return fmt.Errorf("%s for %s is %s, not MERGED.\nUse: agentctl worktree discard %s", p.PRTerm(), branch, prState, issue)
 	}
 
 	fmt.Printf("Pulling main in %s ...\n", repoRoot)
@@ -1647,7 +1647,7 @@ func runCleanupAllMerged() error {
 
 	fmt.Printf("\n%d merged worktrees cleaned, %d orphaned remote branches pruned, %d skipped\n", cleaned, orphanedPruned, skipped)
 	if staleCount > 0 {
-		fmt.Printf("Note: %d stale worktree(s) found with no agent and no PR — run `agentctl discard --stale` to remove them.\n", staleCount)
+		fmt.Printf("Note: %d stale worktree(s) found with no agent and no PR — run `agentctl worktree discard --stale` to remove them.\n", staleCount)
 	}
 	if failed > 0 {
 		fmt.Fprintf(os.Stderr, "%d cleanup(s) failed\n", failed)
@@ -2073,10 +2073,10 @@ func streamLog(wtPath, issue string, lines int, noFollow bool, w io.Writer, logW
 				specPath := findSpecPath(wtPath, issue)
 				switch {
 				case af2.SDD != "" && af2.SDDStage < 2 && specPath != "":
-					fmt.Fprintf(w, "Spec: %s\nSpec ready for review — agentctl resume %s\n", specPath, id)
+					fmt.Fprintf(w, "Spec: %s\nSpec ready for review — agentctl agent resume %s\n", specPath, id)
 				case af2.SDD != "" && af2.SDDStage >= 2:
 					if reportPRStatus(w, wtPath, branch2, issue, false) {
-						fmt.Fprintf(w, "agentctl cleanup %s   # after PR is merged\n", id)
+						fmt.Fprintf(w, "agentctl worktree cleanup %s   # after PR is merged\n", id)
 					} else {
 						fmt.Fprintf(w, "agent process has exited\n")
 					}
@@ -2806,12 +2806,12 @@ func worktreeExistsError(wtPath, issueNum string) error {
 		id = af.IssueArg
 	}
 	if readErr == nil && af.AgentPID != "" && process.IsAlive(af.AgentPID) {
-		return fmt.Errorf("Worktree already exists for issue %s — agent is still running.\nWorktree: %s\n\n  agentctl attach %s   to follow its output\n  agentctl discard %s   to delete the worktree and start over", issueNum, wtPath, id, id)
+		return fmt.Errorf("Worktree already exists for issue %s — agent is still running.\nWorktree: %s\n\n  agentctl agent attach %s   to follow its output\n  agentctl worktree discard %s   to delete the worktree and start over", issueNum, wtPath, id, id)
 	}
 	if readErr == nil && af.AgentPID != "" {
-		return fmt.Errorf("Worktree already exists for issue %s — agent has finished.\nWorktree: %s\n\n  agentctl cleanup %s   if the PR is merged\n  agentctl discard %s   to delete the worktree and start over", issueNum, wtPath, id, id)
+		return fmt.Errorf("Worktree already exists for issue %s — agent has finished.\nWorktree: %s\n\n  agentctl worktree cleanup %s   if the PR is merged\n  agentctl worktree discard %s   to delete the worktree and start over", issueNum, wtPath, id, id)
 	}
-	return fmt.Errorf("Worktree already exists for issue %s.\nWorktree: %s\n\n  agentctl discard %s   to delete the worktree and start over", issueNum, wtPath, id)
+	return fmt.Errorf("Worktree already exists for issue %s.\nWorktree: %s\n\n  agentctl worktree discard %s   to delete the worktree and start over", issueNum, wtPath, id)
 }
 
 // taskWorktreeExistsError is like worktreeExistsError but uses "task"/"branch"
@@ -2819,12 +2819,12 @@ func worktreeExistsError(wtPath, issueNum string) error {
 func taskWorktreeExistsError(wtPath, branch string) error {
 	af, readErr := state.Read(wtPath)
 	if readErr == nil && af.AgentPID != "" && process.IsAlive(af.AgentPID) {
-		return fmt.Errorf("Worktree already exists for task branch %s — agent is still running.\nWorktree: %s\n\n  agentctl attach %s   to follow its output\n  agentctl discard %s   to delete the worktree and start over", branch, wtPath, branch, branch)
+		return fmt.Errorf("Worktree already exists for task branch %s — agent is still running.\nWorktree: %s\n\n  agentctl agent attach %s   to follow its output\n  agentctl worktree discard %s   to delete the worktree and start over", branch, wtPath, branch, branch)
 	}
 	if readErr == nil && af.AgentPID != "" {
-		return fmt.Errorf("Worktree already exists for task branch %s — agent has finished.\nWorktree: %s\n\n  agentctl cleanup %s   if the PR is merged\n  agentctl discard %s   to delete the worktree and start over", branch, wtPath, branch, branch)
+		return fmt.Errorf("Worktree already exists for task branch %s — agent has finished.\nWorktree: %s\n\n  agentctl worktree cleanup %s   if the PR is merged\n  agentctl worktree discard %s   to delete the worktree and start over", branch, wtPath, branch, branch)
 	}
-	return fmt.Errorf("Worktree already exists for task branch %s.\nWorktree: %s\n\n  agentctl discard %s   to delete the worktree and start over", branch, wtPath, branch)
+	return fmt.Errorf("Worktree already exists for task branch %s.\nWorktree: %s\n\n  agentctl worktree discard %s   to delete the worktree and start over", branch, wtPath, branch)
 }
 
 // issueDisplayFor reads the issue-arg stored in the .agent state file and
@@ -3138,9 +3138,9 @@ func resolveWorktree(repoRoot, issue, agentSuffix string) (git.Worktree, error) 
 	}
 
 	if agentSuffix != "" {
-		suffix := "-" + agentSuffix
 		for _, wt := range wts {
-			if strings.HasSuffix(wt.Path, suffix) {
+			af, _ := state.Read(wt.Path)
+			if af.Agent == agentSuffix {
 				return wt, nil
 			}
 		}
@@ -3201,7 +3201,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 		return err
 	}
 
-	if headless && adapterName == "claude" {
+	if headless && ad.LogMode == "stream-json" {
 		if err := writeClaudeSettings(wtPath); err != nil {
 			return err
 		}
@@ -3227,72 +3227,90 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 	// the file; Claude headless uses a pipe fed to a detached __stream-log
 	// subprocess so intermediate tool steps are captured progressively.
 	var pr, pw *os.File
+	ptyMode := ad.LogMode == "pty"
 	if !detachedRouter {
-		pr, pw, err = os.Pipe()
-		if err != nil {
-			logFile.Close()
-			return fmt.Errorf("os.Pipe: %w", err)
-		}
-		// --output-format stream-json requires --verbose; both are Claude-specific.
-		if adapterName == "claude" {
-			agentCmd.Args = append(agentCmd.Args, "--output-format", "stream-json", "--verbose")
-		}
-		agentCmd.Stdout = pw
-		agentCmd.Stderr = pw
-		// Redirect stdin to /dev/null so the agent sees no TTY and does not
-		// render an interactive UI that would overlap agentctl's log output.
-		agentCmd.Stdin = nil
-	} else {
-		if adapterName == "claude" {
-			// Use stream-json so intermediate tool steps are captured progressively.
-			// A detached __stream-log subprocess converts the pipe to human-readable
-			// text in agent.log and survives the parent exiting.
-			agentCmd.Args = append(agentCmd.Args, "--output-format", "stream-json", "--verbose")
-			pr, pw, err = os.Pipe()
+		if ptyMode {
+			pr, err = startWithPTY(agentCmd)
 			if err != nil {
 				logFile.Close()
-				return fmt.Errorf("os.Pipe: %w", err)
+				return fmt.Errorf("agent failed to start (pty): %w", err)
 			}
-			agentCmd.Stdout = pw
-			agentCmd.Stderr = pw
-		} else if adapterName == "openhands" {
-			pr, pw, err = os.Pipe()
-			if err != nil {
-				logFile.Close()
-				return fmt.Errorf("os.Pipe: %w", err)
-			}
-			agentCmd.Stdout = pw
-			agentCmd.Stderr = pw
 		} else {
+			pr, pw, err = os.Pipe()
+			if err != nil {
+				logFile.Close()
+				return fmt.Errorf("os.Pipe: %w", err)
+			}
+			if ad.LogMode == "stream-json" {
+				agentCmd.Args = append(agentCmd.Args, "--output-format", "stream-json", "--verbose")
+			}
+			agentCmd.Stdout = pw
+			agentCmd.Stderr = pw
+			// Redirect stdin to /dev/null so the agent sees no TTY and does not
+			// render an interactive UI that would overlap agentctl's log output.
+			agentCmd.Stdin = nil
+		}
+	} else {
+		switch ad.LogMode {
+		case "pty":
+			pr, err = startWithPTY(agentCmd)
+			if err != nil {
+				logFile.Close()
+				return fmt.Errorf("agent failed to start (pty): %w", err)
+			}
+		case "stream-json":
+			agentCmd.Args = append(agentCmd.Args, "--output-format", "stream-json", "--verbose")
+			pr, pw, err = os.Pipe()
+			if err != nil {
+				logFile.Close()
+				return fmt.Errorf("os.Pipe: %w", err)
+			}
+			agentCmd.Stdout = pw
+			agentCmd.Stderr = pw
+		case "openhands":
+			pr, pw, err = os.Pipe()
+			if err != nil {
+				logFile.Close()
+				return fmt.Errorf("os.Pipe: %w", err)
+			}
+			agentCmd.Stdout = pw
+			agentCmd.Stderr = pw
+		default:
 			agentCmd.Stdout = logFile
 			agentCmd.Stderr = logFile
 		}
 	}
 
-	detachProcess(agentCmd)
-
-	if err := agentCmd.Start(); err != nil {
-		if pw != nil {
-			pw.Close()
-			pr.Close()
+	// startWithPTY already calls cmd.Start() internally; only call detachProcess
+	// and Start() for non-PTY modes.
+	if !ptyMode {
+		detachProcess(agentCmd)
+		if err := agentCmd.Start(); err != nil {
+			if pw != nil {
+				pw.Close()
+				pr.Close()
+			}
+			logFile.Close()
+			return fmt.Errorf("agent failed to start: %w", err)
 		}
-		logFile.Close()
-		return fmt.Errorf("agent failed to start: %w", err)
 	}
 
 	// convWg tracks the converter goroutine so we can drain all remaining pipe
 	// content into the log file before signalling followLog to do its final read.
 	var convWg sync.WaitGroup
 	if detachedRouter {
-		if pw != nil {
+		if pr != nil {
 			// Spawn a detached converter process. Its stdout is the already-open
 			// logFile fd so it never opens files by path (avoids race with test
 			// cleanup removing the temp dir).
 			streamLogCmd := "__stream-log"
-			if adapterName == "openhands" {
+			switch ad.LogMode {
+			case "openhands":
 				streamLogCmd = "__stream-log-openhands"
+			case "pty":
+				streamLogCmd = "__stream-log-pty"
 			}
-			convCmd := exec.Command(os.Args[0], streamLogCmd, wtPath)
+			convCmd := exec.Command(selfBinary(), streamLogCmd, wtPath)
 			convCmd.Stdin = pr
 			convCmd.Stdout = logFile
 			convCmd.Stderr = logFile
@@ -3302,19 +3320,25 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			convCmd.Dir = wtPath
 			detachProcess(convCmd)
 			if convErr := convCmd.Start(); convErr != nil {
-				pw.Close()
+				if pw != nil {
+					pw.Close()
+				}
 				pr.Close()
 				logFile.Close()
 				return fmt.Errorf("start log converter: %w", convErr)
 			}
 			_ = convCmd.Process.Release()
-			pw.Close()
+			if pw != nil {
+				pw.Close()
+			}
 			pr.Close()
 		}
 		logFile.Close()
 	} else {
 		// Close the write end in the parent; the child has its own copy.
-		pw.Close()
+		if pw != nil {
+			pw.Close()
+		}
 		// Convert output events to readable text written to logFile.
 		convWg.Add(1)
 		go func() {
@@ -3322,30 +3346,28 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			defer pr.Close()
 			defer logFile.Close()
 
-			if adapterName == "openhands" {
+			switch ad.LogMode {
+			case "openhands":
 				convertOpenHandsStream(pr, logFile)
-				return
-			}
-			if adapterName != "claude" {
-				// Non-Claude adapters emit plain text; copy it directly to the log.
+			case "stream-json":
+				r := bufio.NewReader(pr)
+				for {
+					line, err := r.ReadString('\n')
+					if line != "" {
+						if text := extractStreamText(strings.TrimSuffix(line, "\n"), wtPath); text != "" {
+							fmt.Fprintln(logFile, text)
+						}
+					}
+					if err != nil {
+						if !errors.Is(err, io.EOF) {
+							fmt.Fprintf(logFile, "converter read error: %v\n", err)
+						}
+						break
+					}
+				}
+			default: // "plain" and "pty" — raw copy
 				if _, err := io.Copy(logFile, pr); err != nil && !errors.Is(err, io.ErrClosedPipe) {
 					fmt.Fprintf(logFile, "converter read error: %v\n", err)
-				}
-				return
-			}
-			r := bufio.NewReader(pr)
-			for {
-				line, err := r.ReadString('\n')
-				if line != "" {
-					if text := extractStreamText(strings.TrimSuffix(line, "\n"), wtPath); text != "" {
-						fmt.Fprintln(logFile, text)
-					}
-				}
-				if err != nil {
-					if !errors.Is(err, io.EOF) {
-						fmt.Fprintf(logFile, "converter read error: %v\n", err)
-					}
-					break
 				}
 			}
 		}()
@@ -3404,11 +3426,11 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 
 		id := issueDisplayFor(wtPath, issue)
 		fmt.Fprintf(out, "Agent PID %d — log: %s\n", pid, logPath)
-		fmt.Fprintf(out, "agentctl logs %s      # follow log\n", id)
-		fmt.Fprintf(out, "agentctl attach %s    # stream live and wait\n", id)
-		fmt.Fprintf(out, "agentctl discard %s   # abandon\n", id)
+		fmt.Fprintf(out, "agentctl agent logs %s      # follow log\n", id)
+		fmt.Fprintf(out, "agentctl agent attach %s    # stream live and wait\n", id)
+		fmt.Fprintf(out, "agentctl worktree discard %s   # abandon\n", id)
 		if sddName != "" {
-			fmt.Fprintf(out, "agentctl resume %s [feedback]   # approve spec or send revisions\n", id)
+			fmt.Fprintf(out, "agentctl agent resume %s [feedback]   # approve spec or send revisions\n", id)
 		}
 		if sendNotify {
 			maybeFireTestNotification(issue, out)
@@ -3442,7 +3464,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			wg.Wait()
 			if agentExitErr != nil {
 				id2 := issueDisplayFor(wtPath, issue)
-				fmt.Fprintf(out, "agent exited with error — check the log: agentctl logs %s\n", id2)
+				fmt.Fprintf(out, "agent exited with error — check the log: agentctl agent logs %s\n", id2)
 				return nil
 			}
 			branch, branchErr := git.CurrentBranch(wtPath)
@@ -3465,7 +3487,7 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 				fmt.Fprintf(out, resumeHintFmt, id3)
 			}
 			if hasPR {
-				fmt.Fprintf(out, "agentctl cleanup %s   # delete worktree + branch after PR is merged\n", id3)
+				fmt.Fprintf(out, "agentctl worktree cleanup %s   # delete worktree + branch after PR is merged\n", id3)
 			}
 			return nil
 		case <-sigCh:
@@ -3474,9 +3496,9 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			wg.Wait()
 			id4 := issueDisplayFor(wtPath, issue)
 			fmt.Fprintf(out, "agent still running in background\n")
-			fmt.Fprintf(out, "  agentctl logs %s     # follow log\n", id4)
-			fmt.Fprintf(out, "  agentctl attach %s   # stream live output\n", id4)
-			fmt.Fprintf(out, "  agentctl discard %s  # permanently delete worktree and branches\n", id4)
+			fmt.Fprintf(out, "  agentctl agent logs %s     # follow log\n", id4)
+			fmt.Fprintf(out, "  agentctl agent attach %s   # stream live output\n", id4)
+			fmt.Fprintf(out, "  agentctl worktree discard %s  # permanently delete worktree and branches\n", id4)
 			return nil
 		}
 	}
@@ -3557,9 +3579,9 @@ func sendCompletionNotification(issue, wtPath, sddName string, exitErr error) {
 	var message string
 	switch {
 	case exitErr != nil:
-		message = fmt.Sprintf("Agent failed — issue #%s%s: check agentctl logs %s", issue, branchPart, issue)
+		message = fmt.Sprintf("Agent failed — issue #%s%s: check agentctl agent logs %s", issue, branchPart, issue)
 	case sddName != "" && af.SDDStage < 2 && specPath != "":
-		message = fmt.Sprintf("Spec ready for review — issue #%s%s: %s — agentctl resume %s", issue, branchPart, specPath, issue)
+		message = fmt.Sprintf("Spec ready for review — issue #%s%s: %s — agentctl agent resume %s", issue, branchPart, specPath, issue)
 	default:
 		message = fmt.Sprintf("Agent finished — issue #%s%s: succeeded", issue, branchPart)
 	}
@@ -3637,7 +3659,7 @@ func startDetachedDiagnosticsFinaliser(wtPath string, pid int, issue string, sen
 	if sendNotify {
 		args = append(args, "--notify")
 	}
-	cmd := exec.Command(os.Args[0], args...)
+	cmd := exec.Command(selfBinary(), args...)
 	cmd.Dir = wtPath
 	detachProcess(cmd)
 	if err := cmd.Start(); err != nil {
@@ -3863,6 +3885,24 @@ func NewStreamLogOpenHandsCmd() *cobra.Command {
 		Args:   cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			return runStreamLogOpenHands(args[0])
+		},
+	}
+}
+
+// NewStreamLogPtyCmd returns a hidden cobra command that agentctl spawns as a
+// detached background process in headless PTY mode. It copies its stdin (the
+// PTY master fd) directly to stdout (agent.log), preserving raw output.
+func NewStreamLogPtyCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "__stream-log-pty <wtDir>",
+		Hidden: true,
+		Args:   cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, _ []string) error {
+			_, err := io.Copy(os.Stdout, os.Stdin)
+			if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrClosedPipe) {
+				return err
+			}
+			return nil
 		},
 	}
 }
@@ -4249,11 +4289,9 @@ func agentEnv(wtPath string) ([]string, error) {
 			}
 		}
 
-		// Expose ~/.config/gh and ~/.config/glab-cli (the CLI credential stores)
-		// rather than the entire ~/.config tree, to limit the host config surface
-		// accessible from the agent's isolated HOME.
+		// Expose selected ~/.config subdirs rather than the entire tree.
 		agentConfigDir := filepath.Join(agentHome, ".config")
-		for _, cfgDir := range []string{"gh", "glab-cli"} {
+		for _, cfgDir := range []string{"gh", "glab-cli", "opencode"} {
 			cfgSrc := filepath.Join(realHome, ".config", cfgDir)
 			if _, srcErr := os.Lstat(cfgSrc); srcErr != nil {
 				if !os.IsNotExist(srcErr) {
@@ -4269,6 +4307,21 @@ func agentEnv(wtPath string) ([]string, error) {
 			if _, statErr := os.Lstat(cfgDst); os.IsNotExist(statErr) {
 				if symlinkErr := os.Symlink(cfgSrc, cfgDst); symlinkErr != nil {
 					fmt.Fprintf(os.Stderr, "agentctl: warning: symlink .config/%s: %v (%s credentials may not work)\n", cfgDir, symlinkErr, cfgDir)
+				}
+			}
+		}
+
+		// Expose ~/.local/share/opencode (auth.json, session DB) so opencode can
+		// authenticate when HOME is redirected to .agent-home.
+		agentLocalShareDir := filepath.Join(agentHome, ".local", "share")
+		opencodeDataSrc := filepath.Join(realHome, ".local", "share", "opencode")
+		if _, srcErr := os.Lstat(opencodeDataSrc); srcErr == nil {
+			if mkdirErr := os.MkdirAll(agentLocalShareDir, 0o755); mkdirErr == nil {
+				opencodeDataDst := filepath.Join(agentLocalShareDir, "opencode")
+				if _, statErr := os.Lstat(opencodeDataDst); os.IsNotExist(statErr) {
+					if symlinkErr := os.Symlink(opencodeDataSrc, opencodeDataDst); symlinkErr != nil {
+						fmt.Fprintf(os.Stderr, "agentctl: warning: symlink .local/share/opencode: %v (opencode auth may not work)\n", symlinkErr)
+					}
 				}
 			}
 		}
@@ -4291,6 +4344,19 @@ func agentEnv(wtPath string) ([]string, error) {
 
 // copyFile copies the file at src to dst using regular file I/O.
 // It is used as a Windows fallback when os.Symlink is unavailable.
+// selfBinary returns the absolute path of the running agentctl executable.
+// os.Executable is preferred over os.Args[0] because the latter may be a
+// relative path that breaks when subprocesses are started with a different Dir.
+func selfBinary() string {
+	if exe, err := os.Executable(); err == nil {
+		return exe
+	}
+	if abs, err := filepath.Abs(os.Args[0]); err == nil {
+		return abs
+	}
+	return os.Args[0]
+}
+
 func copyFile(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
@@ -4369,7 +4435,7 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 		return err
 	}
 
-	if headless && adapterName == "claude" {
+	if headless && ad.LogMode == "stream-json" {
 		if err := writeClaudeSettings(wtPath); err != nil {
 			return err
 		}
@@ -4390,111 +4456,133 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 	}
 
 	var pr, pw *os.File
+	ptyMode := ad.LogMode == "pty"
 	if !headless {
-		pr, pw, err = os.Pipe()
-		if err != nil {
-			logFile.Close()
-			return fmt.Errorf("os.Pipe: %w", err)
-		}
-		if adapterName == "claude" {
-			resumeCmd.Args = append(resumeCmd.Args, "--output-format", "stream-json", "--verbose")
-		}
-		resumeCmd.Stdout = pw
-		resumeCmd.Stderr = pw
-		resumeCmd.Stdin = nil
-	} else {
-		if adapterName == "claude" {
-			// Use stream-json so intermediate tool steps are captured progressively
-			// (same fix as launchAgent headless path).
-			resumeCmd.Args = append(resumeCmd.Args, "--output-format", "stream-json", "--verbose")
-			pr, pw, err = os.Pipe()
+		if ptyMode {
+			pr, err = startWithPTY(resumeCmd)
 			if err != nil {
 				logFile.Close()
-				return fmt.Errorf("os.Pipe: %w", err)
+				return fmt.Errorf("agent resume failed to start (pty): %w", err)
 			}
-			resumeCmd.Stdout = pw
-			resumeCmd.Stderr = pw
-		} else if adapterName == "openhands" {
-			pr, pw, err = os.Pipe()
-			if err != nil {
-				logFile.Close()
-				return fmt.Errorf("os.Pipe: %w", err)
-			}
-			resumeCmd.Stdout = pw
-			resumeCmd.Stderr = pw
 		} else {
+			pr, pw, err = os.Pipe()
+			if err != nil {
+				logFile.Close()
+				return fmt.Errorf("os.Pipe: %w", err)
+			}
+			if ad.LogMode == "stream-json" {
+				resumeCmd.Args = append(resumeCmd.Args, "--output-format", "stream-json", "--verbose")
+			}
+			resumeCmd.Stdout = pw
+			resumeCmd.Stderr = pw
+			resumeCmd.Stdin = nil
+		}
+	} else {
+		switch ad.LogMode {
+		case "pty":
+			pr, err = startWithPTY(resumeCmd)
+			if err != nil {
+				logFile.Close()
+				return fmt.Errorf("agent resume failed to start (pty): %w", err)
+			}
+		case "stream-json":
+			resumeCmd.Args = append(resumeCmd.Args, "--output-format", "stream-json", "--verbose")
+			pr, pw, err = os.Pipe()
+			if err != nil {
+				logFile.Close()
+				return fmt.Errorf("os.Pipe: %w", err)
+			}
+			resumeCmd.Stdout = pw
+			resumeCmd.Stderr = pw
+		case "openhands":
+			pr, pw, err = os.Pipe()
+			if err != nil {
+				logFile.Close()
+				return fmt.Errorf("os.Pipe: %w", err)
+			}
+			resumeCmd.Stdout = pw
+			resumeCmd.Stderr = pw
+		default:
 			resumeCmd.Stdout = logFile
 			resumeCmd.Stderr = logFile
 		}
 	}
 
-	detachProcess(resumeCmd)
-
-	if err := resumeCmd.Start(); err != nil {
-		if pw != nil {
-			pw.Close()
-			pr.Close()
+	if !ptyMode {
+		detachProcess(resumeCmd)
+		if err := resumeCmd.Start(); err != nil {
+			if pw != nil {
+				pw.Close()
+				pr.Close()
+			}
+			logFile.Close()
+			return fmt.Errorf("agent resume failed to start: %w", err)
 		}
-		logFile.Close()
-		return fmt.Errorf("agent resume failed to start: %w", err)
 	}
 
 	var convWg sync.WaitGroup
 	if headless {
-		if pw != nil {
+		if pr != nil {
 			streamLogCmd := "__stream-log"
-			if adapterName == "openhands" {
+			switch ad.LogMode {
+			case "openhands":
 				streamLogCmd = "__stream-log-openhands"
+			case "pty":
+				streamLogCmd = "__stream-log-pty"
 			}
-			convCmd := exec.Command(os.Args[0], streamLogCmd, wtPath)
+			convCmd := exec.Command(selfBinary(), streamLogCmd, wtPath)
 			convCmd.Stdin = pr
 			convCmd.Stdout = logFile
 			convCmd.Stderr = logFile
 			convCmd.Dir = wtPath
 			detachProcess(convCmd)
 			if convErr := convCmd.Start(); convErr != nil {
-				pw.Close()
+				if pw != nil {
+					pw.Close()
+				}
 				pr.Close()
 				logFile.Close()
 				return fmt.Errorf("start log converter: %w", convErr)
 			}
 			_ = convCmd.Process.Release()
-			pw.Close()
+			if pw != nil {
+				pw.Close()
+			}
 			pr.Close()
 		}
 		logFile.Close()
 	} else {
-		pw.Close()
+		if pw != nil {
+			pw.Close()
+		}
 		convWg.Add(1)
 		go func() {
 			defer convWg.Done()
 			defer pr.Close()
 			defer logFile.Close()
 
-			if adapterName == "openhands" {
+			switch ad.LogMode {
+			case "openhands":
 				convertOpenHandsStream(pr, logFile)
-				return
-			}
-			if adapterName != "claude" {
-				// Non-Claude adapters emit plain text; copy it directly to the log.
+			case "stream-json":
+				r := bufio.NewReader(pr)
+				for {
+					line, err := r.ReadString('\n')
+					if line != "" {
+						if text := extractStreamText(strings.TrimSuffix(line, "\n"), wtPath); text != "" {
+							fmt.Fprintln(logFile, text)
+						}
+					}
+					if err != nil {
+						if !errors.Is(err, io.EOF) {
+							fmt.Fprintf(logFile, "converter read error: %v\n", err)
+						}
+						break
+					}
+				}
+			default: // "plain" and "pty" — raw copy
 				if _, err := io.Copy(logFile, pr); err != nil && !errors.Is(err, io.ErrClosedPipe) {
 					fmt.Fprintf(logFile, "converter read error: %v\n", err)
-				}
-				return
-			}
-			r := bufio.NewReader(pr)
-			for {
-				line, err := r.ReadString('\n')
-				if line != "" {
-					if text := extractStreamText(strings.TrimSuffix(line, "\n"), wtPath); text != "" {
-						fmt.Fprintln(logFile, text)
-					}
-				}
-				if err != nil {
-					if !errors.Is(err, io.EOF) {
-						fmt.Fprintf(logFile, "converter read error: %v\n", err)
-					}
-					break
 				}
 			}
 		}()
@@ -4522,9 +4610,9 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 	if headless {
 		id := issueDisplayFor(wtPath, issue)
 		fmt.Printf("Released pause for issue %s; Stage 2 running in background.\n", issue)
-		fmt.Printf("agentctl logs %s      # follow log\n", id)
-		fmt.Printf("agentctl attach %s    # stream live and wait\n", id)
-		fmt.Printf("agentctl discard %s   # abandon\n", id)
+		fmt.Printf("agentctl agent logs %s      # follow log\n", id)
+		fmt.Printf("agentctl agent attach %s    # stream live and wait\n", id)
+		fmt.Printf("agentctl worktree discard %s   # abandon\n", id)
 		if sendNotify {
 			maybeFireTestNotification(issue, os.Stdout)
 		}
@@ -4659,9 +4747,9 @@ func agentResume(adapterName, wtPath, issue, sessionID, prompt string, headless,
 			wg.Wait()
 			id2 := issueDisplayFor(wtPath, issue)
 			fmt.Fprintf(os.Stdout, "agent still running in background\n")
-			fmt.Fprintf(os.Stdout, "  agentctl logs %s     # follow log\n", id2)
-			fmt.Fprintf(os.Stdout, "  agentctl attach %s   # stream live output\n", id2)
-			fmt.Fprintf(os.Stdout, "  agentctl discard %s  # permanently delete worktree and branches\n", id2)
+			fmt.Fprintf(os.Stdout, "  agentctl agent logs %s     # follow log\n", id2)
+			fmt.Fprintf(os.Stdout, "  agentctl agent attach %s   # stream live output\n", id2)
+			fmt.Fprintf(os.Stdout, "  agentctl worktree discard %s  # permanently delete worktree and branches\n", id2)
 			return nil
 		}
 	}

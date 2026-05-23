@@ -1,5 +1,6 @@
 binary: opencode run
-launch: opencode run {kickoff}
-resume_cmd: opencode run {prompt} --continue
+launch: opencode run --model anthropic/claude-sonnet-4-5 --dangerously-skip-permissions --format json {kickoff}
+resume_cmd: opencode run --model anthropic/claude-sonnet-4-5 --dangerously-skip-permissions --format json --continue {prompt}
 session_type: directory
-install: npm install -g opencode@latest
+install: npm install -g opencode-ai
+log_mode: pty

@@ -182,6 +182,7 @@ func TestLaunchCmd_opencode_multiTokenBinary(t *testing.T) {
 	}
 	args := cmd.Args
 	assertContains(t, args, "run")
+	assertContains(t, args, "--dangerously-skip-permissions")
 	assertContains(t, args, "build it")
 }
 
@@ -195,6 +196,7 @@ func TestLaunchCmd_opencode_noPromptFlag(t *testing.T) {
 	cmd := a.LaunchCmd("do the work", "sess-oc", "/tmp/wt")
 	args := cmd.Args
 	assertContains(t, args, "run")
+	assertContains(t, args, "--dangerously-skip-permissions")
 	assertContains(t, args, "do the work")
 	for _, arg := range args {
 		if arg == "-p" {
@@ -218,6 +220,7 @@ func TestResumeCmd_opencode(t *testing.T) {
 	cmd := a.ResumeCmd("fix the bug", "sess-oc", "/tmp/wt")
 	args := cmd.Args
 	assertContains(t, args, "run")
+	assertContains(t, args, "--dangerously-skip-permissions")
 	assertContains(t, args, "fix the bug")
 	assertContains(t, args, "--continue")
 	for _, arg := range args {
@@ -499,7 +502,7 @@ func TestBuiltins_installHints(t *testing.T) {
 	}{
 		{"claude", "claude", "npm install -g @anthropic-ai/claude-code"},
 		{"gemini", "gemini", "brew install gemini-cli"},
-		{"opencode", "opencode", "npm install -g opencode@latest"},
+		{"opencode", "opencode", "npm install -g opencode-ai"},
 		{"codex", "codex", "npm install -g @openai/codex"},
 		{"copilot", "copilot", "npm install -g @github/copilot"},
 	}

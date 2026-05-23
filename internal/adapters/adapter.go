@@ -55,6 +55,13 @@ type Adapter struct {
 	// Example: "npm install -g @anthropic-ai/claude-code"
 	Install string `yaml:"install"`
 
+	// LogMode controls how the agent's output is captured into agent.log.
+	// "plain"       — stdout/stderr written directly to agent.log (default).
+	// "stream-json" — output piped through __stream-log converter (Claude).
+	// "openhands"   — output piped through __stream-log-openhands converter.
+	// "pty"         — agent started in a PTY so Node.js/Bun tools write output.
+	LogMode string `yaml:"log_mode"`
+
 	// source is the file path this adapter was loaded from (not in YAML).
 	source string
 }

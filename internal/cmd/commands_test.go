@@ -1307,7 +1307,7 @@ func TestLaunchAgent_headless(t *testing.T) {
 			t.Errorf("non-SDD headless output must not contain %q:\n%s", unwanted, outStr)
 		}
 	}
-	for _, want := range []string{"agentctl logs 42", "agentctl attach 42", "agentctl discard 42"} {
+	for _, want := range []string{"agentctl agent logs 42", "agentctl agent attach 42", "agentctl worktree discard 42"} {
 		if !strings.Contains(outStr, want) {
 			t.Errorf("missing %q in non-SDD headless output:\n%s", want, outStr)
 		}
@@ -1330,10 +1330,10 @@ func TestLaunchAgent_headless_withSDD_showsResumeHint(t *testing.T) {
 	// SDD headless: must show logs/attach/discard so user can follow progress,
 	// plus the resume hint for the spec-review checkpoint.
 	for _, want := range []string{
-		"agentctl logs 42",
-		"agentctl attach 42",
-		"agentctl discard 42",
-		"agentctl resume 42",
+		"agentctl agent logs 42",
+		"agentctl agent attach 42",
+		"agentctl worktree discard 42",
+		"agentctl agent resume 42",
 	} {
 		if !strings.Contains(outStr, want) {
 			t.Errorf("SDD headless output missing %q:\n%s", want, outStr)
@@ -1519,7 +1519,7 @@ func TestSendCompletionNotification_sddSpecReady(t *testing.T) {
 	if !strings.Contains(got[1], "Spec ready for review") {
 		t.Errorf("SDD notify message must say 'Spec ready for review', got: %q", got[1])
 	}
-	if !strings.Contains(got[1], "agentctl resume 46") {
+	if !strings.Contains(got[1], "agentctl agent resume 46") {
 		t.Errorf("SDD notify message must include resume command, got: %q", got[1])
 	}
 	if !strings.Contains(got[1], "spec.md") {
@@ -1583,7 +1583,7 @@ func TestSendCompletionNotification_failure(t *testing.T) {
 	if !strings.Contains(got[1], "Agent failed") {
 		t.Errorf("failure notify message must say 'Agent failed', got: %q", got[1])
 	}
-	if !strings.Contains(got[1], "agentctl logs 46") {
+	if !strings.Contains(got[1], "agentctl agent logs 46") {
 		t.Errorf("failure notify message must include logs command, got: %q", got[1])
 	}
 }
@@ -1778,7 +1778,7 @@ func TestLaunchAgent_nonHeadless_withSDD_showsSpecPath(t *testing.T) {
 	if !strings.Contains(outStr, specFile) {
 		t.Errorf("output missing spec path %q:\n%s", specFile, outStr)
 	}
-	if !strings.Contains(outStr, "agentctl resume 42") {
+	if !strings.Contains(outStr, "agentctl agent resume 42") {
 		t.Errorf("output missing resume hint:\n%s", outStr)
 	}
 }
@@ -1832,7 +1832,7 @@ func TestLaunchAgent_claudeNonHeadlessInjectsStreamJsonAndVerbose(t *testing.T) 
 	}
 
 	// Shadow the built-in "claude" adapter with our stub binary.
-	writeLocalAdapter(t, dir, "claude", "binary: "+scriptPath+"\nsession: --session\n")
+	writeLocalAdapter(t, dir, "claude", "binary: "+scriptPath+"\nsession: --session\nlog_mode: stream-json\n")
 	chdirTemp(t, dir)
 
 	done := make(chan error, 1)
@@ -1885,7 +1885,7 @@ func TestLaunchAgent_claudeHeadlessUsesStreamJson(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	writeLocalAdapter(t, dir, "claude", "binary: "+scriptPath+"\nsession: --session\n")
+	writeLocalAdapter(t, dir, "claude", "binary: "+scriptPath+"\nsession: --session\nlog_mode: stream-json\n")
 	chdirTemp(t, dir)
 
 	if err := launchAgent("claude", dir, "42", "3010", "sess-abc", "kickoff text", "", true, false, false, &bytes.Buffer{}); err != nil {
@@ -1955,9 +1955,9 @@ func TestLaunchAgent_nonHeadless_sigintPrintsHints(t *testing.T) {
 	out := outBuf.String()
 	for _, want := range []string{
 		"agent still running in background",
-		"agentctl logs 42",
-		"agentctl attach 42",
-		"agentctl discard 42",
+		"agentctl agent logs 42",
+		"agentctl agent attach 42",
+		"agentctl worktree discard 42",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in out after Ctrl+C, got:\n%s", want, out)
@@ -2225,11 +2225,11 @@ func TestLaunchAgent_nonHeadless_nonZeroExitPrintsErrorHint(t *testing.T) {
 	if !strings.Contains(outStr, "agent exited with error") {
 		t.Errorf("expected 'agent exited with error' in output, got: %q", outStr)
 	}
-	if !strings.Contains(outStr, "agentctl logs 42") {
+	if !strings.Contains(outStr, "agentctl agent logs 42") {
 		t.Errorf("expected 'agentctl logs 42' hint in output, got: %q", outStr)
 	}
 	// Must not show the normal cleanup/resume hint on error.
-	if strings.Contains(outStr, "agentctl cleanup") {
+	if strings.Contains(outStr, "agentctl worktree cleanup") {
 		t.Errorf("must not show cleanup hint on error exit, got: %q", outStr)
 	}
 }
@@ -2438,7 +2438,7 @@ func TestAgentResume_headless_hints(t *testing.T) {
 		t.Fatalf("agentResume headless: %v", resumeErr)
 	}
 	out := buf.String()
-	for _, hint := range []string{"agentctl logs 42", "agentctl attach 42", "agentctl discard 42"} {
+	for _, hint := range []string{"agentctl agent logs 42", "agentctl agent attach 42", "agentctl worktree discard 42"} {
 		if !strings.Contains(out, hint) {
 			t.Errorf("expected hint %q in resume headless output; got: %q", hint, out)
 		}
@@ -2635,9 +2635,9 @@ func TestAgentResume_nonHeadless_sigintPrintsHints(t *testing.T) {
 	out := buf.String()
 	for _, want := range []string{
 		"agent still running in background",
-		"agentctl logs 42",
-		"agentctl attach 42",
-		"agentctl discard 42",
+		"agentctl agent logs 42",
+		"agentctl agent attach 42",
+		"agentctl worktree discard 42",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in stdout after Ctrl+C, got:\n%s", want, out)
@@ -3382,7 +3382,7 @@ func TestStreamLog_followExitMessage_sdd(t *testing.T) {
 		if !strings.Contains(out, "Spec ready for review") {
 			t.Errorf("expected 'Spec ready for review' exit message in SDD mode; got: %q", out)
 		}
-		if !strings.Contains(out, "agentctl resume 42") {
+		if !strings.Contains(out, "agentctl agent resume 42") {
 			t.Errorf("expected 'agentctl resume 42' hint; got: %q", out)
 		}
 	case <-time.After(5 * time.Second):
@@ -4013,10 +4013,10 @@ func TestWorktreeExistsError_runningAgent(t *testing.T) {
 	if !strings.Contains(msg, "agent is still running") {
 		t.Errorf("expected 'agent is still running' in error; got: %q", msg)
 	}
-	if !strings.Contains(msg, "agentctl attach 90") {
+	if !strings.Contains(msg, "agentctl agent attach 90") {
 		t.Errorf("expected 'agentctl attach 90' hint in error; got: %q", msg)
 	}
-	if !strings.Contains(msg, "agentctl discard 90") {
+	if !strings.Contains(msg, "agentctl worktree discard 90") {
 		t.Errorf("expected 'agentctl discard 90' hint in error; got: %q", msg)
 	}
 	if !strings.Contains(msg, dir) {
@@ -4049,10 +4049,10 @@ func TestWorktreeExistsError_finishedAgent(t *testing.T) {
 	if !strings.Contains(msg, "agent has finished") {
 		t.Errorf("expected 'agent has finished' in error; got: %q", msg)
 	}
-	if !strings.Contains(msg, "agentctl cleanup 90") {
+	if !strings.Contains(msg, "agentctl worktree cleanup 90") {
 		t.Errorf("expected 'agentctl cleanup 90' hint in error; got: %q", msg)
 	}
-	if !strings.Contains(msg, "agentctl discard 90") {
+	if !strings.Contains(msg, "agentctl worktree discard 90") {
 		t.Errorf("expected 'agentctl discard 90' hint in error; got: %q", msg)
 	}
 	if !strings.Contains(msg, dir) {
@@ -4074,7 +4074,7 @@ func TestWorktreeExistsError_noAgentFile(t *testing.T) {
 	if !strings.Contains(msg, "Worktree already exists for issue 90") {
 		t.Errorf("expected 'Worktree already exists for issue 90' in error; got: %q", msg)
 	}
-	if !strings.Contains(msg, "agentctl discard 90") {
+	if !strings.Contains(msg, "agentctl worktree discard 90") {
 		t.Errorf("expected 'agentctl discard 90' hint in error; got: %q", msg)
 	}
 	if !strings.Contains(msg, dir) {
@@ -4408,7 +4408,7 @@ func TestLaunchAgent_claudeHeadlessWritesSettingsJson(t *testing.T) {
 	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeLocalAdapter(t, dir, "claude", "binary: "+scriptPath+"\nsession: --session\n")
+	writeLocalAdapter(t, dir, "claude", "binary: "+scriptPath+"\nsession: --session\nlog_mode: stream-json\n")
 	chdirTemp(t, dir)
 
 	if err := launchAgent("claude", dir, "42", "3010", "sess-abc", "kickoff text", "", true, false, false, &bytes.Buffer{}); err != nil {
@@ -5801,14 +5801,21 @@ func TestResolveWorktree_multiWorktree_withAgent(t *testing.T) {
 
 	parent := filepath.Dir(repo)
 	repoName := filepath.Base(repo)
-	wt1 := filepath.Join(parent, repoName+"-42-auth-fix-claude")
-	wt2 := filepath.Join(parent, repoName+"-42-auth-fix-codex")
-	gitRun(t, repo, "worktree", "add", "-b", "42-auth-fix-claude", wt1)
-	gitRun(t, repo, "worktree", "add", "-b", "42-auth-fix-codex", wt2)
+	// Use issue-title slugs (not agent names) to match real worktree naming.
+	wt1 := filepath.Join(parent, repoName+"-42-fix-the-login-bug")
+	wt2 := filepath.Join(parent, repoName+"-42-fix-the-login-bug-2")
+	gitRun(t, repo, "worktree", "add", "-b", "42-fix-the-login-bug", wt1)
+	gitRun(t, repo, "worktree", "add", "-b", "42-fix-the-login-bug-2", wt2)
 	t.Cleanup(func() {
 		_ = os.RemoveAll(wt1)
 		_ = os.RemoveAll(wt2)
 	})
+	if err := state.Write(wt1, state.AgentFile{Agent: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Write(wt2, state.AgentFile{Agent: "codex"}); err != nil {
+		t.Fatal(err)
+	}
 	chdirTemp(t, repo)
 
 	wt, err := resolveWorktree(repo, "42", "claude")
