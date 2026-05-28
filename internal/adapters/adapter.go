@@ -55,6 +55,12 @@ type Adapter struct {
 	// Example: "npm install -g @anthropic-ai/claude-code"
 	Install string `yaml:"install"`
 
+	// AuthCheck is an optional command run before launching the agent to verify
+	// authentication is available. Example: "claude --status". When the command
+	// exits non-zero, the launch is aborted with an actionable error before any
+	// worktree is created.
+	AuthCheck string `yaml:"auth_check"`
+
 	// source is the file path this adapter was loaded from (not in YAML).
 	source string
 }
@@ -125,6 +131,28 @@ func (a *Adapter) CheckBinary() error {
 			return fmt.Errorf("agent binary %q not found on PATH\ninstall it with: %s", binary, a.Install)
 		}
 		return fmt.Errorf("agent binary %q not found on PATH", binary)
+	}
+	return nil
+}
+
+// PreflightCheck runs the auth_check command if configured. Returns nil when
+// no auth_check is set or the command exits 0. Returns an actionable error
+// when the command exits non-zero so the caller can abort before any worktree
+// side-effects are created.
+func (a *Adapter) PreflightCheck() error {
+	if a.AuthCheck == "" {
+		return nil
+	}
+	parts := strings.Fields(a.AuthCheck)
+	cmd := exec.Command(parts[0], parts[1:]...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		binary := strings.Fields(a.Binary)[0]
+		if msg != "" {
+			return fmt.Errorf("%q is not authenticated: %s\nRun:  %s\nThen: agentctl agent start <issue>", binary, msg, a.AuthCheck)
+		}
+		return fmt.Errorf("%q is not authenticated\nRun:  %s\nThen: agentctl agent start <issue>", binary, a.AuthCheck)
 	}
 	return nil
 }

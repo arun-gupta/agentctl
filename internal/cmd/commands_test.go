@@ -2234,6 +2234,43 @@ func TestLaunchAgent_nonHeadless_nonZeroExitPrintsErrorHint(t *testing.T) {
 	}
 }
 
+// TestLaunchAgent_nonHeadless_knownAuthErrorShowsRecovery verifies that when
+// an agent exits non-zero and its log contains a known auth-failure pattern,
+// agentctl emits its own actionable recovery hint (not just the passthrough log).
+func TestLaunchAgent_nonHeadless_knownAuthErrorShowsRecovery(t *testing.T) {
+	dir := t.TempDir()
+
+	scriptPath := filepath.Join(dir, "authfail.sh")
+	// Outputs the exact string claude emits when unauthenticated, then exits 1.
+	script := "#!/bin/sh\necho 'Not logged in'\nexit 1\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeLocalAdapter(t, dir, "authfail", "binary: "+scriptPath+"\n")
+	chdirTemp(t, dir)
+
+	var out bytes.Buffer
+	done := make(chan error, 1)
+	go func() {
+		done <- launchAgent("authfail", dir, "42", "3010", "sess-abc", "do the thing", "", false, false, false, &out)
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("launchAgent: unexpected error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("launchAgent did not return")
+	}
+
+	outStr := out.String()
+	// agentctl must add its own recovery hint (not just the agent's raw output).
+	if !strings.Contains(outStr, "agentctl agent start") {
+		t.Errorf("expected agentctl recovery hint (agentctl agent start) in output, got:\n%s", outStr)
+	}
+}
+
 func TestAgentResume_unknownAdapter(t *testing.T) {
 	dir := t.TempDir()
 	err := agentResume("nonexistent-xyz-abc", dir, "42", "sess-123", "my feedback", true, false, false)
@@ -2275,6 +2312,36 @@ func TestStartOne_headlessImmediateExitCleansUpWorktree(t *testing.T) {
 		if wt.Path == wtPath {
 			t.Fatalf("worktree %s should not remain registered after failed start", wtPath)
 		}
+	}
+}
+
+// TestStartOne_preflightAuthCheckBlocksBeforeWorktree verifies that when an
+// adapter has auth_check configured and it fails, startOne returns an error
+// before creating any worktree.
+func TestStartOne_preflightAuthCheckBlocksBeforeWorktree(t *testing.T) {
+	repo := initGitRepoForStale(t)
+	chdirTemp(t, repo)
+
+	t.Setenv("GITHUB_TOKEN", "test-token")
+
+	writeLocalAdapter(t, repo, "authcheckfail",
+		"binary: echo\nauth_check: false\n")
+
+	var out bytes.Buffer
+	err := startOne("42", "auth-test", "authcheckfail", "", "", true, false, false, &out)
+	if err == nil {
+		t.Fatal("expected startOne to fail when auth_check exits non-zero")
+	}
+	if !strings.Contains(err.Error(), "not authenticated") {
+		t.Fatalf("expected auth error, got: %v", err)
+	}
+
+	// No worktree should have been created.
+	wtPath := filepath.Join(filepath.Dir(repo), filepath.Base(repo)+"-42-auth-test")
+	if _, statErr := os.Stat(wtPath); !os.IsNotExist(statErr) {
+		// Clean up so the test directory can be removed.
+		_ = git.RemoveWorktree(repo, wtPath)
+		t.Fatalf("worktree should not be created when auth_check fails, stat err=%v", statErr)
 	}
 }
 

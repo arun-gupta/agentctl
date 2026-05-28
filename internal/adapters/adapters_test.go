@@ -560,6 +560,58 @@ func TestCheckBinary_notFound_noHint(t *testing.T) {
 	}
 }
 
+// ─── PreflightCheck ───────────────────────────────────────────────────────────
+
+func TestPreflightCheck_noAuthCheck(t *testing.T) {
+	a, err := adapters.LoadBytes([]byte("binary: echo\n"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.PreflightCheck(); err != nil {
+		t.Errorf("expected nil when no auth_check configured, got: %v", err)
+	}
+}
+
+func TestPreflightCheck_commandPasses(t *testing.T) {
+	a, err := adapters.LoadBytes([]byte("binary: echo\nauth_check: true\n"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.PreflightCheck(); err != nil {
+		t.Errorf("expected nil when auth_check exits 0, got: %v", err)
+	}
+}
+
+func TestPreflightCheck_commandFails(t *testing.T) {
+	a, err := adapters.LoadBytes([]byte("binary: echo\nauth_check: false\n"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = a.PreflightCheck()
+	if err == nil {
+		t.Fatal("expected error when auth_check exits non-zero, got nil")
+	}
+	if !strings.Contains(err.Error(), "not authenticated") {
+		t.Errorf("error should mention authentication, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "agentctl agent start") {
+		t.Errorf("error should mention retry command, got: %v", err)
+	}
+}
+
+func TestPreflightCheck_loadedFromYAML(t *testing.T) {
+	a, err := adapters.LoadBytes(
+		[]byte("binary: echo\nauth_check: true\n"),
+		"test-fixture",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.PreflightCheck() != nil {
+		t.Error("expected PreflightCheck to pass for auth_check: true")
+	}
+}
+
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 // writeAdapter creates an adapter file at dir/filename with the given YAML content.

@@ -352,6 +352,15 @@ func startOne(issue, slug, agentName, sddName, agentSuffix string, headless, qui
 
 	branch, wtPath := worktreeNames(repoName, issueNum, slug, agentSuffix, parentDir)
 
+	// Pre-flight auth check before any worktree side-effects. Run after all
+	// cheap validations but before git worktree add so a failed auth does not
+	// leave dirty state behind.
+	if ad, getErr := adapters.Get(agentName); getErr == nil {
+		if preflightErr := ad.PreflightCheck(); preflightErr != nil {
+			return preflightErr
+		}
+	}
+
 	// Create the worktree.
 	if _, statErr := os.Stat(wtPath); statErr == nil {
 		return worktreeExistsError(wtPath, issueNum)
@@ -3442,6 +3451,13 @@ func launchAgent(adapterName, wtPath, issue, port, sessionID, kickoff, sddName s
 			wg.Wait()
 			if agentExitErr != nil {
 				id2 := issueDisplayFor(wtPath, issue)
+				// Show a recovery hint when the log contains a known auth-failure
+				// pattern so the user gets an actionable next step inline.
+				if tail := readLogTail(logPath, 20); tail != "" {
+					if hint := agentRecoveryHint(tail, id2); hint != "" {
+						fmt.Fprintln(out, hint)
+					}
+				}
 				fmt.Fprintf(out, "agent exited with error — check the log: agentctl logs %s\n", id2)
 				return nil
 			}
@@ -3492,6 +3508,36 @@ func waitForFile(path string, timeout time.Duration) error {
 		time.Sleep(100 * time.Millisecond)
 	}
 	return fmt.Errorf("%s did not appear within %s", path, timeout)
+}
+
+// readLogTail reads the last n lines from path. Returns "" if the file cannot
+// be read or has no content.
+func readLogTail(path string, n int) string {
+	data, err := os.ReadFile(path)
+	if err != nil || len(data) == 0 {
+		return ""
+	}
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
+}
+
+// agentRecoveryHint scans logContent for known failure patterns and returns a
+// targeted recovery message. Returns "" when no known pattern is found.
+// issue is the display identifier used in the suggested retry command.
+func agentRecoveryHint(logContent, issue string) string {
+	lower := strings.ToLower(logContent)
+	if strings.Contains(lower, "not logged in") || strings.Contains(lower, "please run /login") {
+		return "Hint: agent is not authenticated — log in and retry:\n" +
+			"  agentctl agent start " + issue
+	}
+	if strings.Contains(lower, "authentication required") || strings.Contains(lower, "unauthorized") {
+		return "Hint: authentication failed — check your credentials and retry:\n" +
+			"  agentctl agent start " + issue
+	}
+	return ""
 }
 
 // notifyTestSentinelPath returns the path of the one-time sentinel file that
